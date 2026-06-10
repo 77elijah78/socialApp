@@ -9,20 +9,37 @@ import {
   FlatList,
   TextInput,
   useWindowDimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useEffect, useState } from "react";
 
 export default function PrivateRoom() {
   const { width, height } = useWindowDimensions();
+  const [inputMarginBottom, setInputMarginBottom] = useState(0);
+
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      "keyboardDidShow",
+      (e) => {
+        setInputMarginBottom(e.endCoordinates.height);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      "keyboardDidHide",
+      () => {
+        setInputMarginBottom(0);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   return (
-    <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-        style={{ flex: 1 }}
-      >
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <View style={styles.headerContainer}>
         <TouchableOpacity
@@ -50,89 +67,59 @@ export default function PrivateRoom() {
           <Image source={icons.dots} />
         </TouchableOpacity>
       </View>
+
       <FlatList
         style={{ flex: 1, paddingHorizontal: 15 }}
         data={[]}
         renderItem={() => {
           return <View></View>;
         }}
+        keyboardShouldPersistTaps="handled"
       />
-      
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            padding: 10,
-            backgroundColor: "#e0e0e0",
-            borderRadius: 15,
-            borderTopColor: "#aaaaaa",
-          }}
-        >
+
+      <View
+        style={[
+          styles.inputContainer,
+          {
+            marginBottom: inputMarginBottom,
+          },
+        ]}
+      >
+        <TouchableOpacity>
+          <Image
+            source={icons.add}
+            style={{ width: 25, height: 25, borderRadius: 20 }}
+          />
+        </TouchableOpacity>
+        <View style={styles.textInputWrapper}>
           <TouchableOpacity>
             <Image
-              source={icons.add}
+              source={icons.emoji}
               style={{ width: 25, height: 25, borderRadius: 20 }}
             />
           </TouchableOpacity>
-          <View
-            style={{
-              flex: 1,
-              marginLeft: 10,
-              backgroundColor: "#fcf8ff",
-              borderRadius: 15,
-              paddingHorizontal: 10,
-              marginRight: 10,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <TouchableOpacity>
-              <Image
-                source={icons.emoji}
-                style={{ width: 25, height: 25, borderRadius: 20 }}
-              />
-            </TouchableOpacity>
-            <TextInput
-              placeholder="Message..."
-              style={{
-                flexGrow: 1,
-                flex: 1,
-                marginLeft: 10,
-                backgroundColor: "#fcf8ff",
-                borderRadius: 15,
-                marginRight: 10,
-              }}
-              multiline={true}
-              numberOfLines={5}
-            />
-            <TouchableOpacity>
-              <Image
-                source={icons.mic}
-                style={{ width: 25, height: 25, borderRadius: 20 }}
-              />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 30,
-              borderWidth: 1,
-              borderColor: "#fff",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "#6366f1",
-            }}
-          >
+          <TextInput
+            placeholder="Message..."
+            style={styles.textInput}
+            multiline={true}
+            numberOfLines={5}
+          />
+          <TouchableOpacity>
             <Image
-              source={icons.send}
-              style={{ width: 30, height: 30, position: "absolute", right: 2 }}
+              source={icons.mic}
+              style={{ width: 25, height: 25, borderRadius: 20 }}
             />
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity style={styles.sendButton}>
+          <Image
+            source={icons.send}
+            style={styles.sendIcon}
+          />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
-    </KeyboardAvoidingView>
   );
 }
 
@@ -168,5 +155,47 @@ const styles = StyleSheet.create({
   },
   lastSeen: {
     color: "#6366f1",
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    backgroundColor: "#e0e0e0",
+    borderRadius: 15,
+    borderTopColor: "#aaaaaa",
+  },
+  textInputWrapper: {
+    flex: 1,
+    marginLeft: 10,
+    backgroundColor: "#fcf8ff",
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    marginRight: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  textInput: {
+    flexGrow: 1,
+    flex: 1,
+    marginLeft: 10,
+    backgroundColor: "#fcf8ff",
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#6366f1",
+  },
+  sendIcon: {
+    width: 30,
+    height: 30,
+    position: "absolute",
+    right: 2,
   },
 });
