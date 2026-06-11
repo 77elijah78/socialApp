@@ -1,6 +1,7 @@
 import { images } from "@/constants";
 import { messagesCardProps } from "@/types";
 import { View, Text, StyleSheet, useWindowDimensions,Image } from "react-native";
+import VoiceMessageBubble from "./VoiceMessage";
 
 export default function MessageCard({ type, message,time,isSent,isRead }: messagesCardProps) {
   const { width, height } = useWindowDimensions();
@@ -32,12 +33,8 @@ export default function MessageCard({ type, message,time,isSent,isRead }: messag
     </View>
 )}
 {type === "Voice" && (
-    <View style={styles.contentContainer}>
-      <Image
-        source={{ uri: message }}
-        style={{ width: width - 20, height: height / 3 }}
-      />
-      <Text>{message}</Text>
+    <View >
+      <VoiceMessageBubble audioUri={"https://dl.rozmusic.com/Music/1402/11/16/Mehdi%20Jahani%20-%20Gole%20Poonam.mp3"} duration={30} isOwn={isSent} waveform={[10, 20, 30]} />
     </View>
 )}
 <Text style={{ fontSize: 14, color: "#646464",alignSelf:isSent ? "flex-start" : "flex-end",marginHorizontal: 10 }}>{"time"}</Text>
@@ -61,13 +58,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     justifyContent: "center",
+    marginTop: 10,
+    alignItems: "flex-start",
   },
   imageContainer: {
+    alignItems: "flex-start",
     flexGrow: 1,
-    height: 340,
+    flex:1,
     backgroundColor: "#f0ecf9",
     width: "80%",
-    borderRadius: 10,
-    justifyContent: "center",
+    borderRadius: 15,
+    justifyContent: "flex-start",
   },
 });
