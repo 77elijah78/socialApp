@@ -81,3 +81,14 @@ export interface privateMessagesCardProps {
   duaration?:string;
   newMessages?:boolean;
 }
+
+
+export interface messagesCardProps { 
+  message: string;
+  time: string;
+  sender: string;
+  isRead: boolean;
+  isSent: boolean;
+  onPress?: () => void;
+  type:string;
+}

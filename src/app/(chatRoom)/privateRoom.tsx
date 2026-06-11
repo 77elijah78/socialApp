@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
+import MessageCard from "@/components/messages/MessageCard";
 
 export default function PrivateRoom() {
   const { width, height } = useWindowDimensions();
@@ -70,9 +71,34 @@ export default function PrivateRoom() {
 
       <FlatList
         style={{ flex: 1, paddingHorizontal: 15 }}
-        data={[]}
-        renderItem={() => {
-          return <View></View>;
+        data={[{
+          type:"Text",
+          message: "رضا",
+          isSent:false
+        },
+      {
+        type: "Image",
+        message: "reza bidokh ",
+        isSent: true,
+      },
+      {
+        type: "Image",
+        message: "reza bidokh ",
+        isSent: true,
+      },
+      {
+        type: "Image",
+        message: "reza bidokh ",
+        isSent: true,
+      },
+      {
+        type: "Image",
+        message: "reza bidokh ",
+        isSent: true,
+      },
+    ]}
+        renderItem={(item) => {
+          return <MessageCard message={item.item.message} time={""} sender={""} isRead={false} isSent={item.item.isSent} type={item.item.type} />;
         }}
         keyboardShouldPersistTaps="handled"
       />
