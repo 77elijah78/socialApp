@@ -314,6 +314,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 32,
+    maxHeight: 32,
     gap: BAR_GAP,
   },
   bar: {
