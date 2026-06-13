@@ -82,7 +82,7 @@ export default function PrivateRoom() {
         isSent: true,
       },
       {
-        type: "Voice",
+        type: "Video",
         message: "reza bidokh ",
         isSent: true,
       },

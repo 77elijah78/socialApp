@@ -1,24 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
   type ViewStyle,
 } from 'react-native';
-import { Audio, AVPlaybackStatus } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
- 
+
 // ─── Types ────────────────────────────────────────────────────────────────────
- 
+
 interface VoiceMessageBubbleProps {
   audioUri: string;
   /** Total duration in seconds */
   duration: number;
   /**
    * Waveform amplitude data — 30 to 50 values, each 0–100.
-   * If omitted a random-looking static waveform is generated.
+   * If omitted a deterministic waveform is generated from the URI.
    */
   waveform?: number[];
   /** Right-aligned outgoing style when true */
@@ -29,53 +30,105 @@ interface VoiceMessageBubbleProps {
   isRead?: boolean;
   style?: ViewStyle;
 }
- 
+
 // ─── Constants ────────────────────────────────────────────────────────────────
- 
-const WAVEFORM_BARS = 40;
-const BUBBLE_OWN = '#f0ecf9';
-const BUBBLE_OTHER = '#f0ecf9';
-const PLAYED_OWN = '#7b7fe8';
-const PLAYED_OTHER = '#7b7fe8';
-const UNPLAYED_OWN = 'rgba(141, 141, 141, 0.38)';
-const UNPLAYED_OTHER = 'rgba(141, 141, 141, 0.38)';
-const AVATAR_BG = '#5b5fcf';
-const BAR_WIDTH = 2;
-const BAR_GAP = 2;
- 
+
+const WAVEFORM_BARS   = 40;
+const BUBBLE_COLOR    = '#f0ecf9';
+const PLAYED_COLOR    = '#7b7fe8';
+const UNPLAYED_COLOR  = 'rgba(141, 141, 141, 0.38)';
+const PLAY_BTN_COLOR  = '#6366f1';
+const BAR_WIDTH       = 2;
+const BAR_GAP         = 2;
+
+// Equalizer: how many center bars animate as a "live" visualizer
+const EQ_BARS         = 5;   // bars on each side of the cursor that pulse
+const EQ_INTERVAL_MS  = 80;  // animation tick
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
- 
-/** Seed a deterministic-looking waveform from the uri string */
+
 function generateWaveform(seed: string, count: number): number[] {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
   return Array.from({ length: count }, (_, i) => {
     h = (Math.imul(1664525, h) + 1013904223) | 0;
-    const base = 10 + ((Math.abs(h) % 60));
-    // slight envelope: taper at edges
+    const base = 10 + (Math.abs(h) % 60);
     const edge = Math.min(i, count - 1 - i) / (count * 0.15);
     return Math.round(Math.min(100, base * Math.min(1, edge + 0.4)));
   });
 }
- 
+
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
 }
- 
-// ─── Sub-components ───────────────────────────────────────────────────────────
- 
+
+// ─── Equalizer Hook ───────────────────────────────────────────────────────────
+// Drives per-bar Animated.Values so bars near the playhead pulse while playing.
+
+function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
+  const animValues = useRef<Animated.Value[]>(
+    Array.from({ length: bars.length }, () => new Animated.Value(1)),
+  ).current;
+
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      // Reset all bars to their static height
+      animValues.forEach(v => Animated.spring(v, { toValue: 1, useNativeDriver: false, speed: 20, bounciness: 0 }).start());
+      return;
+    }
+
+    tickRef.current = setInterval(() => {
+      const cursor = Math.round(progress * bars.length);
+
+      animValues.forEach((v, i) => {
+        const dist = Math.abs(i - cursor);
+        if (dist <= EQ_BARS) {
+          // Bars close to the playhead pulse between 0.6× and 1.4× their height
+          const intensity = 1 - dist / (EQ_BARS + 1);
+          const lo = Math.max(0.55, 1 - intensity * 0.55);
+          const hi = Math.min(1.5, 1 + intensity * 0.6 * (0.5 + Math.random() * 0.5));
+          const target = lo + Math.random() * (hi - lo);
+          Animated.timing(v, {
+            toValue: target,
+            duration: EQ_INTERVAL_MS * 0.85,
+            useNativeDriver: false,
+          }).start();
+        } else {
+          Animated.timing(v, {
+            toValue: 1,
+            duration: EQ_INTERVAL_MS,
+            useNativeDriver: false,
+          }).start();
+        }
+      });
+    }, EQ_INTERVAL_MS);
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, progress]);
+
+  return animValues;
+}
+
+// ─── Waveform Component ───────────────────────────────────────────────────────
+
 interface WaveformProps {
   bars: number[];
+  animValues: Animated.Value[];
   progress: number; // 0–1
-  isOwn: boolean;
   onSeek?: (progress: number) => void;
 }
- 
-const Waveform: React.FC<WaveformProps> = ({ bars, progress, isOwn, onSeek }) => {
+
+const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek }) => {
   const playedCount = Math.round(progress * bars.length);
- 
+
   const handleTouch = useCallback(
     (evt: any) => {
       if (!onSeek) return;
@@ -87,7 +140,7 @@ const Waveform: React.FC<WaveformProps> = ({ bars, progress, isOwn, onSeek }) =>
     },
     [onSeek],
   );
- 
+
   return (
     <TouchableOpacity
       activeOpacity={0.9}
@@ -98,17 +151,24 @@ const Waveform: React.FC<WaveformProps> = ({ bars, progress, isOwn, onSeek }) =>
     >
       {bars.map((amplitude, i) => {
         const played = i < playedCount;
-        const heightPct = Math.max(0.12, amplitude / 100);
+        const staticHeight = Math.max(3, (amplitude / 100) * 32);
+        const animatedHeight = animValues[i].interpolate({
+          inputRange: [0, 2],
+          outputRange: [0, 64],
+          extrapolate: 'clamp',
+        });
+
+        // Scale the static height by the animated multiplier
+        const barHeight = Animated.multiply(animValues[i], staticHeight);
+
         return (
-          <View
+          <Animated.View
             key={i}
             style={[
               styles.bar,
               {
-                height: `${heightPct * 100}%` as any,
-                backgroundColor: played
-                  ? isOwn ? PLAYED_OWN : PLAYED_OTHER
-                  : isOwn ? UNPLAYED_OWN : UNPLAYED_OTHER,
+                height: barHeight,
+                backgroundColor: played ? PLAYED_COLOR : UNPLAYED_COLOR,
               },
             ]}
           />
@@ -117,9 +177,9 @@ const Waveform: React.FC<WaveformProps> = ({ bars, progress, isOwn, onSeek }) =>
     </TouchableOpacity>
   );
 };
- 
+
 // ─── Main Component ───────────────────────────────────────────────────────────
- 
+
 const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   audioUri,
   duration,
@@ -132,136 +192,149 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   const bars = waveform && waveform.length >= 10
     ? waveform
     : generateWaveform(audioUri, WAVEFORM_BARS);
- 
-  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // expo-audio player
+  const player = useAudioPlayer({ uri: audioUri });
+  const playerStatus = useAudioPlayerStatus(player);
+
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error'>('idle');
-  const [progress, setProgress] = useState(0); // 0–1
-  const [elapsed, setElapsed] = useState(0);   // seconds
- 
+  const [progress, setProgress] = useState(0);
+  const [elapsed, setElapsed]   = useState(0);
+
   // Configure audio session once
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-    });
+    setAudioModeAsync({
+  allowsRecording: false,
+  playsInSilentMode: true,
+  // Remove this invalid property: staysActiveInBackground: false,
+});
     return () => {
-      soundRef.current?.unloadAsync();
+      player.remove();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
- 
-  const onPlaybackUpdate = useCallback((s: AVPlaybackStatus) => {
-    if (!s.isLoaded) {
-      if (s.error) setStatus('error');
-      return;
-    }
-    const pos = s.positionMillis / 1000;
-    const dur = (s.durationMillis ?? duration * 1000) / 1000;
+
+  // Sync UI state from playerStatus
+  useEffect(() => {
+    if (!playerStatus) return;
+
+    const pos = playerStatus.currentTime ?? 0;
+    const dur = playerStatus.duration && playerStatus.duration > 0
+      ? playerStatus.duration
+      : duration;
+
     setElapsed(pos);
     setProgress(dur > 0 ? pos / dur : 0);
- 
-    if (s.didJustFinish) {
+
+    if (playerStatus.didJustFinish) {
       setStatus('idle');
       setProgress(0);
       setElapsed(0);
-      soundRef.current?.setPositionAsync(0);
-    } else if (s.isPlaying) {
+    } else if (playerStatus.playing) {
       setStatus('playing');
-    } else if (status === 'playing') {
+    } else if (status === 'loading' || status === 'playing') {
       setStatus('paused');
     }
-  }, [duration, status]);
- 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerStatus]);
+
   const handlePlayPause = async () => {
     try {
       if (status === 'playing') {
-        await soundRef.current?.pauseAsync();
+        player.pause();
         setStatus('paused');
         return;
       }
- 
-      if (status === 'paused' && soundRef.current) {
-        await soundRef.current.playAsync();
+      if (status === 'paused') {
+        player.play();
         setStatus('playing');
         return;
       }
- 
-      // Fresh load
+      // Fresh play
       setStatus('loading');
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
-      }
- 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true, progressUpdateIntervalMillis: 80 },
-        onPlaybackUpdate,
-      );
-      soundRef.current = sound;
-      setStatus('playing');
+      player.seekTo(0);
+      player.play();
     } catch {
       setStatus('error');
     }
   };
- 
-  const handleSeek = async (p: number) => {
-    if (!soundRef.current) return;
-    const s = await soundRef.current.getStatusAsync();
-    if (!s.isLoaded || !s.durationMillis) return;
-    const pos = p * s.durationMillis;
-    await soundRef.current.setPositionAsync(pos);
+
+  const handleSeek = (p: number) => {
+    const dur = (playerStatus?.duration && playerStatus.duration > 0)
+      ? playerStatus.duration
+      : duration;
+    player.seekTo(p * dur);
     setProgress(p);
-    setElapsed((pos / 1000));
+    setElapsed(p * dur);
   };
- 
+
+  const isPlaying = status === 'playing';
+  const animValues = useEqualizer(bars, isPlaying, progress);
+
   const displayTime = status === 'idle' ? formatTime(duration) : formatTime(elapsed);
- 
-  const bubbleBg = isOwn ? BUBBLE_OWN : BUBBLE_OTHER;
- 
+
   return (
     <View style={[styles.row, isOwn ? styles.rowOwn : styles.rowOther, style]}>
-      
-      <View style={[styles.bubble, { backgroundColor: bubbleBg }, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
+      <View style={[
+        styles.bubble,
+        isOwn ? styles.bubbleOwn : styles.bubbleOther,
+      ]}>
+
         {/* Play / Pause button */}
         <TouchableOpacity
           onPress={handlePlayPause}
           style={styles.playBtn}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel={status === 'playing' ? 'Pause voice message' : 'Play voice message'}
+          accessibilityLabel={isPlaying ? 'Pause voice message' : 'Play voice message'}
           disabled={status === 'loading'}
         >
           {status === 'loading' ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Ionicons
-              name={status === 'playing' ? 'pause' : 'play'}
+              name={isPlaying ? 'pause' : 'play'}
               size={18}
               color="#fff"
             />
           )}
         </TouchableOpacity>
- 
+
         {/* Waveform + meta */}
         <View style={styles.right}>
           <Waveform
             bars={bars}
+            animValues={animValues}
             progress={progress}
-            isOwn={isOwn}
             onSeek={handleSeek}
           />
+
+          {/* Duration + timestamp row */}
           <View style={styles.meta}>
+            <Text style={styles.durationText}>{displayTime}</Text>
+            {timestamp && (
+              <View style={styles.timestampRow}>
+                <Text style={styles.timestampText}>{timestamp}</Text>
+                {isOwn && (
+                  <Ionicons
+                    name={isRead ? 'checkmark-done' : 'checkmark'}
+                    size={13}
+                    color={isRead ? PLAYED_COLOR : UNPLAYED_COLOR}
+                    style={styles.tick}
+                  />
+                )}
+              </View>
+            )}
           </View>
         </View>
+
       </View>
     </View>
   );
 };
- 
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
- 
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -274,13 +347,14 @@ const styles = StyleSheet.create({
   rowOwn: {
     justifyContent: 'flex-start',
   },
-  // Bubble
+
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 10,
     width: '80%',
+    backgroundColor: BUBBLE_COLOR,
     gap: 10,
   },
   bubbleOther: {
@@ -291,30 +365,28 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderBottomRightRadius: 4,
   },
- 
-  // Play button
+
   playBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#6366f1',
+    backgroundColor: PLAY_BTN_COLOR,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
- 
-  // Right column (waveform + meta)
+
   right: {
     flex: 1,
     gap: 4,
   },
- 
-  // Waveform
+
   waveformContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 32,
     maxHeight: 32,
+    overflow: 'hidden',
     gap: BAR_GAP,
   },
   bar: {
@@ -322,8 +394,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     minHeight: 3,
   },
- 
-  // Meta row
+
   meta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -340,11 +411,11 @@ const styles = StyleSheet.create({
   },
   timestampText: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(141,141,141,0.8)',
   },
   tick: {
     marginLeft: 1,
   },
 });
- 
+
 export default VoiceMessageBubble;
