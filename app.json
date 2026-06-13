@@ -16,21 +16,29 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/icon.png",
-        "backgroundColor": "#ffffff",
-        "multidex": true
+        "backgroundColor": "#ffffff"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "com.elijah77.social"
+      "package": "com.elijah77.social",
+      "multidex": true
     },
     "web": {
       "favicon": "./src/assets/icon.png"
     },
     "plugins": [
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMultiDex": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
