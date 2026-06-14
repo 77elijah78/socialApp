@@ -6,6 +6,7 @@
     "paths": {
       "@/*": ["src/*"]
     },
+    "moduleResolution": "bundler",
      "ignoreDeprecations": "6.0"
   }
 }

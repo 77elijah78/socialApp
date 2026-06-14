@@ -82,18 +82,23 @@ export default function PrivateRoom() {
         isSent: true,
       },
       {
-        type: "Video",
+        type: "Voice",
         message: "reza bidokh ",
         isSent: true,
       },
       {
-        type: "Voice",
+        type: "Video",
         message: "reza bidokh ",
         isSent: false,
       },
       {
         type: "Image",
-        message: "reza bidokh akjlbckjnblak;nioajnvlkanviabnvkm;avjabocam;lvmaoiknvjabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnjvabnj ",
+        message: "reza bidokh ",
+        isSent: true,
+      },
+      {
+        type: "Image",
+        message: "reza bidokh reza bidok",
         isSent: true,
       },
     ]}

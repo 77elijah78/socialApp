@@ -36,13 +36,14 @@ export default function MessageCard({
           <Image
             source={images.signUpImage}
             style={{
+              flex: 1,
               width: "100%",
-              height: "95%",
+              minHeight:250,
+              maxHeight:250,
               borderTopLeftRadius: 15,
               borderTopRightRadius: 15,
             }}
-            height={300}
-            width={290}
+
           />
           <Text style={{ padding: 10 }}>{message}</Text>
         </View>
@@ -103,12 +104,13 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   imageContainer: {
-    alignItems: "flex-start",
-    flexGrow: 1,
     flex: 1,
+    flexGrow: 1,
+    alignItems: "flex-start",
     backgroundColor: "#f0ecf9",
     width: "80%",
     borderRadius: 15,
     justifyContent: "flex-start",
+
   },
 });

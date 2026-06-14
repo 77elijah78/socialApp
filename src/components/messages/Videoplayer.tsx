@@ -137,7 +137,7 @@ const Controls: React.FC<ControlsProps> = ({
   }, [visible]);
  
   return (
-    <Animated.View style={[styles.controlsOverlay, { opacity }]} pointerEvents={visible ? 'auto' : 'none'}>
+    <Animated.View style={[styles.controlsOverlay, { opacity }]} pointerEvents={visible ? "box-none" : "box-only" }>
       {/* Center play/pause */}
       <TouchableOpacity onPress={onPlayPause} style={styles.centerBtn} activeOpacity={0.8}>
         {isLoading ? (
@@ -386,6 +386,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#000',
     position: 'relative',
+    width: '100%',
+    height: '100%',
   },
   fullscreenBg: {
     flex: 1,
@@ -396,7 +398,7 @@ const styles = StyleSheet.create({
  
   // Controls overlay
   controlsOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: CONTROLS_BG,
     justifyContent: 'center',
     alignItems: 'center',
