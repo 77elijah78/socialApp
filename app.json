@@ -20,6 +20,8 @@
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "com.elijah77.social",
@@ -44,6 +46,12 @@
       "eas": {
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }
   }
 }
