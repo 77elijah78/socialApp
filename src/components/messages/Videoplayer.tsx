@@ -138,6 +138,7 @@ const Controls: React.FC<ControlsProps> = ({
  
   return (
     <Animated.View style={[styles.controlsOverlay, { opacity }]} pointerEvents={visible ? "box-none" : "box-only" }>
+
       {/* Center play/pause */}
       <TouchableOpacity onPress={onPlayPause} style={styles.centerBtn} activeOpacity={0.8}>
         {isLoading ? (
@@ -210,7 +211,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [elapsed, setElapsed]           = useState(0);
   const [duration, setDuration]         = useState(0);
   const [speed, setSpeed]               = useState<SpeedOption>(1);
-  const [showControls, setShowControls] = useState(false);
+  const [showControls, setShowControls] = useState(true);
   const [isSeeking, setIsSeeking]       = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
  

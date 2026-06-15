@@ -189,6 +189,8 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   isRead = false,
   style,
 }) => {
+
+  
   const bars = waveform && waveform.length >= 10
     ? waveform
     : generateWaveform(audioUri, WAVEFORM_BARS);
@@ -202,17 +204,21 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   const [elapsed, setElapsed]   = useState(0);
 
   // Configure audio session once
-  useEffect(() => {
-    setAudioModeAsync({
-  allowsRecording: false,
-  playsInSilentMode: true,
-  // Remove this invalid property: staysActiveInBackground: false,
-});
-    return () => {
+ useEffect(() => {
+  setAudioModeAsync({
+    allowsRecording: false,
+    playsInSilentMode: true,
+  });
+
+  return () => {
+    try {
+      player.pause();
       player.remove();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    } catch (e) {
+      // prevent crash if already removed
+    }
+  };
+}, []);
 
   // Sync UI state from playerStatus
   useEffect(() => {
