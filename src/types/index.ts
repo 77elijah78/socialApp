@@ -84,7 +84,7 @@ export interface privateMessagesCardProps {
 
 
 export interface messagesCardProps { 
-  message: string;
+  message: string | null;
   time: string;
   sender: string;
   isRead: boolean;

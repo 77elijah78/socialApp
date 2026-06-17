@@ -1,5 +1,5 @@
 import { icons } from "@/constants";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   View,
   Text,
@@ -13,10 +13,46 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import MessageCard from "@/components/messages/MessageCard";
+import { useChat } from "@/hooks/useChat";
 
 export default function PrivateRoom() {
+  const { roomId, receiverId } = useLocalSearchParams<{
+    roomId: string;
+    receiverId: string;
+  }>();
+
+  const {
+    messages,
+    send,
+    retry,
+    deleteMsg,
+    editMsg,
+    loadMore,
+    onTyping,
+    isTyping,
+    isConnected,
+    isSyncing,
+    hasMore,
+    flatListRef,
+  } = useChat({ roomId, currentUser: { id: "reza", token: "reza" } });
+
+  const [inputText, setInputText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const handleSend = useCallback(async () => {
+    const text = inputText.trim();
+    if (!text || sending) return;
+    setInputText("");
+    setSending(true);
+    try {
+      await send(text, receiverId);
+    } finally {
+      setSending(false);
+    }
+  }, [inputText, sending, send, receiverId]);
+
   const { width, height } = useWindowDimensions();
   const [inputMarginBottom, setInputMarginBottom] = useState(0);
 
@@ -25,13 +61,13 @@ export default function PrivateRoom() {
       "keyboardDidShow",
       (e) => {
         setInputMarginBottom(e.endCoordinates.height);
-      }
+      },
     );
     const keyboardDidHideListener = Keyboard.addListener(
       "keyboardDidHide",
       () => {
         setInputMarginBottom(0);
-      }
+      },
     );
 
     return () => {
@@ -59,7 +95,7 @@ export default function PrivateRoom() {
           />
         </TouchableOpacity>
         <TouchableOpacity style={styles.userNameContainer}>
-          <Text style={styles.userName}>Leila Moradi</Text>
+          <Text style={styles.userName}>{receiverId}</Text>
           <Text style={styles.lastSeen}>Online</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -70,42 +106,24 @@ export default function PrivateRoom() {
       </View>
 
       <FlatList
+        ref={flatListRef}
         style={{ flex: 1, paddingHorizontal: 15 }}
-        data={[{
-          type:"Text",
-          message: "رضا",
-          isSent:false
-        },
-      {
-        type: "Image",
-        message: "reza bidokh ",
-        isSent: true,
-      },
-      {
-        type: "Voice",
-        message: "reza bidokh ",
-        isSent: true,
-      },
-      {
-        type: "Video",
-        message: "reza bidokh ",
-        isSent: false,
-      },
-      {
-        type: "Image",
-        message: "reza bidokh ",
-        isSent: true,
-      },
-      {
-        type: "Image",
-        message: "reza bidokh reza bidok",
-        isSent: true,
-      },
-    ]}
-        renderItem={(item) => {
-          return <MessageCard message={item.item.message} time={""} sender={""} isRead={false} isSent={item.item.isSent} type={item.item.type} />;
-        }}
+        keyExtractor={(item) => item.localId}
+        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         keyboardShouldPersistTaps="handled"
+        data={messages}
+        renderItem={(item) => {
+          return (
+            <MessageCard
+              message={item.item.text}
+              time={""}
+              sender={""}
+              isRead={false}
+              isSent={true}
+              type={"Text"}
+            />
+          );
+        }}
       />
 
       <View
@@ -134,6 +152,11 @@ export default function PrivateRoom() {
             style={styles.textInput}
             multiline={true}
             numberOfLines={5}
+            value={inputText}
+            onChangeText={(t) => {
+              setInputText(t);
+              onTyping();
+            }}
           />
           <TouchableOpacity>
             <Image
@@ -143,11 +166,8 @@ export default function PrivateRoom() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.sendButton}>
-          <Image
-            source={icons.send}
-            style={styles.sendIcon}
-          />
+        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
+          <Image source={icons.send} style={styles.sendIcon} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>

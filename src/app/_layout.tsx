@@ -1,7 +1,14 @@
 import { Stack } from 'expo-router';
 import { PaperProvider } from 'react-native-paper';
+import { runMigrations } from "../db/migrations";
+import { useEffect } from 'react';
 
 export default function RootLayout() {
+  useEffect(() => {
+    // ── Step 1: create SQLite tables on first launch ──────────────────────
+    runMigrations();
+  }, []);
+  
   return (
     <PaperProvider>
       <Stack screenOptions={{contentStyle: { backgroundColor: '#f5f5f5',borderColor: '#f5f5f5', }}}>

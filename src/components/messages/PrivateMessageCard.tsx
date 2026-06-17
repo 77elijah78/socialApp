@@ -17,27 +17,27 @@ export default function PrivateMessageCard({
   newMessages,
 }: privateMessagesCardProps) {
   return (
-    <TouchableOpacity style={styles.container}>
+    <TouchableOpacity style={styles.container} onPress={onPress}>
       <Image source={avatar} style={styles.avatar} />
       <View style={styles.content}>
         <View style={styles.sender}>
           <Text style={styles.senderName}>{sender}</Text>
           <Text style={styles.time}>{time}</Text>
         </View>
-        {type === "Image" && (
+        {type === "image" && (
           <View style={{ flexDirection: "row", position: "absolute", top: 5 }}>
             <Image source={icons.image} style={styles.lastImage} />
             <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>sent a photo</Text>
           </View>
         )}
-        {type === "Text" && <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>{message}</Text>}
-        {type === "Video" && (
+        {type === "text" && <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>{"message"}</Text>}
+        {type === "video" && (
           <View style={{ flexDirection: "row", position: "absolute", top: 5 }}>
             <Image source={icons.video} style={styles.lastImage} />
             <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>sent a video</Text>
           </View>
         )}
-        {type === "Voice" && (
+        {type === "voice" && (
           <View
             style={{
               width: "100%",

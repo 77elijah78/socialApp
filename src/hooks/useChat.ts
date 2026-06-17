@@ -28,7 +28,7 @@ interface UseChatReturn {
   isConnected:  boolean;
   isSyncing:    boolean;
   hasMore:      boolean;
-  flatListRef:  React.RefObject<FlatList>;
+  flatListRef:  React.RefObject<FlatList | null>;
 }
 
 /**
@@ -60,7 +60,8 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
    */
   const reload = useCallback(async () => {
     const rows = await messageStore.getRecent(roomId, 30);
-    setMessages(rows);
+    console.log("reload — roomId:", roomId, "rows:", rows.length);
+    setMessages([...rows]); // spread forces new reference → guaranteed re-render
   }, [roomId]);
 
   const scrollToEnd = useCallback((animated = true) => {
