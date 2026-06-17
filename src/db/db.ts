@@ -1,7 +1,8 @@
-import * as SQLite from "expo-sqlite";
+import { openDatabaseSync } from "expo-sqlite";
+import { drizzle } from "drizzle-orm/expo-sqlite";
+import * as schema from "./schema";
 
-let db: SQLite.SQLiteDatabase;
+// Single shared connection — import `db` everywhere
+const sqlite = openDatabaseSync("app.db");
 
-export const initDB = async () => {
-  db = await SQLite.openDatabaseAsync("socialDB.db");
-};
+export const db = drizzle(sqlite, { schema });
