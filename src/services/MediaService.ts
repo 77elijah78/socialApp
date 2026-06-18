@@ -37,7 +37,7 @@ export class MediaService {
   readonly message: MessageService;
   readonly socket:  SocketReceiver;
 
-  constructor(baseUrl: string, authToken: string | null = null) {
+  constructor(baseUrl: string, authToken: any = null) {
     this.video   = new VideoUploader(baseUrl, authToken);
     this.audio   = new AudioUploader(baseUrl, authToken);
     this.message = new MessageService(baseUrl, authToken);

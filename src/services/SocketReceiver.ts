@@ -20,7 +20,7 @@ type Listener = (data?: any) => void;
  *   typing:stop       — someone stopped typing
  */
 export class SocketReceiver {
-  private socket: Socket | null = null;
+  public socket: Socket | null = null;
   private listeners: Map<string, Set<Listener>> = new Map();
   private readonly baseUrl: string;
 
@@ -37,12 +37,14 @@ export class SocketReceiver {
     if (this.socket?.connected) return;
 
     this.socket = io(this.baseUrl, {
-      auth:                 { token: authToken },
-      query:                { userId },
-      transports:           ["websocket"],
-      reconnection:         true,
+      auth: {
+        token:
+          authToken,
+      },
+      transports: ["websocket"],
+      reconnection: true,
       reconnectionAttempts: 10,
-      reconnectionDelay:    1500,
+      reconnectionDelay: 1500,
     });
 
     this.bindCoreEvents(userId);
@@ -61,7 +63,7 @@ export class SocketReceiver {
    * Join a chat room. Call when the user opens a conversation.
    */
   joinRoom(roomId: string): void {
-    this.socket?.emit("room:join", { roomId });
+    this.socket?.emit(roomId);
   }
 
   /**
@@ -100,40 +102,82 @@ export class SocketReceiver {
       await messageStore.saveReceived(message);
 
       this.emit("message:new", message);
+      console.log("message:new", message);
     });
+
+    s.on(
+      "message:send",
+      async (conversationId: string, content: string, receiverId: string) => {
+        this.emit("message:send", { conversationId, content, receiverId });
+      },
+    );
 
     // ── Delivery receipt ─────────────────────────────────────────────────
-    s.on("message:delivered", async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
-      await messageStore.markDelivered(messageId, roomId);
-      this.emit("message:delivered", { messageId, roomId });
-    });
+    s.on(
+      "message:delivered",
+      async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
+        await messageStore.markDelivered(messageId, roomId);
+        this.emit("message:delivered", { messageId, roomId });
+      },
+    );
 
     // ── Read receipt ─────────────────────────────────────────────────────
-    s.on("message:read", async ({ messageId, roomId, timestamp }: { messageId: string; roomId: string; timestamp: number }) => {
-      await messageStore.markRead(messageId, roomId);
-      this.emit("message:read", { messageId, roomId, timestamp });
-    });
+    s.on(
+      "message:read",
+      async ({
+        messageId,
+        roomId,
+        timestamp,
+      }: {
+        messageId: string;
+        roomId: string;
+        timestamp: number;
+      }) => {
+        await messageStore.markRead(messageId, roomId);
+        this.emit("message:read", { messageId, roomId, timestamp });
+      },
+    );
 
     // ── Remote delete ────────────────────────────────────────────────────
-    s.on("message:deleted", async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
-      await messageStore.deleteOne(messageId);
-      this.emit("message:deleted", { messageId, roomId });
-    });
+    s.on(
+      "message:deleted",
+      async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
+        await messageStore.deleteOne(messageId);
+        this.emit("message:deleted", { messageId, roomId });
+      },
+    );
 
     // ── Remote edit ──────────────────────────────────────────────────────
-    s.on("message:edited", async ({ messageId, roomId, text }: { messageId: string; roomId: string; text: string }) => {
-      await messageStore.editText(messageId, text);
-      this.emit("message:edited", { messageId, roomId, text });
-    });
+    s.on(
+      "message:edited",
+      async ({
+        messageId,
+        roomId,
+        text,
+      }: {
+        messageId: string;
+        roomId: string;
+        text: string;
+      }) => {
+        await messageStore.editText(messageId, text);
+        this.emit("message:edited", { messageId, roomId, text });
+      },
+    );
 
     // ── Typing indicators ────────────────────────────────────────────────
-    s.on("typing:start", ({ senderId, roomId }: { senderId: string; roomId: string }) => {
-      this.emit("typing:start", { senderId, roomId });
-    });
+    s.on(
+      "typing:start",
+      ({ senderId, roomId }: { senderId: string; roomId: string }) => {
+        this.emit("typing:start", { senderId, roomId });
+      },
+    );
 
-    s.on("typing:stop", ({ senderId, roomId }: { senderId: string; roomId: string }) => {
-      this.emit("typing:stop", { senderId, roomId });
-    });
+    s.on(
+      "typing:stop",
+      ({ senderId, roomId }: { senderId: string; roomId: string }) => {
+        this.emit("typing:stop", { senderId, roomId });
+      },
+    );
   }
 
   // ─── Normalize payload → SQLite row shape ─────────────────────────────────
@@ -141,17 +185,17 @@ export class SocketReceiver {
   private normalize(payload: any, currentUserId: string): NewMessageRow {
     const id = payload.id ?? payload.messageId;
     return {
-      localId:    id,
+      localId: id,
       id,
-      text:       payload.text       ?? null,
-      type:       payload.type       ?? "text",
-      mediaUrl:   payload.mediaUrl   ?? null,
-      senderId:   payload.senderId,
+      text: payload.text ?? null,
+      type: payload.type ?? "text",
+      mediaUrl: payload.mediaUrl ?? null,
+      senderId: payload.senderId,
       receiverId: payload.receiverId,
-      roomId:     payload.roomId,
-      status:     "delivered",
-      direction:  payload.senderId === currentUserId ? "sent" : "received",
-      timestamp:  payload.timestamp  ?? Date.now(),
+      roomId: payload.roomId,
+      status: "delivered",
+      direction: payload.senderId === currentUserId ? "sent" : "received",
+      timestamp: payload.timestamp ?? Date.now(),
     };
   }
 
@@ -183,5 +227,5 @@ export class SocketReceiver {
 }
 
 export const socketReceiver = new SocketReceiver(
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000"
+  "http://192.168.1.3:3000",
 );

@@ -56,6 +56,10 @@ export default function PrivateRoom() {
   const { width, height } = useWindowDimensions();
   const [inputMarginBottom, setInputMarginBottom] = useState(0);
 
+  useEffect(() => { 
+    flatListRef.current?.scrollToEnd({ animated: false }) 
+  }, []);
+
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
@@ -108,8 +112,10 @@ export default function PrivateRoom() {
       <FlatList
         ref={flatListRef}
         style={{ flex: 1, paddingHorizontal: 15 }}
+        maxToRenderPerBatch={10} 
+        windowSize={10}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         keyExtractor={(item) => item.localId}
-        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         keyboardShouldPersistTaps="handled"
         data={messages}
         renderItem={(item) => {

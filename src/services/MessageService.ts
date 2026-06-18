@@ -1,6 +1,8 @@
 import { BaseUploader } from "./BaseUploader";
 import { messageStore } from "../db/MessageStore";
 import { NewMessageRow } from "../db/schema";
+import { SocketReceiver, socketReceiver } from "./SocketReceiver";
+import { mediaService } from "./MediaService";
 
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -10,15 +12,15 @@ function uid(): string {
 }
 
 interface SendMeta {
-  senderId:   string;
+  senderId: string;
   receiverId: string;
-  roomId:     string;
+  roomId: string;
 }
 
 interface ServerMessageResponse {
-  id?:         string;
-  messageId?:  string;
-  timestamp?:  number;
+  id?: string;
+  messageId?: string;
+  timestamp?: number;
 }
 
 /**
@@ -36,7 +38,7 @@ export class MessageService extends BaseUploader {
   private readonly endpoint = "/messages";
   private readonly maxLength = 5000;
 
-  constructor(baseUrl: string, authToken: string | null = null) {
+  constructor(baseUrl: string, authToken: any) {
     super(baseUrl, authToken);
   }
 
@@ -65,16 +67,16 @@ export class MessageService extends BaseUploader {
 
     const optimistic: NewMessageRow = {
       localId,
-      id:         localId,          // temp — overwritten on confirm
-      text:       text.trim(),
-      type:       "text",
-      mediaUrl:   null,
-      senderId:   meta.senderId,
+      id: localId, // temp — overwritten on confirm
+      text: text.trim(),
+      type: "text",
+      mediaUrl: null,
+      senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId:     meta.roomId,
-      status:     "sending",
-      direction:  "sent",
-      timestamp:  Date.now(),
+      roomId: meta.roomId,
+      status: "sending",
+      direction: "sent",
+      timestamp: Date.now(),
     };
 
     // 1. Write to SQLite — UI sees it immediately
@@ -89,16 +91,29 @@ export class MessageService extends BaseUploader {
       //  },
       //  body: JSON.stringify({ text: text.trim(), ...meta }),
       //});
-//
+      //
       //if (!res.ok) throw new Error(`[${res.status}]`);
-//
+      //
       //const server: ServerMessageResponse = await res.json();
       //const serverId = server.id ?? server.messageId ?? localId;
-//
+      //
       //// 2. Confirm — sets real id + status "sent"
       //return messageStore.confirm(localId, serverId, server.timestamp);
 
+      socketReceiver.connect("a76f1590-445e-4ebe-891e-1d568bedb59e", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhNzZmMTU5MC00NDVlLTRlYmUtODkxZS0xZDU2OGJlZGI1OWUiLCJlbWFpbCI6ImFsaWNlQGV4YW1wbGUuY29tIiwidXNlcm5hbWUiOiJhbGljZSIsImlhdCI6MTc4MTgwNTMyNSwiZXhwIjoxNzgxODA2MjI1fQ.TIqmM_0GeuWVNmQ5q0GObzBblkHW2FqCXpp1u09JucM");
+      socketReceiver.joinRoom("48eb005f-9771-4278-aed9-06c6fdf53980");
+      socketReceiver.socket?.emit("message:send", {
+        localId,
+        content: text.trim(),
+        type: "text",
+        receiverId: "a76f1590-445e-4ebe-891e-1d568bedb59e",
+        conversationId: "48eb005f-9771-4278-aed9-06c6fdf53980",
+        timestamp: optimistic.timestamp,
+      });
+
+      console.log("message  sent", localId);
     } catch (err) {
+      console.log(err);
       await messageStore.markFailed(localId);
       throw err;
     }
@@ -131,22 +146,22 @@ export class MessageService extends BaseUploader {
   async sendMediaRecord(
     type: "audio" | "video",
     mediaUrl: string,
-    meta: SendMeta
+    meta: SendMeta,
   ) {
     const localId = uid();
 
     const optimistic: NewMessageRow = {
       localId,
-      id:         localId,
-      text:       null,
+      id: localId,
+      text: null,
       type,
       mediaUrl,
-      senderId:   meta.senderId,
+      senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId:     meta.roomId,
-      status:     "sending",
-      direction:  "sent",
-      timestamp:  Date.now(),
+      roomId: meta.roomId,
+      status: "sending",
+      direction: "sent",
+      timestamp: Date.now(),
     };
 
     await messageStore.save(optimistic);
@@ -167,7 +182,6 @@ export class MessageService extends BaseUploader {
       const serverId = server.id ?? server.messageId ?? localId;
 
       return messageStore.confirm(localId, serverId, server.timestamp);
-
     } catch (err) {
       await messageStore.markFailed(localId);
       throw err;
@@ -189,24 +203,24 @@ export class MessageService extends BaseUploader {
     roomId: string,
     currentUserId: string,
     page = 1,
-    limit = 30
+    limit = 30,
   ) {
     const data = await this._get(
-      `${this.endpoint}?roomId=${roomId}&page=${page}&limit=${limit}`
+      `${this.endpoint}?roomId=${roomId}&page=${page}&limit=${limit}`,
     );
 
     const incoming: NewMessageRow[] = (data.messages ?? data).map((m: any) => ({
-      localId:    m.id,
-      id:         m.id,
-      text:       m.text ?? null,
-      type:       m.type ?? "text",
-      mediaUrl:   m.mediaUrl ?? null,
-      senderId:   m.senderId,
+      localId: m.id,
+      id: m.id,
+      text: m.text ?? null,
+      type: m.type ?? "text",
+      mediaUrl: m.mediaUrl ?? null,
+      senderId: m.senderId,
       receiverId: m.receiverId,
-      roomId:     m.roomId,
-      direction:  m.senderId === currentUserId ? "sent" : "received",
-      status:     m.status ?? (m.senderId === currentUserId ? "sent" : "delivered"),
-      timestamp:  m.timestamp ?? Date.now(),
+      roomId: m.roomId,
+      direction: m.senderId === currentUserId ? "sent" : "received",
+      status: m.status ?? (m.senderId === currentUserId ? "sent" : "delivered"),
+      timestamp: m.timestamp ?? Date.now(),
     }));
 
     return messageStore.saveMany(incoming);

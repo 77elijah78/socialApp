@@ -5,7 +5,6 @@ import { useEffect } from 'react';
 
 export default function RootLayout() {
   useEffect(() => {
-    // ── Step 1: create SQLite tables on first launch ──────────────────────
     runMigrations();
   }, []);
   

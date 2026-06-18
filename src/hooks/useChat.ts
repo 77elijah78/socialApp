@@ -60,7 +60,6 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
    */
   const reload = useCallback(async () => {
     const rows = await messageStore.getRecent(roomId, 30);
-    console.log("reload — roomId:", roomId, "rows:", rows.length);
     setMessages([...rows]); // spread forces new reference → guaranteed re-render
   }, [roomId]);
 
@@ -78,7 +77,7 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
     (async () => {
       // 1. Instant local render from SQLite
       await reload();
-      scrollToEnd(false);
+      scrollToEnd(true);
 
       // 2. Background server sync (handles offline gap)
       setIsSyncing(true);
