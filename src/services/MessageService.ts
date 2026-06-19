@@ -100,7 +100,7 @@ export class MessageService extends BaseUploader {
       //// 2. Confirm — sets real id + status "sent"
       //return messageStore.confirm(localId, serverId, server.timestamp);
 
-      socketReceiver.connect("a76f1590-445e-4ebe-891e-1d568bedb59e", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhNzZmMTU5MC00NDVlLTRlYmUtODkxZS0xZDU2OGJlZGI1OWUiLCJlbWFpbCI6ImFsaWNlQGV4YW1wbGUuY29tIiwidXNlcm5hbWUiOiJhbGljZSIsImlhdCI6MTc4MTg4MDIzOCwiZXhwIjoxNzgxODgxMTM4fQ.a9XcQNH9uCEjaRRwFuq2tKorbxMQV53Eak35GNUTp80");
+      socketReceiver.connect("a76f1590-445e-4ebe-891e-1d568bedb59e", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhNzZmMTU5MC00NDVlLTRlYmUtODkxZS0xZDU2OGJlZGI1OWUiLCJlbWFpbCI6ImFsaWNlQGV4YW1wbGUuY29tIiwidXNlcm5hbWUiOiJhbGljZSIsImlhdCI6MTc4MTg4MTc2MywiZXhwIjoxNzgxODgyNjYzfQ.VC2F3DJ9a4GPst146Q3dl_SoQki_elX5QNKmvqUOKTw");
       socketReceiver.joinRoom(`48eb005f-9771-4278-aed9-06c6fdf53980`);
       socketReceiver.socket?.emit("message:send", {
         localId,

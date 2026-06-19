@@ -88,6 +88,7 @@ export class MessageStore {
    */
   saveReceived(message: NewMessageRow) {
     return messageInsertQueries.upsert(message);
+    
   }
 
   /**

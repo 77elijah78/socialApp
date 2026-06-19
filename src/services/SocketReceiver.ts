@@ -194,10 +194,10 @@ export class SocketReceiver {
       type: payload.type ?? "text",
       mediaUrl: payload.mediaUrl ?? null,
       senderId: payload.senderId,
-      receiverId: "payload.receiverId",
-      roomId: "payload.roomId",
+      receiverId: "John Doe",
+      roomId: "1",
       status: "delivered",
-      direction: payload.senderId === currentUserId ? "sent" : "received",
+      direction: payload.senderId === currentUserId ? "received" : "sent",
       timestamp: payload.timestamp ?? Date.now(),
     };
   }
