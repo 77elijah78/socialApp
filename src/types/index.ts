@@ -92,3 +92,39 @@ export interface messagesCardProps {
   onPress?: () => void;
   type:string;
 }
+
+
+export interface LoginResponse { 
+  secces:  boolean;
+  message: string;
+  data:    { 
+    accesstoken: string;
+    refreshToken: string;
+  
+    user:  { 
+      id:       string;
+      userName: string;
+      email:    string;
+      displayName: string;
+      bio:      string;
+      avatarUri:   string;
+      isVerified: boolean;
+      createdAt:   string;
+      updatedAt:   string;
+    }
+  }
+  }
+
+
+  export interface receivedMessage { 
+    id:           string;
+    content:         string;
+    conversationId:     string;
+    createdAt:    string;
+    updatedAt:    string;
+    sender:       { 
+      id:       string;
+      userName: string;
+      avatarUri:   string;
+    }
+  }

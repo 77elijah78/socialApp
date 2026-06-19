@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
 import { NewMessageRow } from "../db/schema";
+import { receivedMessage } from "@/types";
 
 type Listener = (data?: any) => void;
 
@@ -95,8 +96,10 @@ export class SocketReceiver {
     });
 
     // ── New message ──────────────────────────────────────────────────────
-    s.on("message:new", async (payload: any) => {
+    s.on("message:notification", async (payload: any) => {
+      console.log("message:new", payload);
       const message = this.normalize(payload, currentUserId);
+      
 
       // Persist to SQLite — upsert in case we already have it locally
       await messageStore.saveReceived(message);
@@ -183,7 +186,7 @@ export class SocketReceiver {
   // ─── Normalize payload → SQLite row shape ─────────────────────────────────
 
   private normalize(payload: any, currentUserId: string): NewMessageRow {
-    const id = payload.id ?? payload.messageId;
+    const id = payload.senderId ?? payload.messageId;
     return {
       localId: id,
       id,
@@ -191,8 +194,8 @@ export class SocketReceiver {
       type: payload.type ?? "text",
       mediaUrl: payload.mediaUrl ?? null,
       senderId: payload.senderId,
-      receiverId: payload.receiverId,
-      roomId: payload.roomId,
+      receiverId: "payload.receiverId",
+      roomId: "payload.roomId",
       status: "delivered",
       direction: payload.senderId === currentUserId ? "sent" : "received",
       timestamp: payload.timestamp ?? Date.now(),

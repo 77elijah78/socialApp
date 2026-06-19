@@ -122,10 +122,10 @@ export default function PrivateRoom() {
           return (
             <MessageCard
               message={item.item.text}
-              time={""}
+              time={item.item.timestamp}
               sender={""}
               isRead={false}
-              isSent={true}
+              isSent={item.item.direction === "sent" ? true : false}
               type={"Text"}
             />
           );

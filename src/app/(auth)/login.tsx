@@ -1,5 +1,7 @@
 import PrimaryButton from "@/components/common/PrimaryButton";
 import { icons } from "@/constants";
+import { authService } from "@/services/AuthService";
+import { useAppDispatch } from "@/store/hooks";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -19,6 +21,14 @@ export default function LoginScreen() {
     setBlinded(!blinded);
     setBlindedIcon(blinded ? icons.eye : icons.blind);
   };
+
+  const [form,setForm] = useState({
+    email:"",
+    password:""
+  })
+
+  const dispatch = useAppDispatch()
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -31,7 +41,12 @@ export default function LoginScreen() {
           <Text style={styles.label}>Email or Username</Text>
           <View style={styles.inputContainer}>
             <Image source={icons.email} style={styles.icon} />
-            <TextInput style={styles.input} placeholder="Enter Your email" />
+            <TextInput 
+            style={styles.input} 
+            placeholder="Enter Your email"
+            onChangeText={(value)=>{
+              setForm({...form,email:value})
+            }} />
           </View>
         </View>
         <View style={styles.inputWrapper}>
@@ -52,6 +67,9 @@ export default function LoginScreen() {
               style={styles.input}
               placeholder="Enter Your password"
               secureTextEntry={blinded}
+              onChangeText={(value)=>{
+                setForm({...form,password:value})
+              }}
             />
             <TouchableOpacity
               style={{
@@ -71,7 +89,9 @@ export default function LoginScreen() {
         </View>
         <PrimaryButton
           title="Log In"
-          onPress={() => {}}
+          onPress={() => {
+            authService.login(form.email,form.password,dispatch)
+          }}
           style={{ marginTop: 10 }}
           rightIcon={icons.rightArrow}
         />

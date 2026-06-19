@@ -47,16 +47,16 @@
       "expo-splash-screen",
       "expo-sqlite",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0"
+    ,
     "updates": {
       "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }

@@ -78,7 +78,7 @@ export default function MessageCard({
           marginHorizontal: 10,
         }}
       >
-        {"time"}
+        {new Date(time).toLocaleTimeString()}
       </Text>
     </View>
   );
