@@ -16,12 +16,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useEffect, useState } from "react";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
+import { useAppSelector } from "@/store/hooks";
 
 export default function PrivateRoom() {
-  const { roomId, receiverId } = useLocalSearchParams<{
+  const { roomId, receiverName } = useLocalSearchParams<{
     roomId: string;
-    receiverId: string;
+    receiverName: string;
+    conversationId: string;
   }>();
+
+  const currentUserId = useAppSelector((s)=>s.auth.user?.id)
+  const currentUserToken = useAppSelector((s) => s.auth.token);
 
   const {
     messages,
@@ -36,7 +41,7 @@ export default function PrivateRoom() {
     isSyncing,
     hasMore,
     flatListRef,
-  } = useChat({ roomId, currentUser: { id: "reza", token: "reza" } });
+  } = useChat({ roomId, currentUser: { id: currentUserId ? currentUserId : "", token: currentUserToken ? currentUserToken : "" } });
 
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
@@ -47,11 +52,11 @@ export default function PrivateRoom() {
     setInputText("");
     setSending(true);
     try {
-      await send(text, receiverId);
+      await send(text, receiverName);
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, send, receiverId]);
+  }, [inputText, sending, send, receiverName]);
 
   const { width, height } = useWindowDimensions();
   const [inputMarginBottom, setInputMarginBottom] = useState(0);
@@ -99,7 +104,7 @@ export default function PrivateRoom() {
           />
         </TouchableOpacity>
         <TouchableOpacity style={styles.userNameContainer}>
-          <Text style={styles.userName}>{receiverId}</Text>
+          <Text style={styles.userName}>{receiverName}</Text>
           <Text style={styles.lastSeen}>Online</Text>
         </TouchableOpacity>
         <TouchableOpacity

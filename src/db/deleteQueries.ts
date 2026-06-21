@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { messages } from "./schema";
+import { messages, rooms } from "./schema";
 import { eq, and, lt, or } from "drizzle-orm";
 
 /**
@@ -118,4 +118,20 @@ export class MessageDeleteQueries {
   }
 }
 
+export class RoomDeleteQueries {
+  /**
+   * Delete a single room.
+   * Called when the user deletes a room or the server emits room:deleted.
+   *
+   * @param roomId
+   * @returns       true if a row was deleted
+   */
+  async deleteOne(roomId: string) {
+    const rows = await db
+      .delete(rooms)
+      .where(eq(rooms.id, roomId))
+  }
+}
+
 export const messageDeleteQueries = new MessageDeleteQueries();
+export const roomDeleteQueries = new RoomDeleteQueries();

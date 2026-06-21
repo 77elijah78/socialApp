@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { messages, MessageRow } from "./schema";
+import { messages, MessageRow, rooms, RoomRow } from "./schema";
 import { eq, and, lt, desc, asc, ne, sql } from "drizzle-orm";
 
 /**
@@ -51,7 +51,7 @@ export class MessageGetQueries {
   async getOlderThan(
     roomId: string,
     beforeTimestamp: number,
-    limit = 20
+    limit = 20,
   ): Promise<MessageRow[]> {
     const rows = await db
       .select()
@@ -59,8 +59,8 @@ export class MessageGetQueries {
       .where(
         and(
           eq(messages.roomId, roomId),
-          lt(messages.timestamp, beforeTimestamp)
-        )
+          lt(messages.timestamp, beforeTimestamp),
+        ),
       )
       .orderBy(desc(messages.timestamp))
       .limit(limit);
@@ -109,8 +109,8 @@ export class MessageGetQueries {
         and(
           eq(messages.roomId, roomId),
           eq(messages.direction, "received"),
-          ne(messages.status, "read")
-        )
+          ne(messages.status, "read"),
+        ),
       );
     return result?.count ?? 0;
   }
@@ -125,14 +125,11 @@ export class MessageGetQueries {
     const rows = await db
       .select({
         roomId: messages.roomId,
-        count:  sql<number>`count(*)`,
+        count: sql<number>`count(*)`,
       })
       .from(messages)
       .where(
-        and(
-          eq(messages.direction, "received"),
-          ne(messages.status, "read")
-        )
+        and(eq(messages.direction, "received"), ne(messages.status, "read")),
       )
       .groupBy(messages.roomId);
 
@@ -149,9 +146,7 @@ export class MessageGetQueries {
     return db
       .select()
       .from(messages)
-      .where(
-        and(eq(messages.roomId, roomId), eq(messages.status, "failed"))
-      )
+      .where(and(eq(messages.roomId, roomId), eq(messages.status, "failed")))
       .orderBy(asc(messages.timestamp));
   }
 
@@ -179,7 +174,7 @@ export class MessageGetQueries {
    * @returns Record<roomId, MessageRow>
    */
   async getLastMessages(
-    roomIds: string[]
+    roomIds: string[],
   ): Promise<Record<string, MessageRow>> {
     if (roomIds.length === 0) return {};
 
@@ -199,4 +194,31 @@ export class MessageGetQueries {
   }
 }
 
+export class RoomGetQueries {
+  /**
+   * Get all rooms, sorted by last message timestamp.
+   *
+   * @returns RoomRow[]
+   * @returns  <RoomRow[]>
+   */
+  async getAll(): Promise<RoomRow[]> {
+    return db.select().from(rooms).orderBy(desc(rooms.lastMessageTimestamp));
+  }
+  async getByConversationId(conversationId: string) {
+    const con: RoomRow[] = await db
+      .select()
+      .from(rooms)
+      .where(eq(rooms.conversationId, conversationId));
+
+    console.log(con);
+
+    if (con) {
+      return false;
+    }
+
+    return true;
+  }
+}
+
 export const messageGetQueries = new MessageGetQueries();
+export const roomGetQueries = new RoomGetQueries();

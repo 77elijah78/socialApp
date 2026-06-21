@@ -4,13 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 
 const tests = [
   { title: "reza" },
-  { title: "ali" },
-  { title: "ali" },
-  { title: "ali" },
-  { title: "ali" },
-  { title: "ali" },
-  { title: "ali" },
-  { title: "ali" },
+
 ];
 
 export function GradientBorderCard() {

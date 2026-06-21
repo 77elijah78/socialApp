@@ -7,6 +7,8 @@ import { View, Text, FlatList, ScrollView } from "react-native";
 import { SocialPost } from "@/types";
 import { SafeAreaView } from "react-native-safe-area-context";
 import StoriesBar from "@/components/feed/StoriesBar";
+import { useRooms } from "@/hooks/useRooms";
+import { roomStore } from "@/db/RoomStore";
 
 const POSTS: SocialPost[] = [
   {
@@ -112,8 +114,6 @@ const POSTS: SocialPost[] = [
   },
 ];
 
-const tests = [{ title: "reza" }, { title: "ali" }, { title: "ali" }, { title: "ali" }, { title: "ali" }, { title: "ali" }, { title: "ali" }, { title: "ali" }];
-
 export default function FeedScreen() {
   return (
     <SafeAreaView
@@ -122,35 +122,37 @@ export default function FeedScreen() {
         backgroundColor: "#fff",
       }}
     >
-      <View> 
-            <View style={{paddingVertical:10,paddingHorizontal:15,borderBottomWidth:1,borderBottomColor:"#e0e0e0"}}>
-              <Text style={{fontSize:22, fontWeight:"bold",color:"#6366f1"}}>
-                Feed
-              </Text>
-            </View>
-            </View>
-            
+      <View>
+        <View
+          style={{
+            paddingVertical: 10,
+            paddingHorizontal: 15,
+            borderBottomWidth: 1,
+            borderBottomColor: "#e0e0e0",
+          }}
+        >
+          <Text style={{ fontSize: 22, fontWeight: "bold", color: "#6366f1" }}>
+            Feed
+          </Text>
+        </View>
+      </View>
+
       <FlatList
-      style={{
-        flex: 1,
-        paddingHorizontal:15,
-        backgroundColor: "#f5f5f5",
-      }}
+        style={{
+          flex: 1,
+          paddingHorizontal: 15,
+          backgroundColor: "#f5f5f5",
+        }}
         data={POSTS}
         showsVerticalScrollIndicator={false}
         numColumns={1}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={
-          
-      <StoriesBar />
-      
-      }
+        ListHeaderComponent={<StoriesBar />}
         ListFooterComponent={<View style={{ height: 150 }} />}
         renderItem={({ item, index }) => {
           return <PostCard post={POSTS[index]} />;
         }}
       />
-      </SafeAreaView>
-    
+    </SafeAreaView>
   );
 }

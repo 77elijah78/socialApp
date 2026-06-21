@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { messages, NewMessageRow, MessageRow } from "./schema";
+import { messages, NewMessageRow, MessageRow, NewRoomRow, RoomRow, rooms } from "./schema";
 import { eq, or } from "drizzle-orm";
 
 /**
@@ -92,4 +92,15 @@ export class MessageInsertQueries {
   }
 }
 
+export class RoomsInsertQueries {
+  async insert(room: NewRoomRow): Promise<RoomRow> {
+    const [row] = await db
+      .insert(rooms)
+      .values(room)
+      .returning();
+    return row;
+  }
+}
+
 export const messageInsertQueries = new MessageInsertQueries();
+export const roomInsertQueries = new RoomsInsertQueries();

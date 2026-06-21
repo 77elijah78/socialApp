@@ -25,6 +25,18 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id          TEXT PRIMARY KEY NOT NULL,
+      name        TEXT,
+      conversation_id TEXT,
+      avatar_url      TEXT,
+      last_message TEXT,
+      last_message_ctype  TEXT,
+      last_message_timestamp INTEGER,
+      unread_count INTEGER
+    )`);
+
   // Index for fast room queries (most common read pattern)
   await db.run(sql`
     CREATE INDEX IF NOT EXISTS idx_messages_room_ts

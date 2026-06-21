@@ -69,7 +69,7 @@ export default interface primaryButtonProps extends ButtonProps {
 
 export interface privateMessagesCardProps { 
   message: string;
-  time: string;
+  time: number;
   sender: string;
   isRead: boolean;
   isSent: boolean;

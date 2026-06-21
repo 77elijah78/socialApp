@@ -28,6 +28,21 @@ export const messages = sqliteTable("messages", {
   timestamp:  integer("timestamp").notNull(),              // Unix ms
 });
 
+
+export const rooms = sqliteTable("rooms", {
+  id:         text("id").primaryKey().notNull(),
+  name:       text("name").notNull(),
+  conversationId: text("conversation_id").notNull(),
+  avatarUrl:  text("avatar_url").notNull(),
+  lastMessage:text("last_message").notNull(),
+  lastMessageType: text("last_message_type").notNull(),
+  lastMessageTimestamp: integer("last_message_timestamp").notNull(),
+  unreadCount: integer("unread_count").notNull(),
+});
+
 // TypeScript types inferred from schema
 export type MessageRow    = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
+
+export type RoomRow    = typeof rooms.$inferSelect;
+export type NewRoomRow = typeof rooms.$inferInsert;

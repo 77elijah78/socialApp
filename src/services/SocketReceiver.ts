@@ -2,8 +2,17 @@ import { io, Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
 import { NewMessageRow } from "../db/schema";
 import { receivedMessage } from "@/types";
+import { roomStore } from "@/db/RoomStore";
+import { uuid } from "drizzle-orm/gel-core";
 
 type Listener = (data?: any) => void;
+
+function uid(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /**
  * SocketReceiver
@@ -39,8 +48,7 @@ export class SocketReceiver {
 
     this.socket = io(this.baseUrl, {
       auth: {
-        token:
-          authToken,
+        token: authToken,
       },
       transports: ["websocket"],
       reconnection: true,
@@ -97,15 +105,26 @@ export class SocketReceiver {
 
     // ── New message ──────────────────────────────────────────────────────
     s.on("message:notification", async (payload: any) => {
-      console.log("message:new", payload);
+      if (!roomStore.findRoom(payload.conversationId)) {
+        const localId = uid();
+        const room = {
+          id: localId,
+          name: payload.sender.userName,
+          conversationId: payload.conversationId,
+          avatarUrl: payload.sender.avatarUrl,
+          lastMessage: payload.content,
+          lastMessageTimestamp: Date.now(),
+          lastMessageType: "text",
+          unreadCount: 1,
+        };
+        socketReceiver.joinRoom(payload.conversationId);
+        await roomStore.addRoom(room);
+      }
       const message = this.normalize(payload, currentUserId);
-      
-
       // Persist to SQLite — upsert in case we already have it locally
       await messageStore.saveReceived(message);
 
-      this.emit("message:new", message);
-      console.log("message:new", message);
+      this.emit("message:notification", message);
     });
 
     s.on(
@@ -229,6 +248,4 @@ export class SocketReceiver {
   }
 }
 
-export const socketReceiver = new SocketReceiver(
-  "http://192.168.1.3:3000",
-);
+export const socketReceiver = new SocketReceiver("http://192.168.1.3:3000");
