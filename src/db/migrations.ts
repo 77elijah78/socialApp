@@ -32,7 +32,7 @@ export async function runMigrations(): Promise<void> {
       conversation_id TEXT,
       avatar_url      TEXT,
       last_message TEXT,
-      last_message_ctype  TEXT,
+      last_message_type  TEXT,
       last_message_timestamp INTEGER,
       unread_count INTEGER
     )`);

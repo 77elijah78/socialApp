@@ -20,6 +20,7 @@ export function useRooms() {
 
   const reload = useCallback(async () => {
     const rows = await roomStore.getAllRooms();
+    console.log("reload — rows:", rows.length);
     setRooms([...rows]); // spread forces new reference → guaranteed re-render
   }, []);
 
@@ -39,40 +40,5 @@ export function useRooms() {
     [reload],
   );
 
-  const findRoom = useCallback(
-    async (conversationId: string) => {
-      const room = await roomStore.findRoom(conversationId);
-      const payload = {
-        conversationId: "12345",
-        sender: {
-          userName: "John Doe",
-          avatarUrl: "https://example.com/avatar.png",
-        },
-        content: "Hello, World!",
-        timestamp: Date.now(),
-        type: "text",
-        meta: {},
-      };
-      if (room === true) {
-        console.log("reza");
-        return room;
-      }
-      const localId = "1235";
-      const re = {
-        id: localId,
-        name: payload.sender.userName,
-        conversationId: payload.conversationId,
-        avatarUrl: payload.sender.avatarUrl,
-        lastMessage: payload.content,
-        lastMessageTimestamp: Date.now(),
-        lastMessageType: "text",
-        unreadCount: 1,
-      };
-      roomStore.addRoom(re);
-      console.log("Room added:", room);
-    },
-    [reload],
-  );
-
-  return { rooms, reload, addRoom, deleteRoom, findRoom };
+  return { rooms, reload, addRoom, deleteRoom };
 }

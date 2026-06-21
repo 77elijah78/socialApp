@@ -210,13 +210,7 @@ export class RoomGetQueries {
       .from(rooms)
       .where(eq(rooms.conversationId, conversationId));
 
-    console.log(con);
-
-    if (con) {
-      return false;
-    }
-
-    return true;
+    return con;
   }
 }
 
