@@ -1,6 +1,13 @@
 import { db } from "./db";
-import { messages, NewMessageRow, MessageRow, NewRoomRow, RoomRow, rooms } from "./schema";
-import { eq, or } from "drizzle-orm";
+import {
+  messages,
+  NewMessageRow,
+  MessageRow,
+  NewRoomRow,
+  RoomRow,
+  rooms,
+} from "./schema";
+import { eq, or, sql } from "drizzle-orm";
 
 /**
  * MessageInsertQueries
@@ -16,10 +23,7 @@ export class MessageInsertQueries {
    * @returns        The inserted row
    */
   async insert(message: NewMessageRow): Promise<MessageRow> {
-    const [row] = await db
-      .insert(messages)
-      .values(message)
-      .returning();
+    const [row] = await db.insert(messages).values(message).returning();
     return row;
   }
 
@@ -36,7 +40,7 @@ export class MessageInsertQueries {
     const rows = await db
       .insert(messages)
       .values(batch)
-      .onConflictDoNothing()   // skip duplicates by localId (PK)
+      .onConflictDoNothing() // skip duplicates by localId (PK)
       .returning();
     return rows;
   }
@@ -55,10 +59,10 @@ export class MessageInsertQueries {
       .onConflictDoUpdate({
         target: messages.localId,
         set: {
-          id:        message.id,
-          status:    message.status,
-          text:      message.text,
-          mediaUrl:  message.mediaUrl,
+          id: message.id,
+          status: message.status,
+          text: message.text,
+          mediaUrl: message.mediaUrl,
           timestamp: message.timestamp,
         },
       })
@@ -80,10 +84,10 @@ export class MessageInsertQueries {
       .onConflictDoUpdate({
         target: messages.localId,
         set: {
-          id:        messages.id,
-          status:    messages.status,
-          text:      messages.text,
-          mediaUrl:  messages.mediaUrl,
+          id: messages.id,
+          status: messages.status,
+          text: messages.text,
+          mediaUrl: messages.mediaUrl,
           timestamp: messages.timestamp,
         },
       })
@@ -94,9 +98,23 @@ export class MessageInsertQueries {
 
 export class RoomsInsertQueries {
   async insert(room: NewRoomRow): Promise<RoomRow> {
+    const [row] = await db.insert(rooms).values(room).returning();
+    return row;
+  }
+
+  async upsert(room: NewRoomRow): Promise<RoomRow> {
     const [row] = await db
       .insert(rooms)
       .values(room)
+      .onConflictDoUpdate({
+        target: rooms.id,
+        set: {
+          lastMessage: room.lastMessage,
+          lastMessageType: room.lastMessageType,
+          lastMessageTimestamp: room.lastMessageTimestamp,
+          unreadCount: sql`${rooms.unreadCount} + 1`,
+        },
+      })
       .returning();
     return row;
   }

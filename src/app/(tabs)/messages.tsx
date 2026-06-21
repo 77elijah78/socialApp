@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Messages() {
   const { rooms } = useRooms();
-  console.log(rooms);
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <View>

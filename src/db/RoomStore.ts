@@ -4,21 +4,25 @@ import { roomInsertQueries } from "./insertQueries";
 import { NewRoomRow } from "./schema";
 
 export class RoomStore {
-    getAllRooms() { 
-        return roomGetQueries.getAll();
-    } 
+  getAllRooms() {
+    return roomGetQueries.getAll();
+  }
 
-    addRoom(room: NewRoomRow) { 
-        return roomInsertQueries.insert(room);
-    }
+  addRoom(room: NewRoomRow) {
+    return roomInsertQueries.insert(room);
+  }
 
-    deleteOne(roomId: string) { 
-        return roomDeleteQueries.deleteOne(roomId);
-    }
+  upsertRoom(room: NewRoomRow) {
+    return roomInsertQueries.upsert(room);
+  }
 
-    findRoom(conversationId: string) { 
-        return roomGetQueries.getByConversationId(conversationId);
-    }
+  deleteOne(roomId: string) {
+    return roomDeleteQueries.deleteOne(roomId);
+  }
+
+  findRoom(conversationId: string) {
+    return roomGetQueries.getByConversationId(conversationId);
+  }
 }
 
 export const roomStore = new RoomStore();
