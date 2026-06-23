@@ -25,7 +25,7 @@ export default function PrivateRoom() {
     conversationId: string;
   }>();
 
-  const currentUserId = useAppSelector((s)=>s.auth.user?.id)
+  const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
 
   const {
@@ -41,7 +41,18 @@ export default function PrivateRoom() {
     isSyncing,
     hasMore,
     flatListRef,
-  } = useChat({ roomId, currentUser: { id: currentUserId ? currentUserId : "", token: currentUserToken ? currentUserToken : "" } });
+  } = useChat({
+    roomId,
+    currentUser: {
+      id: currentUserId ? currentUserId : "",
+      token: currentUserToken ? currentUserToken : "",
+    },
+  });
+
+  useEffect(() => {
+    loadMore();
+    console.log("r");
+  }, []);
 
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
@@ -61,8 +72,8 @@ export default function PrivateRoom() {
   const { width, height } = useWindowDimensions();
   const [inputMarginBottom, setInputMarginBottom] = useState(0);
 
-  useEffect(() => { 
-    flatListRef.current?.scrollToEnd({ animated: false }) 
+  useEffect(() => {
+    flatListRef.current?.scrollToEnd({ animated: false });
   }, []);
 
   useEffect(() => {
@@ -117,9 +128,11 @@ export default function PrivateRoom() {
       <FlatList
         ref={flatListRef}
         style={{ flex: 1, paddingHorizontal: 15 }}
-        maxToRenderPerBatch={10} 
+        maxToRenderPerBatch={10}
         windowSize={10}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() =>
+          flatListRef.current?.scrollToEnd({ animated: false })
+        }
         keyExtractor={(item) => item.localId}
         keyboardShouldPersistTaps="handled"
         data={messages}

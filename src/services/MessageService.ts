@@ -1,8 +1,9 @@
 import { BaseUploader } from "./BaseUploader";
 import { messageStore } from "../db/MessageStore";
-import { NewMessageRow } from "../db/schema";
+import { MessageRow, NewMessageRow } from "../db/schema";
 import { SocketReceiver, socketReceiver } from "./SocketReceiver";
 import { mediaService } from "./MediaService";
+import { Conversation, LoginResponse, Message, User } from "@/types";
 
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -22,6 +23,19 @@ interface ServerMessageResponse {
   messageId?: string;
   timestamp?: number;
 }
+interface ServerMessagesResponse {
+  id: string;
+  content: string;
+  mediaUrl?: string;
+  senderId: string;
+  receiverId: string;
+  conversationId: string;
+  sender: User;
+  receiver: User;
+  conversation: Conversation;
+  isRead: boolean;
+  createdAt: Date;
+}
 
 /**
  * MessageService
@@ -35,7 +49,7 @@ interface ServerMessageResponse {
  *   3b. Failure → markFailed() so UI shows retry button
  */
 export class MessageService extends BaseUploader {
-  private readonly endpoint = "/messages";
+  private readonly endpoint = "/conversations";
   private readonly maxLength = 5000;
 
   constructor(baseUrl: string, authToken: any) {
@@ -99,9 +113,6 @@ export class MessageService extends BaseUploader {
       //
       //// 2. Confirm — sets real id + status "sent"
       //return messageStore.confirm(localId, serverId, server.timestamp);
-
-      
-      
     } catch (err) {
       console.log(err);
       await messageStore.markFailed(localId);
@@ -190,24 +201,24 @@ export class MessageService extends BaseUploader {
    * @param limit
    */
   async syncFromServer(
-    roomId: string,
+    conversationId: string,
     currentUserId: string,
     page = 1,
     limit = 30,
   ) {
-    const data = await this._get(
-      `${this.endpoint}?roomId=${roomId}&page=${page}&limit=${limit}`,
+    const data: any = await this._get(
+      `${this.endpoint}:${conversationId}/messages`,
     );
 
     const incoming: NewMessageRow[] = (data.messages ?? data).map((m: any) => ({
       localId: m.id,
       id: m.id,
-      text: m.text ?? null,
+      text: m.content ?? null,
       type: m.type ?? "text",
       mediaUrl: m.mediaUrl ?? null,
       senderId: m.senderId,
       receiverId: m.receiverId,
-      roomId: m.roomId,
+      roomId: m.conversationId,
       direction: m.senderId === currentUserId ? "sent" : "received",
       status: m.status ?? (m.senderId === currentUserId ? "sent" : "delivered"),
       timestamp: m.timestamp ?? Date.now(),

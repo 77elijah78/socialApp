@@ -6,7 +6,9 @@ import { View, Text, Image, TouchableOpacity, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Messages() {
-  const { rooms } = useRooms();
+  const { rooms, addRoom } = useRooms();
+
+  console.log(rooms);
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
