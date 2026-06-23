@@ -323,3 +323,10 @@ export interface ApiResponse<T> {
   data: T;
   message?: string;
 }
+
+export interface PickedFile {
+  uri: string;
+  name: string;
+  type: string;
+  size?: number;
+}

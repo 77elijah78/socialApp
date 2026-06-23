@@ -11,12 +11,24 @@ import {
   useWindowDimensions,
   Keyboard,
   Platform,
+  Pressable,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import { PickedFile } from "@/types";
 
 export default function PrivateRoom() {
   const { roomId, receiverName } = useLocalSearchParams<{
@@ -24,6 +36,240 @@ export default function PrivateRoom() {
     receiverName: string;
     conversationId: string;
   }>();
+
+  const [pickedFiles, setPickedFiles] = useState<PickedFile[]>([]);
+  const [record, setRecord] = useState(true);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null);
+
+  // 1. Initialize the recorder with a preset
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // 2. This hook tracks the live state (isRecording, duration, etc.)
+  const status = useAudioRecorderState(recorder);
+
+  const startRecording = async () => {
+    try {
+      // Check permissions
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Enable microphone access in settings.",
+        );
+        return;
+      }
+
+      setRecordedUri(null);
+
+      // Prepare and Start
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+    } catch (err) {
+      console.error("Failed to start recording", err);
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      if (recorder.isRecording) {
+        await recorder.stop();
+        const uri = recorder.uri;
+        setRecordedUri(uri);
+
+        // Pass to your existing uploader logic here
+        if (uri) {
+          console.log("Audio recorded at:", uri);
+          // uploadMyFile(uri);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to stop recording", err);
+    }
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*", // All file types
+        copyToCacheDirectory: true,
+        multiple: true, // Allow multiple selection
+      });
+
+      if (!result.canceled && result.assets) {
+        const files: PickedFile[] = result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType ?? "application/octet-stream",
+          size: asset.size,
+        }));
+        setPickedFiles((prev) => [...prev, ...files]);
+      }
+    } catch (error) {
+      console.error("Document picker error:", error);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. PICK IMAGES ONLY
+  // ─────────────────────────────────────────────────────────────
+  const pickImage = async () => {
+    try {
+      // Request permission first
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Please allow photo library access.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const files: PickedFile[] = result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.fileName ?? `image_${Date.now()}.jpg`,
+          type: asset.mimeType ?? "image/jpeg",
+          size: asset.fileSize,
+        }));
+        setPickedFiles((prev) => [...prev, ...files]);
+      }
+    } catch (error) {
+      console.error("Image picker error:", error);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 3. PICK VIDEO ONLY
+  // ─────────────────────────────────────────────────────────────
+  const pickVideo = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Please allow photo library access.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsMultipleSelection: false,
+        videoMaxDuration: 60, // Max 60 seconds
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const asset = result.assets[0];
+        const file: PickedFile = {
+          uri: asset.uri,
+          name: asset.fileName ?? `video_${Date.now()}.mp4`,
+          type: asset.mimeType ?? "video/mp4",
+          size: asset.fileSize,
+        };
+        setPickedFiles((prev) => [...prev, file]);
+      }
+    } catch (error) {
+      console.error("Video picker error:", error);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 4. TAKE PHOTO WITH CAMERA
+  // ─────────────────────────────────────────────────────────────
+  const takePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Please allow camera access.");
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [4, 3],
+      });
+
+      if (!result.canceled && result.assets) {
+        const asset = result.assets[0];
+        const file: PickedFile = {
+          uri: asset.uri,
+          name: `photo_${Date.now()}.jpg`,
+          type: "image/jpeg",
+          size: asset.fileSize,
+        };
+        setPickedFiles((prev) => [...prev, file]);
+      }
+    } catch (error) {
+      console.error("Camera error:", error);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // 5. PICK AUDIO FILES
+  // ─────────────────────────────────────────────────────────────
+  const pickAudio = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+
+      if (!result.canceled && result.assets) {
+        const files: PickedFile[] = result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType ?? "audio/mpeg",
+          size: asset.size,
+        }));
+        setPickedFiles((prev) => [...prev, ...files]);
+      }
+    } catch (error) {
+      console.error("Audio picker error:", error);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // REMOVE FILE
+  // ─────────────────────────────────────────────────────────────
+  const removeFile = (uri: string) => {
+    setPickedFiles((prev) => prev.filter((file) => file.uri !== uri));
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // CLEAR ALL
+  // ─────────────────────────────────────────────────────────────
+  const clearAll = () => {
+    setPickedFiles([]);
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // FORMAT FILE SIZE
+  // ─────────────────────────────────────────────────────────────
+  const formatSize = (bytes?: number): string => {
+    if (!bytes) return "Unknown size";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // CHECK IF IMAGE
+  // ─────────────────────────────────────────────────────────────
+  const isImage = (type: string): boolean => {
+    return type.startsWith("image/");
+  };
 
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
@@ -48,11 +294,6 @@ export default function PrivateRoom() {
       token: currentUserToken ? currentUserToken : "",
     },
   });
-
-  useEffect(() => {
-    loadMore();
-    console.log("r");
-  }, []);
 
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
@@ -144,7 +385,7 @@ export default function PrivateRoom() {
               sender={""}
               isRead={false}
               isSent={item.item.direction === "sent" ? true : false}
-              type={"Text"}
+              type={"Voice"}
             />
           );
         }}
@@ -178,21 +419,40 @@ export default function PrivateRoom() {
             numberOfLines={5}
             value={inputText}
             onChangeText={(t) => {
+              setRecord(false);
               setInputText(t);
               onTyping();
             }}
           />
-          <TouchableOpacity>
+        </View>
+        {record && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.sendButton,
+              (pressed || status.isRecording) && styles.micButtonActive,
+            ]}
+            onPressIn={startRecording}
+            onPressOut={stopRecording}
+          >
             <Image
-              source={icons.mic}
+              source={status.isRecording ? icons.micactive : icons.mic}
               style={{ width: 25, height: 25, borderRadius: 20 }}
             />
+          </Pressable>
+        )}
+        {!record && (
+          <TouchableOpacity
+            style={styles.sendButton}
+            onPress={() => {
+              if (inputText === "") {
+                setRecord(true);
+              }
+              handleSend();
+            }}
+          >
+            <Image source={icons.send} style={styles.sendIcon} />
           </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-          <Image source={icons.send} style={styles.sendIcon} />
-        </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -272,5 +532,12 @@ const styles = StyleSheet.create({
     height: 30,
     position: "absolute",
     right: 2,
+  },
+  micButtonActive: {
+    transform: [{ scale: 1.2 }],
+  },
+  micButton: {
+    position: "absolute",
+    right: 10,
   },
 });

@@ -66,7 +66,7 @@ export default function Messages() {
             avatar={{ uri: item.avatarUrl }}
             type={item.lastMessageType}
             duaration="0:20"
-            newMessages={false}
+            newMessages={true}
             onPress={() =>
               router.push({
                 pathname: "/(chatRoom)/privateRoom",

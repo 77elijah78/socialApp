@@ -27,14 +27,28 @@ export default function PrivateMessageCard({
         {type === "image" && (
           <View style={{ flexDirection: "row", position: "absolute", top: 5 }}>
             <Image source={icons.image} style={styles.lastImage} />
-            <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>sent a photo</Text>
+            <Text
+              style={newMessages ? styles.messageNotRead : styles.messageRead}
+            >
+              sent a photo
+            </Text>
           </View>
         )}
-        {type === "text" && <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>{"message"}</Text>}
+        {type === "text" && (
+          <Text
+            style={newMessages ? styles.messageNotRead : styles.messageRead}
+          >
+            {message}
+          </Text>
+        )}
         {type === "video" && (
           <View style={{ flexDirection: "row", position: "absolute", top: 5 }}>
             <Image source={icons.video} style={styles.lastImage} />
-            <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>sent a video</Text>
+            <Text
+              style={newMessages ? styles.messageNotRead : styles.messageRead}
+            >
+              sent a video
+            </Text>
           </View>
         )}
         {type === "voice" && (
@@ -47,15 +61,16 @@ export default function PrivateMessageCard({
             }}
           >
             <Image source={icons.mic} style={styles.lastImage} />
-            <Text style={newMessages ? styles.messageNotRead : styles.messageRead}>
+            <Text
+              style={newMessages ? styles.messageNotRead : styles.messageRead}
+            >
               Voice message {duaration}
             </Text>
-            
           </View>
         )}
         {isRead && <Image source={icons.read} style={styles.read} />}
-            {isSent && <Image source={icons.done} style={styles.read} />}
-            {newMessages && <Image source={icons.newdot} style={styles.read} />}
+        {isSent && <Image source={icons.done} style={styles.read} />}
+        {newMessages && <Image source={icons.newdot} style={styles.read} />}
       </View>
     </TouchableOpacity>
   );
@@ -109,7 +124,7 @@ const styles = StyleSheet.create({
     height: 20,
     position: "absolute",
     right: 5,
-    top:4,
+    top: 4,
   },
   messageNotRead: {
     color: "#000000",

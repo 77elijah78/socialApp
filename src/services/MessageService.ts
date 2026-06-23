@@ -97,22 +97,22 @@ export class MessageService extends BaseUploader {
     await messageStore.save(optimistic);
 
     try {
-      //const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
-      //  method: "POST",
-      //  headers: {
-      //    "Content-Type": "application/json",
-      //    ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
-      //  },
-      //  body: JSON.stringify({ text: text.trim(), ...meta }),
-      //});
-      //
-      //if (!res.ok) throw new Error(`[${res.status}]`);
-      //
-      //const server: ServerMessageResponse = await res.json();
-      //const serverId = server.id ?? server.messageId ?? localId;
-      //
-      //// 2. Confirm — sets real id + status "sent"
-      //return messageStore.confirm(localId, serverId, server.timestamp);
+      const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
+        },
+        body: JSON.stringify({ text: text.trim(), ...meta }),
+      });
+
+      if (!res.ok) throw new Error(`[${res.status}]`);
+
+      const server: ServerMessageResponse = await res.json();
+      const serverId = server.id ?? server.messageId ?? localId;
+
+      // 2. Confirm — sets real id + status "sent"
+      return messageStore.confirm(localId, serverId, server.timestamp);
     } catch (err) {
       console.log(err);
       await messageStore.markFailed(localId);

@@ -38,32 +38,30 @@ export default function MessageCard({
             style={{
               flex: 1,
               width: "100%",
-              minHeight:250,
-              maxHeight:250,
+              minHeight: 250,
+              maxHeight: 250,
               borderTopLeftRadius: 15,
               borderTopRightRadius: 15,
             }}
-
           />
           <Text style={{ padding: 10 }}>{message}</Text>
         </View>
       )}
       {type === "Video" && (
-        <View >
+        <View>
           <VideoPlayer
             style={{}}
             uri="https://dl.biamusic.ir/Video/Artist/Ragheb/Ragheb%20-%20Dena%20-%20480%20[BiaMusic].mp4"
-            thumbnail="" 
+            thumbnail=""
             borderRadius={12}
           />
-
         </View>
       )}
       {type === "Voice" && (
         <View>
           <VoiceMessageBubble
             audioUri={
-              "https://dl.musicviral.ir/Music/05-03/Iron%20Heart%202%20Im%20Not%20Like%20them.mp3"
+              "file:///data/user/0/com.elijah77.social/cache/Audio/recording-b655c575-a521-4524-abf7-06673317eb77.m4a"
             }
             duration={30}
             isOwn={isSent}
@@ -111,6 +109,5 @@ const styles = StyleSheet.create({
     width: "80%",
     borderRadius: 15,
     justifyContent: "flex-start",
-
   },
 });
