@@ -8,20 +8,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Messages() {
   const { rooms, addRoom } = useRooms();
-  useEffect(() => {
-    addRoom({
-      id: "123",
-      conversationId: "123",
-      name: "123",
-      avatarUrl: "info.avatarUrl",
-      lastMessage: "reza",
-      lastMessageType: "text",
-      lastMessageTimestamp: Date.now(),
-      unreadCount: 1,
-    });
-  });
-
-  console.log(rooms);
 
   return (
     <SafeAreaView style={{ flex: 1 }}>

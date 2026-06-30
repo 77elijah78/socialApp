@@ -30,6 +30,7 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { PickedFile } from "@/types";
+import MediaPickerModal from "@/components/messages/MediaPickerModal";
 
 export default function PrivateRoom() {
   const { roomId, receiverName } = useLocalSearchParams<{
@@ -41,6 +42,7 @@ export default function PrivateRoom() {
   const [pickedFiles, setPickedFiles] = useState<PickedFile[]>([]);
   const [record, setRecord] = useState(true);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
 
   // 1. Initialize the recorder with a preset
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -88,190 +90,6 @@ export default function PrivateRoom() {
     }
   };
 
-  const pickDocument = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*", // All file types
-        copyToCacheDirectory: true,
-        multiple: true, // Allow multiple selection
-      });
-
-      if (!result.canceled && result.assets) {
-        const files: PickedFile[] = result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          type: asset.mimeType ?? "application/octet-stream",
-          size: asset.size,
-        }));
-        setPickedFiles((prev) => [...prev, ...files]);
-      }
-    } catch (error) {
-      console.error("Document picker error:", error);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // 2. PICK IMAGES ONLY
-  // ─────────────────────────────────────────────────────────────
-  const pickImage = async () => {
-    try {
-      // Request permission first
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          "Permission required",
-          "Please allow photo library access.",
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets) {
-        const files: PickedFile[] = result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.fileName ?? `image_${Date.now()}.jpg`,
-          type: asset.mimeType ?? "image/jpeg",
-          size: asset.fileSize,
-        }));
-        setPickedFiles((prev) => [...prev, ...files]);
-      }
-    } catch (error) {
-      console.error("Image picker error:", error);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // 3. PICK VIDEO ONLY
-  // ─────────────────────────────────────────────────────────────
-  const pickVideo = async () => {
-    try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          "Permission required",
-          "Please allow photo library access.",
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        allowsMultipleSelection: false,
-        videoMaxDuration: 60, // Max 60 seconds
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets) {
-        const asset = result.assets[0];
-        const file: PickedFile = {
-          uri: asset.uri,
-          name: asset.fileName ?? `video_${Date.now()}.mp4`,
-          type: asset.mimeType ?? "video/mp4",
-          size: asset.fileSize,
-        };
-        setPickedFiles((prev) => [...prev, file]);
-      }
-    } catch (error) {
-      console.error("Video picker error:", error);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // 4. TAKE PHOTO WITH CAMERA
-  // ─────────────────────────────────────────────────────────────
-  const takePhoto = async () => {
-    try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission required", "Please allow camera access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [4, 3],
-      });
-
-      if (!result.canceled && result.assets) {
-        const asset = result.assets[0];
-        const file: PickedFile = {
-          uri: asset.uri,
-          name: `photo_${Date.now()}.jpg`,
-          type: "image/jpeg",
-          size: asset.fileSize,
-        };
-        setPickedFiles((prev) => [...prev, file]);
-      }
-    } catch (error) {
-      console.error("Camera error:", error);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // 5. PICK AUDIO FILES
-  // ─────────────────────────────────────────────────────────────
-  const pickAudio = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "audio/*",
-        copyToCacheDirectory: true,
-        multiple: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        const files: PickedFile[] = result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          type: asset.mimeType ?? "audio/mpeg",
-          size: asset.size,
-        }));
-        setPickedFiles((prev) => [...prev, ...files]);
-      }
-    } catch (error) {
-      console.error("Audio picker error:", error);
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // REMOVE FILE
-  // ─────────────────────────────────────────────────────────────
-  const removeFile = (uri: string) => {
-    setPickedFiles((prev) => prev.filter((file) => file.uri !== uri));
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // CLEAR ALL
-  // ─────────────────────────────────────────────────────────────
-  const clearAll = () => {
-    setPickedFiles([]);
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // FORMAT FILE SIZE
-  // ─────────────────────────────────────────────────────────────
-  const formatSize = (bytes?: number): string => {
-    if (!bytes) return "Unknown size";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // CHECK IF IMAGE
-  // ─────────────────────────────────────────────────────────────
-  const isImage = (type: string): boolean => {
-    return type.startsWith("image/");
-  };
-
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
 
@@ -298,6 +116,8 @@ export default function PrivateRoom() {
 
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [attachments, setAttachments] = useState<PickedFile[]>([]);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
@@ -337,6 +157,19 @@ export default function PrivateRoom() {
       keyboardDidHideListener.remove();
     };
   }, []);
+
+  const handleSendFiles = (files: PickedFile[]) => {
+    console.log("Selected files:", files);
+
+    // Add to attachments list (simulate sending)
+    setAttachments((prev) => [...prev, ...files]);
+  };
+
+  const removeAttachment = (uri: string) => {
+    setAttachments((prev) => prev.filter((f) => f.uri !== uri));
+  };
+
+  const isImage = (type: string) => type?.startsWith("image/");
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -400,7 +233,11 @@ export default function PrivateRoom() {
           },
         ]}
       >
-        <TouchableOpacity onPress={pickImage}>
+        <TouchableOpacity
+          onPress={() => {
+            setVisible(true);
+          }}
+        >
           <Image
             source={icons.add}
             style={{ width: 25, height: 25, borderRadius: 20 }}
@@ -455,6 +292,11 @@ export default function PrivateRoom() {
           </TouchableOpacity>
         )}
       </View>
+      <MediaPickerModal
+        visible={visible}
+        onClose={() => setVisible(false)}
+        onSend={handleSendFiles}
+      />
     </SafeAreaView>
   );
 }
@@ -499,6 +341,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e0e0",
     borderRadius: 15,
     borderTopColor: "#aaaaaa",
+    paddingVertical: 20,
   },
   textInputWrapper: {
     flex: 1,
