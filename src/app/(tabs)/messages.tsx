@@ -2,11 +2,24 @@ import PrivateMessageCard from "@/components/messages/PrivateMessageCard";
 import { icons } from "@/constants";
 import { useRooms } from "@/hooks/useRooms";
 import { router } from "expo-router";
+import { useEffect } from "react";
 import { View, Text, Image, TouchableOpacity, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Messages() {
   const { rooms, addRoom } = useRooms();
+  useEffect(() => {
+    addRoom({
+      id: "123",
+      conversationId: "123",
+      name: "123",
+      avatarUrl: "info.avatarUrl",
+      lastMessage: "reza",
+      lastMessageType: "text",
+      lastMessageTimestamp: Date.now(),
+      unreadCount: 1,
+    });
+  });
 
   console.log(rooms);
 

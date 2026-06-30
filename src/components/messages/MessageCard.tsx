@@ -61,7 +61,7 @@ export default function MessageCard({
         <View>
           <VoiceMessageBubble
             audioUri={
-              "file:///data/user/0/com.elijah77.social/cache/Audio/recording-b655c575-a521-4524-abf7-06673317eb77.m4a"
+              "Audio recorded at: file:///data/user/0/com.elijah77.social/cache/Audio/recording-b6b914e5-781d-42b5-a874-e7bd3b63de9a.m4a"
             }
             duration={30}
             isOwn={isSent}

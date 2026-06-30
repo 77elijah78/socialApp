@@ -25,6 +25,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
+  AudioPlayer,
 } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -399,7 +400,7 @@ export default function PrivateRoom() {
           },
         ]}
       >
-        <TouchableOpacity>
+        <TouchableOpacity onPress={pickImage}>
           <Image
             source={icons.add}
             style={{ width: 25, height: 25, borderRadius: 20 }}
