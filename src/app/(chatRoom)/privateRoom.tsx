@@ -159,8 +159,6 @@ export default function PrivateRoom() {
   }, []);
 
   const handleSendFiles = (files: PickedFile[]) => {
-    console.log("Selected files:", files);
-
     // Add to attachments list (simulate sending)
     setAttachments((prev) => [...prev, ...files]);
   };
@@ -168,8 +166,6 @@ export default function PrivateRoom() {
   const removeAttachment = (uri: string) => {
     setAttachments((prev) => prev.filter((f) => f.uri !== uri));
   };
-
-  const isImage = (type: string) => type?.startsWith("image/");
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
