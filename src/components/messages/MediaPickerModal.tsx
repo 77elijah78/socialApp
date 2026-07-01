@@ -136,6 +136,29 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
     }
   };
 
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission required", "Please allow camera access.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+    if (!result.canceled) {
+      addFiles(
+        result.assets.map((a) => ({
+          uri: a.uri,
+          name: a.fileName ?? `image_${Date.now()}.jpg`,
+          type: a.mimeType ?? "image/jpeg",
+          size: a.fileSize,
+        })),
+      );
+    }
+  };
+
   const pickFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: "*/*",
@@ -214,6 +237,7 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
 
           {/* Picker Options */}
           <View style={styles.optionsRow}>
+            <Option icon="camera-outline" label="Camera" onPress={takePhoto} />
             <Option icon="image-outline" label="Image" onPress={pickImage} />
             <Option icon="videocam-outline" label="Video" onPress={pickVideo} />
             <Option
@@ -271,8 +295,8 @@ const Option = ({ icon, label, onPress }: any) => (
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
     justifyContent: "flex-end",
+    backgroundColor: "transparent",
   },
   modalContainer: {
     backgroundColor: COLORS.bgWhite,
