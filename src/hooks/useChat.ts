@@ -1,34 +1,39 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FlatList } from "react-native";
 import { messageStore } from "../db/MessageStore";
-import { MessageRow }   from "../db/schema";
+import { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
-import { mediaService }   from "../services/MediaService";
+import { mediaService } from "../services/MediaService";
 
 interface CurrentUser {
-  id:    string;
+  id: string;
   token: string;
 }
 
 interface UseChatParams {
-  roomId:      string;
+  roomId: string;
   currentUser: CurrentUser;
 }
 
 interface UseChatReturn {
-  messages:     MessageRow[];
-  send:         (text: string, receiverId: string) => Promise<void>;
-  retry:        (localId: string, receiverId: string) => Promise<void>;
-  deleteMsg:    (messageId: string) => Promise<void>;
-  editMsg:      (messageId: string, newText: string) => Promise<void>;
-  loadMore:     () => Promise<void>;
-  onTyping:     () => void;
-  isTyping:     boolean;
+  messages: MessageRow[];
+  send: (text: string, receiverId: string) => Promise<void>;
+  retry: (localId: string, receiverId: string) => Promise<void>;
+  deleteMsg: (messageId: string) => Promise<void>;
+  editMsg: (messageId: string, newText: string) => Promise<void>;
+  loadMore: () => Promise<void>;
+  onTyping: () => void;
+  isTyping: boolean;
   typingUserId: string | null;
-  isConnected:  boolean;
-  isSyncing:    boolean;
-  hasMore:      boolean;
-  flatListRef:  React.RefObject<FlatList | null>;
+  isConnected: boolean;
+  isSyncing: boolean;
+  hasMore: boolean;
+  flatListRef: React.RefObject<FlatList | null>;
+  sendMedia: (
+    type: string,
+    mediaUrl: string | null,
+    receiverId: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -43,11 +48,11 @@ interface UseChatReturn {
  *   - Leaves the socket room + cleans up all subscriptions
  */
 export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
-  const [messages,     setMessages]  = useState<MessageRow[]>([]);
-  const [isSyncing,    setIsSyncing] = useState(true);
-  const [isConnected,  setConnected] = useState(false);
-  const [typingUserId, setTyping]    = useState<string | null>(null);
-  const [hasMore,      setHasMore]   = useState(true);
+  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [isSyncing, setIsSyncing] = useState(true);
+  const [isConnected, setConnected] = useState(false);
+  const [typingUserId, setTyping] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
 
   const flatListRef = useRef<FlatList>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,7 +105,7 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
 
       // 5. Subscribe to real-time events
       unsubs.push(
-        socketReceiver.on("connect",    () => setConnected(true)),
+        socketReceiver.on("connect", () => setConnected(true)),
         socketReceiver.on("disconnect", () => setConnected(false)),
 
         // New message — SocketReceiver already saved it to SQLite, just reload
@@ -112,30 +117,48 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
         }),
 
         // Status updates — SQLite already updated by SocketReceiver, just reload
-        socketReceiver.on("message:delivered", async ({ roomId: rid }: { roomId: string }) => {
-          if (rid === roomId) await reload();
-        }),
+        socketReceiver.on(
+          "message:delivered",
+          async ({ roomId: rid }: { roomId: string }) => {
+            if (rid === roomId) await reload();
+          },
+        ),
 
-        socketReceiver.on("message:read", async ({ roomId: rid }: { roomId: string }) => {
-          if (rid === roomId) await reload();
-        }),
+        socketReceiver.on(
+          "message:read",
+          async ({ roomId: rid }: { roomId: string }) => {
+            if (rid === roomId) await reload();
+          },
+        ),
 
-        socketReceiver.on("message:deleted", async ({ roomId: rid }: { roomId: string }) => {
-          if (rid === roomId) await reload();
-        }),
+        socketReceiver.on(
+          "message:deleted",
+          async ({ roomId: rid }: { roomId: string }) => {
+            if (rid === roomId) await reload();
+          },
+        ),
 
-        socketReceiver.on("message:edited", async ({ roomId: rid }: { roomId: string }) => {
-          if (rid === roomId) await reload();
-        }),
+        socketReceiver.on(
+          "message:edited",
+          async ({ roomId: rid }: { roomId: string }) => {
+            if (rid === roomId) await reload();
+          },
+        ),
 
         // Typing — no SQLite write, just UI state
-        socketReceiver.on("typing:start", ({ senderId }: { senderId: string }) => {
-          if (senderId !== currentUser.id) setTyping(senderId);
-        }),
+        socketReceiver.on(
+          "typing:start",
+          ({ senderId }: { senderId: string }) => {
+            if (senderId !== currentUser.id) setTyping(senderId);
+          },
+        ),
 
-        socketReceiver.on("typing:stop", ({ senderId }: { senderId: string }) => {
-          if (senderId !== currentUser.id) setTyping(null);
-        })
+        socketReceiver.on(
+          "typing:stop",
+          ({ senderId }: { senderId: string }) => {
+            if (senderId !== currentUser.id) setTyping(null);
+          },
+        ),
       );
     })();
 
@@ -153,42 +176,67 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
    * MessageService saves it optimistically to SQLite → reload → UI updates
    * before the server even responds.
    */
-  const send = useCallback(async (text: string, receiverId: string) => {
-    await mediaService.message.send(text, {
-      senderId:   currentUser.id,
-      receiverId,
-      roomId,
-    });
-    await reload();
-    scrollToEnd();
-  }, [roomId, currentUser?.id]);
+  const send = useCallback(
+    async (text: string, receiverId: string) => {
+      await mediaService.message.send(text, {
+        senderId: currentUser.id,
+        receiverId,
+        roomId,
+      });
+      await reload();
+      scrollToEnd();
+    },
+    [roomId, currentUser?.id],
+  );
+
+  const sendMedia = useCallback(
+    async (type: string, mediaUrl: string | null, receiverId: string) => {
+      await mediaService.message.sendMediaRecord(type, mediaUrl, {
+        senderId: currentUser.id,
+        receiverId,
+        roomId,
+      });
+      await reload();
+      scrollToEnd();
+    },
+    [roomId, currentUser?.id],
+  );
 
   /**
    * Retry a failed message by its localId.
    */
-  const retry = useCallback(async (localId: string, receiverId: string) => {
-    await mediaService.message.retry(roomId, localId, {
-      senderId:   currentUser.id,
-      receiverId,
-    });
-    await reload();
-  }, [roomId, currentUser?.id]);
+  const retry = useCallback(
+    async (localId: string, receiverId: string) => {
+      await mediaService.message.retry(roomId, localId, {
+        senderId: currentUser.id,
+        receiverId,
+      });
+      await reload();
+    },
+    [roomId, currentUser?.id],
+  );
 
   /**
    * Delete a message locally + on the server.
    */
-  const deleteMsg = useCallback(async (messageId: string) => {
-    await mediaService.message.delete(roomId, messageId);
-    await reload();
-  }, [roomId]);
+  const deleteMsg = useCallback(
+    async (messageId: string) => {
+      await mediaService.message.delete(roomId, messageId);
+      await reload();
+    },
+    [roomId],
+  );
 
   /**
    * Edit a message locally + on the server.
    */
-  const editMsg = useCallback(async (messageId: string, newText: string) => {
-    await mediaService.message.edit(roomId, messageId, newText);
-    await reload();
-  }, [roomId]);
+  const editMsg = useCallback(
+    async (messageId: string, newText: string) => {
+      await mediaService.message.edit(roomId, messageId, newText);
+      await reload();
+    },
+    [roomId],
+  );
 
   /**
    * Load older messages when the user scrolls to the top.
@@ -203,7 +251,11 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
     setIsSyncing(true);
     try {
       // First try SQLite (already cached)
-      const older = await messageStore.getOlderThan(roomId, oldestTimestamp, 20);
+      const older = await messageStore.getOlderThan(
+        roomId,
+        oldestTimestamp,
+        20,
+      );
 
       if (older.length > 0) {
         // Prepend older messages to current list
@@ -245,11 +297,12 @@ export function useChat({ roomId, currentUser }: UseChatParams): UseChatReturn {
     editMsg,
     loadMore,
     onTyping,
-    isTyping:    !!typingUserId,
+    isTyping: !!typingUserId,
     typingUserId,
     isConnected,
     isSyncing,
     hasMore,
     flatListRef,
+    sendMedia,
   };
 }

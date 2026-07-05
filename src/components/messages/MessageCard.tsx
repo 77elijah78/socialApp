@@ -16,6 +16,7 @@ export default function MessageCard({
   time,
   isSent,
   isRead,
+  uri,
 }: messagesCardProps) {
   const { width, height } = useWindowDimensions();
   return (
@@ -26,15 +27,15 @@ export default function MessageCard({
           : [styles.container, { alignItems: "flex-end" }]
       }
     >
-      {type === "Text" && (
+      {type === "text" && (
         <View style={styles.contentContainer}>
           <Text>{message}</Text>
         </View>
       )}
-      {type === "Image" && (
+      {type === "image/jpeg" && (
         <View style={styles.imageContainer}>
           <Image
-            source={images.signUpImage}
+            source={{ uri: uri }}
             style={{
               flex: 1,
               width: "100%",
@@ -47,25 +48,14 @@ export default function MessageCard({
           <Text style={{ padding: 10 }}>{message}</Text>
         </View>
       )}
-      {type === "Video" && (
+      {type === "video/mp4" && (
         <View>
-          <VideoPlayer
-            style={{}}
-            uri="https://dl.biamusic.ir/Video/Artist/Ragheb/Ragheb%20-%20Dena%20-%20480%20[BiaMusic].mp4"
-            thumbnail=""
-            borderRadius={12}
-          />
+          <VideoPlayer style={{}} uri={uri} thumbnail="" borderRadius={12} />
         </View>
       )}
-      {type === "Voice" && (
+      {type === "audio/mpeg" && (
         <View>
-          <VoiceMessageBubble
-            audioUri={
-              "Audio recorded at: file:///data/user/0/com.elijah77.social/cache/Audio/recording-b6b914e5-781d-42b5-a874-e7bd3b63de9a.m4a"
-            }
-            duration={30}
-            isOwn={isSent}
-          />
+          <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
         </View>
       )}
       <Text

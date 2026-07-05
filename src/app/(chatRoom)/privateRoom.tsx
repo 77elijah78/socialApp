@@ -31,9 +31,10 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
+import { MessageService } from "@/services/MessageService";
 
 export default function PrivateRoom() {
-  const { roomId, receiverName } = useLocalSearchParams<{
+  const { roomId, receiverName, conversationId } = useLocalSearchParams<{
     roomId: string;
     receiverName: string;
     conversationId: string;
@@ -81,8 +82,6 @@ export default function PrivateRoom() {
 
         // Pass to your existing uploader logic here
         if (uri) {
-          console.log("Audio recorded at:", uri);
-          // uploadMyFile(uri);
         }
       }
     } catch (err) {
@@ -106,6 +105,7 @@ export default function PrivateRoom() {
     isSyncing,
     hasMore,
     flatListRef,
+    sendMedia,
   } = useChat({
     roomId,
     currentUser: {
@@ -158,10 +158,14 @@ export default function PrivateRoom() {
     };
   }, []);
 
-  const handleSendFiles = (files: PickedFile[]) => {
+  const handleSendFiles = useCallback(async (files: PickedFile[]) => {
     // Add to attachments list (simulate sending)
     setAttachments((prev) => [...prev, ...files]);
-  };
+    try {
+      sendMedia(files[0].type, files[0].uri, conversationId);
+    } finally {
+    }
+  }, []);
 
   const removeAttachment = (uri: string) => {
     setAttachments((prev) => prev.filter((f) => f.uri !== uri));
@@ -215,7 +219,8 @@ export default function PrivateRoom() {
               sender={""}
               isRead={false}
               isSent={item.item.direction === "sent" ? true : false}
-              type={"Voice"}
+              type={item.item.type}
+              uri={item.item.mediaUrl}
             />
           );
         }}

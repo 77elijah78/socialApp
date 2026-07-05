@@ -49,6 +49,13 @@ interface ServerMessagesResponse {
  *   3b. Failure → markFailed() so UI shows retry button
  */
 export class MessageService extends BaseUploader {
+  //static sendMediaRecord(
+  //  type: string,
+  //  uri: string | null,
+  //  arg2: { roomId: string; conversationId: any },
+  //) {
+  //  throw new Error("Method not implemented.");
+  //}
   private readonly endpoint = "/conversations";
   private readonly maxLength = 5000;
 
@@ -96,28 +103,28 @@ export class MessageService extends BaseUploader {
     // 1. Write to SQLite — UI sees it immediately
     await messageStore.save(optimistic);
 
-    //try {
-    //  const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
-    //    method: "POST",
-    //    headers: {
-    //      "Content-Type": "application/json",
-    //      ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
-    //    },
-    //    body: JSON.stringify({ text: text.trim(), ...meta }),
-    //  });
-    //
-    //  if (!res.ok) throw new Error(`[${res.status}]`);
-    //
-    //  const server: ServerMessageResponse = await res.json();
-    //  const serverId = server.id ?? server.messageId ?? localId;
-    //
-    //  // 2. Confirm — sets real id + status "sent"
-    //  return messageStore.confirm(localId, serverId, server.timestamp);
-    //} catch (err) {
-    //  console.log(err);
-    //  await messageStore.markFailed(localId);
-    //  throw err;
-    //}
+    try {
+      const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
+        },
+        body: JSON.stringify({ text: text.trim(), ...meta }),
+      });
+
+      if (!res.ok) throw new Error(`[${res.status}]`);
+
+      const server: ServerMessageResponse = await res.json();
+      const serverId = server.id ?? server.messageId ?? localId;
+
+      // 2. Confirm — sets real id + status "sent"
+      return messageStore.confirm(localId, serverId, server.timestamp);
+    } catch (err) {
+      console.log(err);
+      await messageStore.markFailed(localId);
+      throw err;
+    }
   }
 
   // ─── Retry failed ─────────────────────────────────────────────────────────
@@ -144,11 +151,7 @@ export class MessageService extends BaseUploader {
    * @param mediaUrl  CDN URL returned by the upload
    * @param meta      senderId, receiverId, roomId
    */
-  async sendMediaRecord(
-    type: "audio" | "video",
-    mediaUrl: string,
-    meta: SendMeta,
-  ) {
+  async sendMediaRecord(type: string, mediaUrl: string | null, meta: SendMeta) {
     const localId = uid();
 
     const optimistic: NewMessageRow = {
@@ -167,26 +170,26 @@ export class MessageService extends BaseUploader {
 
     await messageStore.save(optimistic);
 
-    try {
-      const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
-        },
-        body: JSON.stringify({ type, mediaUrl, ...meta }),
-      });
-
-      if (!res.ok) throw new Error(`[${res.status}]`);
-
-      const server: ServerMessageResponse = await res.json();
-      const serverId = server.id ?? server.messageId ?? localId;
-
-      return messageStore.confirm(localId, serverId, server.timestamp);
-    } catch (err) {
-      await messageStore.markFailed(localId);
-      throw err;
-    }
+    //try {
+    //  const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
+    //    method: "POST",
+    //    headers: {
+    //      "Content-Type": "application/json",
+    //      ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
+    //    },
+    //    body: JSON.stringify({ type, mediaUrl, ...meta }),
+    //  });
+    //
+    //  if (!res.ok) throw new Error(`[${res.status}]`);
+    //
+    //  const server: ServerMessageResponse = await res.json();
+    //  const serverId = server.id ?? server.messageId ?? localId;
+    //
+    //  return messageStore.confirm(localId, serverId, server.timestamp);
+    //} catch (err) {
+    //  await messageStore.markFailed(localId);
+    //  throw err;
+    //}
   }
 
   // ─── Sync from server ─────────────────────────────────────────────────────

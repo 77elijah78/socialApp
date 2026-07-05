@@ -88,6 +88,7 @@ export interface messagesCardProps {
   isSent: boolean;
   onPress?: () => void;
   type: string;
+  uri: string;
 }
 
 export interface LoginResponse {
