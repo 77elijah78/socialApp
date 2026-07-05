@@ -8,30 +8,24 @@ import {
   Image,
   FlatList,
   TextInput,
-  useWindowDimensions,
-  Keyboard,
   Platform,
   Pressable,
   Alert,
+  KeyboardAvoidingView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
 import {
   AudioModule,
   RecordingPresets,
-  setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
-  AudioPlayer,
 } from "expo-audio";
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
-import { MessageService } from "@/services/MessageService";
 
 export default function PrivateRoom() {
   const { roomId, receiverName, conversationId } = useLocalSearchParams<{
@@ -40,21 +34,17 @@ export default function PrivateRoom() {
     conversationId: string;
   }>();
 
-  const [pickedFiles, setPickedFiles] = useState<PickedFile[]>([]);
   const [record, setRecord] = useState(true);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
 
-  // 1. Initialize the recorder with a preset
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-
-  // 2. This hook tracks the live state (isRecording, duration, etc.)
   const status = useAudioRecorderState(recorder);
 
   const startRecording = async () => {
     try {
-      // Check permissions
       const permission = await AudioModule.requestRecordingPermissionsAsync();
+
       if (!permission.granted) {
         Alert.alert(
           "Permission required",
@@ -64,8 +54,6 @@ export default function PrivateRoom() {
       }
 
       setRecordedUri(null);
-
-      // Prepare and Start
       await recorder.prepareToRecordAsync();
       recorder.record();
     } catch (err) {
@@ -80,8 +68,8 @@ export default function PrivateRoom() {
         const uri = recorder.uri;
         setRecordedUri(uri);
 
-        // Pass to your existing uploader logic here
         if (uri) {
+          // TODO: send voice message
         }
       }
     } catch (err) {
@@ -92,38 +80,24 @@ export default function PrivateRoom() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
 
-  const {
-    messages,
-    send,
-    retry,
-    deleteMsg,
-    editMsg,
-    loadMore,
-    onTyping,
-    isTyping,
-    isConnected,
-    isSyncing,
-    hasMore,
-    flatListRef,
-    sendMedia,
-  } = useChat({
+  const { messages, send, flatListRef, onTyping, sendMedia } = useChat({
     roomId,
     currentUser: {
-      id: currentUserId ? currentUserId : "",
-      token: currentUserToken ? currentUserToken : "",
+      id: currentUserId ?? "",
+      token: currentUserToken ?? "",
     },
   });
 
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [attachments, setAttachments] = useState<PickedFile[]>([]);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || sending) return;
+
     setInputText("");
     setSending(true);
+
     try {
       await send(text, receiverName);
     } finally {
@@ -131,168 +105,121 @@ export default function PrivateRoom() {
     }
   }, [inputText, sending, send, receiverName]);
 
-  const { width, height } = useWindowDimensions();
-  const [inputMarginBottom, setInputMarginBottom] = useState(0);
+  const handleSendFiles = useCallback(
+    async (files: PickedFile[]) => {
+      try {
+        sendMedia(files[0].type, files[0].uri, conversationId);
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    [conversationId],
+  );
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: false });
   }, []);
 
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      "keyboardDidShow",
-      (e) => {
-        setInputMarginBottom(e.endCoordinates.height);
-      },
-    );
-    const keyboardDidHideListener = Keyboard.addListener(
-      "keyboardDidHide",
-      () => {
-        setInputMarginBottom(0);
-      },
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
-  }, []);
-
-  const handleSendFiles = useCallback(async (files: PickedFile[]) => {
-    // Add to attachments list (simulate sending)
-    setAttachments((prev) => [...prev, ...files]);
-    try {
-      sendMedia(files[0].type, files[0].uri, conversationId);
-    } finally {
-    }
-  }, []);
-
-  const removeAttachment = (uri: string) => {
-    setAttachments((prev) => prev.filter((f) => f.uri !== uri));
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      <View style={styles.headerContainer}>
-        <TouchableOpacity
-          onPress={() => {
-            router.back();
-          }}
-        >
-          <Image source={icons.leftArrow} style={styles.backIcon} />
-        </TouchableOpacity>
-        <TouchableOpacity>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
+        {/* HEADER */}
+        <View style={styles.headerContainer}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Image source={icons.leftArrow} style={styles.backIcon} />
+          </TouchableOpacity>
+
           <Image
             source={{
-              uri: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+              uri: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg",
             }}
             style={styles.avatar}
           />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.userNameContainer}>
-          <Text style={styles.userName}>{receiverName}</Text>
-          <Text style={styles.lastSeen}>Online</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={{ position: "absolute", right: 10, width: 30, height: 30 }}
-        >
-          <Image source={icons.dots} />
-        </TouchableOpacity>
-      </View>
 
-      <FlatList
-        ref={flatListRef}
-        style={{ flex: 1, paddingHorizontal: 15 }}
-        maxToRenderPerBatch={10}
-        windowSize={10}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: false })
-        }
-        keyExtractor={(item) => item.localId}
-        keyboardShouldPersistTaps="handled"
-        data={messages}
-        renderItem={(item) => {
-          return (
-            <MessageCard
-              message={item.item.text}
-              time={item.item.timestamp}
-              sender={""}
-              isRead={false}
-              isSent={item.item.direction === "sent" ? true : false}
-              type={item.item.type}
-              uri={item.item.mediaUrl}
-            />
-          );
-        }}
-      />
+          <View style={styles.userNameContainer}>
+            <Text style={styles.userName}>{receiverName}</Text>
+            <Text style={styles.lastSeen}>Online</Text>
+          </View>
 
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            marginBottom: inputMarginBottom,
-          },
-        ]}
-      >
-        <TouchableOpacity
-          onPress={() => {
-            setVisible(true);
-          }}
-        >
-          <Image
-            source={icons.add}
-            style={{ width: 25, height: 25, borderRadius: 20 }}
-          />
-        </TouchableOpacity>
-        <View style={styles.textInputWrapper}>
-          <TouchableOpacity>
-            <Image
-              source={icons.emoji}
-              style={{ width: 25, height: 25, borderRadius: 20 }}
-            />
+          <TouchableOpacity style={styles.menuButton}>
+            <Image source={icons.dots} />
           </TouchableOpacity>
-          <TextInput
-            placeholder="Message..."
-            style={styles.textInput}
-            multiline={true}
-            numberOfLines={5}
-            value={inputText}
-            onChangeText={(t) => {
-              setRecord(false);
-              setInputText(t);
-              onTyping();
-            }}
-          />
         </View>
-        {record && (
-          <Pressable
-            style={({ pressed }) => [
-              styles.sendButton,
-              (pressed || status.isRecording) && styles.micButtonActive,
-            ]}
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
-          >
-            <Image
-              source={status.isRecording ? icons.micactive : icons.mic}
-              style={{ width: 25, height: 25, borderRadius: 20 }}
+
+        {/* MESSAGES */}
+        <FlatList
+          ref={flatListRef}
+          style={{ flex: 1, paddingHorizontal: 15 }}
+          keyExtractor={(item) => item.localId}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: true })
+          }
+          data={messages}
+          renderItem={({ item }) => (
+            <MessageCard
+              message={item.text}
+              time={item.timestamp}
+              sender=""
+              isRead={false}
+              isSent={item.direction === "sent"}
+              type={item.type}
+              uri={item.mediaUrl}
             />
-          </Pressable>
-        )}
-        {!record && (
-          <TouchableOpacity
-            style={styles.sendButton}
-            onPress={() => {
-              if (inputText === "") {
-                setRecord(true);
-              }
-              handleSend();
-            }}
-          >
-            <Image source={icons.send} style={styles.sendIcon} />
+          )}
+        />
+
+        {/* INPUT */}
+        <View style={styles.inputContainer}>
+          <TouchableOpacity onPress={() => setVisible(true)}>
+            <Image source={icons.add} style={styles.iconSmall} />
           </TouchableOpacity>
-        )}
-      </View>
+
+          <View style={styles.textInputWrapper}>
+            <TouchableOpacity>
+              <Image source={icons.emoji} style={styles.iconSmall} />
+            </TouchableOpacity>
+
+            <TextInput
+              placeholder="Message..."
+              style={styles.textInput}
+              multiline
+              value={inputText}
+              onChangeText={(t) => {
+                setRecord(t.length === 0);
+                setInputText(t);
+                onTyping();
+              }}
+            />
+          </View>
+
+          {record ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.sendButton,
+                (pressed || status.isRecording) && styles.micButtonActive,
+              ]}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+            >
+              <Image
+                source={status.isRecording ? icons.micactive : icons.mic}
+                style={styles.iconSmall}
+              />
+            </Pressable>
+          ) : (
+            <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
+              <Image source={icons.send} style={styles.sendIcon} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+
       <MediaPickerModal
         visible={visible}
         onClose={() => setVisible(false)}
@@ -324,25 +251,28 @@ const styles = StyleSheet.create({
     marginLeft: 20,
   },
   userNameContainer: {
-    flexDirection: "column",
     marginLeft: 10,
   },
   userName: {
     fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 5,
   },
   lastSeen: {
     color: "#6366f1",
+  },
+  menuButton: {
+    position: "absolute",
+    right: 10,
+    width: 30,
+    height: 30,
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
     padding: 10,
     backgroundColor: "#e0e0e0",
-    borderRadius: 15,
     borderTopColor: "#aaaaaa",
-    paddingVertical: 20,
+    paddingVertical: 15,
   },
   textInputWrapper: {
     flex: 1,
@@ -355,12 +285,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   textInput: {
-    flexGrow: 1,
     flex: 1,
     marginLeft: 10,
-    backgroundColor: "#fcf8ff",
-    borderRadius: 15,
-    marginRight: 10,
   },
   sendButton: {
     width: 40,
@@ -373,16 +299,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366f1",
   },
   sendIcon: {
-    width: 30,
-    height: 30,
-    position: "absolute",
-    right: 2,
+    width: 28,
+    height: 28,
+  },
+  iconSmall: {
+    width: 25,
+    height: 25,
   },
   micButtonActive: {
     transform: [{ scale: 1.2 }],
-  },
-  micButton: {
-    position: "absolute",
-    right: 10,
   },
 });
