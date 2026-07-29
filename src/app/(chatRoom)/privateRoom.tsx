@@ -41,6 +41,7 @@ export default function PrivateRoom() {
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
+  const textInputRef = useRef<TextInput>(null);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -113,6 +114,13 @@ export default function PrivateRoom() {
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: false });
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 300);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -196,6 +204,7 @@ export default function PrivateRoom() {
 
           <View style={styles.textInputWrapper}>
             <TextInput
+              ref={textInputRef}
               placeholder="Message..."
               placeholderTextColor={theme.COLORS.textMuted}
               style={styles.textInput}
