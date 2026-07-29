@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useAudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS, SPACING, RADIUS, SHADOW, FONT } from "@/constants/theme";
+import theme from "@/constants/theme";
 
 type MessageType = "image" | "video" | "audio" | "file";
 
@@ -27,10 +27,8 @@ export default function BubbleMessage({
   isMe = false,
   time,
 }: Props) {
-  /* ================= VIDEO ================= */
   const videoPlayer = type === "video" ? useVideoPlayer(uri) : null;
 
-  /* ================= AUDIO ================= */
   const audioPlayer = type === "audio" ? useAudioPlayer(uri) : null;
 
   const toggleAudio = async () => {
@@ -43,7 +41,6 @@ export default function BubbleMessage({
     }
   };
 
-  /* ================= STYLES ================= */
   const bubbleStyle = [
     styles.bubble,
     isMe ? styles.myBubble : styles.otherBubble,
@@ -82,7 +79,7 @@ export default function BubbleMessage({
               <Ionicons
                 name={audioPlayer.playing ? "pause" : "play"}
                 size={18}
-                color={COLORS.textWhite}
+                color={theme.COLORS.textWhite}
               />
             </View>
 
@@ -107,7 +104,7 @@ export default function BubbleMessage({
             onPress={() => Linking.openURL(uri)}
           >
             <View style={styles.fileIcon}>
-              <Ionicons name="document" size={22} color={COLORS.primary} />
+              <Ionicons name="document" size={22} color={theme.COLORS.primary} />
             </View>
 
             <View style={{ flex: 1 }}>
@@ -128,55 +125,55 @@ export default function BubbleMessage({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: SPACING.sm,
-    paddingHorizontal: SPACING.lg,
+    marginVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.lg,
   },
   alignStart: { alignItems: "flex-start" },
   alignEnd: { alignItems: "flex-end" },
 
   bubble: {
     maxWidth: "75%",
-    borderRadius: RADIUS.xl,
-    padding: SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xl,
+    padding: theme.SPACING.sm,
   },
 
   myBubble: {
-    backgroundColor: COLORS.primaryGhost,
+    backgroundColor: theme.COLORS.primaryGhost,
     borderWidth: 1,
-    borderColor: COLORS.primaryGhostBorder,
+    borderColor: theme.COLORS.primaryGhostBorder,
   },
 
   otherBubble: {
-    backgroundColor: COLORS.bgWhite,
-    ...SHADOW.sm,
+    backgroundColor: theme.COLORS.bgWhite,
+    ...theme.SHADOWS.sm,
   },
 
   /* IMAGE */
   image: {
-    width: 220,
-    height: 220,
-    borderRadius: RADIUS.lg,
+    width: theme.SIZING.messageMaxImage,
+    height: theme.SIZING.messageMaxImage,
+    borderRadius: theme.BORDER_RADIUS.lg,
   },
 
   /* VIDEO */
   video: {
-    width: 220,
-    height: 220,
-    borderRadius: RADIUS.lg,
+    width: theme.SIZING.messageMaxImage,
+    height: theme.SIZING.messageMaxImage,
+    borderRadius: theme.BORDER_RADIUS.lg,
   },
 
   /* AUDIO */
   audioRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: SPACING.md,
+    gap: theme.SPACING.md,
   },
 
   playButton: {
-    width: 36,
-    height: 36,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primary,
+    width: theme.SIZING.voicePlayButton,
+    height: theme.SIZING.voicePlayButton,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -184,55 +181,55 @@ const styles = StyleSheet.create({
   waveRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: theme.BORDER_RADIUS.xs,
   },
 
   wave: {
-    width: 3,
-    backgroundColor: COLORS.wave4,
-    borderRadius: 2,
+    width: theme.BORDER_RADIUS.sm,
+    backgroundColor: theme.COLORS.wave4,
+    borderRadius: theme.BORDER_RADIUS.xs,
   },
 
   duration: {
-    fontSize: 11,
-    color: COLORS.textMuted,
-    marginTop: 4,
-    fontWeight: FONT.medium,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.textMuted,
+    marginTop: theme.SPACING.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
 
   /* FILE */
   fileRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: SPACING.md,
+    gap: theme.SPACING.md,
   },
 
   fileIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.primaryGhost,
+    width: theme.SIZING.cardHeight,
+    height: theme.SIZING.cardHeight,
+    borderRadius: theme.BORDER_RADIUS.md,
+    backgroundColor: theme.COLORS.primaryGhost,
     justifyContent: "center",
     alignItems: "center",
   },
 
   fileName: {
-    fontSize: 14,
-    fontWeight: FONT.medium,
-    color: COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    color: theme.COLORS.textPrimary,
   },
 
   fileSize: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginTop: 2,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.textMuted,
+    marginTop: theme.BORDER_RADIUS.xs,
   },
 
   /* TIME */
   time: {
-    fontSize: 10,
-    color: COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    color: theme.COLORS.textMuted,
     alignSelf: "flex-end",
-    marginTop: SPACING.xs,
+    marginTop: theme.SPACING.xs,
   },
 });

@@ -1,72 +1,167 @@
-// constants/theme.ts
 export const COLORS = {
-  // Primary
-  primary: "#6C5CE7",
-  primaryLight: "#A29BFE",
-  primaryDark: "#5A4BD1",
-  primaryGhost: "rgba(108, 92, 231, 0.08)",
-  primaryGhostBorder: "rgba(108, 92, 231, 0.15)",
+  primary: '#6C5CE7',
+  primaryLight: '#A29BFE',
+  primaryDark: '#5A4BD1',
+  primaryGhost: 'rgba(108, 92, 231, 0.08)',
+  primaryGhostBorder: 'rgba(108, 92, 231, 0.15)',
 
-  // Background
-  bgMain: "#F0EFF5",
-  bgChat: "#E8E6F0",
-  bgWhite: "#FFFFFF",
-  bgCard: "#FAFAFF",
-  bgInput: "#F5F3FF",
+  secondary: '#f43f5e',
+  secondaryLight: '#FFF0F0',
 
-  // Text
-  textPrimary: "#1A1A2E",
-  textSecondary: "#6B7194",
-  textMuted: "#A0A3BD",
-  textWhite: "#FFFFFF",
-  textOnPrimary: "#FFFFFF",
+  accentPurple: '#7c3aed',
+  accentBlue: '#3b82f6',
+  accentLightPurple: '#a855f7',
+  tagText: '#a78bfa',
 
-  // Accent
-  online: "#00D26A",
-  danger: "#FF4757",
-  dangerLight: "#FFF0F0",
-  success: "#00D26A",
-  successLight: "#E6FFF2",
+  indigo: '#4F46E5',
+  primaryLink: '#6366f1',
 
-  // Waveform
-  wave1: "#D6D3F0",
-  wave2: "#B8B3E8",
-  wave3: "#9B93E0",
-  wave4: "#7C72D8",
-  wave5: "#6C5CE7",
+  bgMain: '#F0EFF5',
+  bgChat: '#E8E6F0',
+  bgWhite: '#FFFFFF',
+  bgCard: '#FAFAFF',
+  bgInput: '#F5F3FF',
+  bgLight: '#f5f5f5',
+  bgChatInput: '#fcf8ff',
+  bgAuthInput: '#f5f2ff',
+  bgOAuth: '#fafafa',
+  bgDivider: 'rgba(255,255,255,0.06)',
+  bgImageWrapper: 'rgba(255,255,255,0.05)',
 
-  // Shadows
-  shadowPrimary: "rgba(108, 92, 231, 0.25)",
-  shadowDark: "rgba(26, 26, 46, 0.08)",
+  textPrimary: '#1A1A2E',
+  textSecondary: '#6B7194',
+  textMuted: '#A0A3BD',
+  textWhite: '#FFFFFF',
+  textOnPrimary: '#FFFFFF',
+  textDark: '#16161d',
+  textBlack: '#000000',
+  textGray: '#646464',
+  textTimeRead: '#bdbdbd',
+  textSlide: '#999',
+  textLocked: '#111',
+  textMutedGray: '#6b7280',
+
+  online: '#00D26A',
+  success: '#00D26A',
+  successLight: '#E6FFF2',
+  danger: '#FF4757',
+  dangerLight: '#FFF0F0',
+  red: '#EA0038',
+  green: '#00A884',
+
+  borderGray: '#e0e0e0',
+  borderLight: '#ccc',
+  borderDivider: '#e0e0e0',
+  cardBorder: '#ffffff12',
+  verifiedBorder: '#7c3aed59',
+  borderTopDark: 'rgba(0,0,0,0.06)',
+
+  transparent: 'transparent',
+  white: '#FFFFFF',
+  black: '#000000',
+  gray: 'gray',
+
+  bubbleBg: '#f0ecf9',
+  playedWave: '#7b7fe8',
+  unplayedWave: 'rgba(141, 141, 141, 0.38)',
+  voiceIndicator: 'rgba(255,255,255,0.5)',
+  timeSent: 'rgba(255,255,255,0.6)',
+  checkMark: 'rgba(255,255,255,0.7)',
+
+  shadowPrimary: 'rgba(108, 92, 231, 0.25)',
+  shadowDark: 'rgba(26, 26, 46, 0.08)',
+  shadowBlack: 'rgba(0,0,0,0.45)',
+  deleteBtnBg: 'rgba(234,0,56,0.07)',
+  sendBtnShadow: 'rgba(0,168,132,0.3)',
+  centerPlayBtnBg: 'rgba(0,0,0,0.4)',
+  seekTrackBg: 'rgba(255,255,255,0.3)',
+  timerTotal: 'rgba(255,255,255,0.6)',
+  speedBtnBg: 'rgba(255,255,255,0.18)',
+  seekBuffered: 'rgba(255,255,255,0.25)',
+  likedActionBg: 'rgba(244,63,94,0.1)',
+  bookmarkedActionBg: 'rgba(124,58,237,0.1)',
+
+  wave1: '#D6D3F0',
+  wave2: '#B8B3E8',
+  wave3: '#9B93E0',
+  wave4: '#7C72D8',
+  wave5: '#6C5CE7',
 };
 
 export const SPACING = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 24,
-  xxxl: 32,
+  xs: 2,
+  sm: 4,
+  md: 8,
+  lg: 12,
+  xl: 16,
+  xxl: 20,
+  xxxl: 24,
+  xxxxl: 30,
+  xxxxxl: 32,
+  xxxxxxl: 40,
+  xxxxxxxl: 50,
+  xxxxxxxxl: 55,
+  xxxxxxxxxl: 60,
 };
 
-export const RADIUS = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 24,
+export const TYPOGRAPHY = {
+  fontSize: {
+    xs: 10,
+    sm: 11,
+    md: 12,
+    lg: 13,
+    xl: 14,
+    xxl: 15,
+    xxxl: 16,
+    xl4: 18,
+    xl5: 20,
+    xl6: 22,
+    xl7: 24,
+    xl8: 25,
+    xl9: 30,
+  },
+  fontWeight: {
+    light: '300' as const,
+    regular: '400' as const,
+    medium: '500' as const,
+    semibold: '600' as const,
+    bold: '700' as const,
+  },
+  lineHeight: {
+    xs: 10,
+    sm: 12,
+    md: 18,
+    lg: 20,
+    xl: 21,
+    xxl: 22,
+  },
+  letterSpacing: {
+    xs: 0.5,
+    sm: 1,
+  },
+};
+
+export const BORDER_RADIUS = {
+  xs: 2,
+  sm: 4,
+  md: 6,
+  lg: 8,
+  xl: 10,
+  xxl: 12,
+  xxxl: 14,
+  xxxxl: 15,
+  xxxxxl: 18,
+  xxxxxxl: 19,
+  xxxxxxxl: 20,
+  xxxxxxxxl: 21,
+  xxxxxxxxxl: 22,
+  xxxxxxxxxxl: 30,
+  xxxxxxxxxxxl: 32,
+  xxxxxxxxxxxxl: 100,
   full: 999,
 };
 
-export const FONT = {
-  regular: "400" as const,
-  medium: "500" as const,
-  semibold: "600" as const,
-  bold: "700" as const,
-};
-
-export const SHADOW = {
+export const SHADOWS = {
   sm: {
     shadowColor: COLORS.shadowDark,
     shadowOffset: { width: 0, height: 1 },
@@ -78,7 +173,7 @@ export const SHADOW = {
     shadowColor: COLORS.shadowDark,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 8,
+    shadowRadius: 6,
     elevation: 4,
   },
   lg: {
@@ -88,6 +183,13 @@ export const SHADOW = {
     shadowRadius: 12,
     elevation: 8,
   },
+  xl: {
+    shadowColor: COLORS.shadowDark,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
   primary: {
     shadowColor: COLORS.shadowPrimary,
     shadowOffset: { width: 0, height: 3 },
@@ -95,4 +197,84 @@ export const SHADOW = {
     shadowRadius: 10,
     elevation: 6,
   },
+  black: {
+    shadowColor: COLORS.shadowBlack,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
 };
+
+export const SIZING = {
+  iconXs: 20,
+  iconSm: 24,
+  iconMd: 30,
+  iconLg: 36,
+  iconXl: 42,
+  avatarXs: 30,
+  avatarSm: 36,
+  avatarMd: 42,
+  avatarLg: 50,
+  avatarXl: 60,
+  buttonHeight: 55,
+  inputHeight: 55,
+  cardHeight: 60,
+  bottomBar: 40,
+  headerHeight: 60,
+  centerPlayBtn: 64,
+  waveformHeight: 32,
+  messageMaxImage: 250,
+  storyImage: 70,
+  storyItem: 75,
+  storiesBar: 100,
+  postImage: 210,
+  signUpImage: 200,
+  loginCard: 530,
+  sendButton: 36,
+  cancelButton: 30,
+  deleteButton: 38,
+  lockPill: 52,
+  privateMessageCard: 90,
+  voicePlayButton: 36,
+  messageBubbleMinHeight: 40,
+  recordingBarMinHeight: 54,
+  dot: 7,
+  oauthButtonWidth: '48%',
+  messageWidth: '80%',
+  contentWidth: '70%',
+} as const;
+
+export const OPACITY = {
+  disabled: 0.4,
+  pressed: 0.6,
+  semiTransparent: 0.7,
+  subtle: 0.8,
+  light: 0.18,
+  lighter: 0.25,
+  lightest: 0.05,
+  divider: 0.06,
+  overlay: 0.4,
+  modal: 0.7,
+};
+
+export const BORDER = {
+  width: {
+    xs: 1,
+    sm: 2,
+  },
+  color: {
+    light: '#f5f5f5',
+    gray: '#ccc',
+    divider: '#e0e0e0',
+  },
+};
+
+export const LAYOUT = {
+  flex: 1,
+  cardPadding: 16,
+  contentPadding: 15,
+  listPaddingHorizontal: 15,
+};
+
+export default { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS, SHADOWS, SIZING, OPACITY, BORDER, LAYOUT };

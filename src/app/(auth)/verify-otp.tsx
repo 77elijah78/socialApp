@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Button } from 'react-native';
 import { useRouter } from 'expo-router';
+import theme from "@/constants/theme";
 
 export default function VerifyOTPScreen() {
   const router = useRouter();

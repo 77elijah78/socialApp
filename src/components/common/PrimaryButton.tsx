@@ -2,6 +2,7 @@
 import React from 'react';
 import { TouchableOpacity,StyleSheet,Text,Image } from 'react-native';
 import primaryButtonProps from '@/types/index';
+import theme from '@/constants/theme';
 
 export default function PrimaryButton  ({
     style,
@@ -25,23 +26,23 @@ export default function PrimaryButton  ({
 
 const styles = StyleSheet.create({
     button: {
-        backgroundColor: '#4F46E5',
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 8,
+        backgroundColor: theme.COLORS.indigo,
+        paddingVertical: theme.SPACING.lg,
+        paddingHorizontal: theme.SPACING.xxxl,
+        borderRadius: theme.BORDER_RADIUS.lg,
         alignItems: 'center',
         justifyContent: 'center',
         height: 60,
         flexDirection: 'row',
     },
     buttonText: {
-        color: '#FFFFFF',
-        fontSize: 24,
-        fontWeight: 'bold',
+        color: theme.COLORS.textWhite,
+        fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+        fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     },
     icon: {
-        width: 24,
-        height: 24,
-        marginLeft: 8,
+        width: theme.SIZING.iconSm,
+        height: theme.SIZING.iconSm,
+        marginLeft: theme.SPACING.md,
     },
 });

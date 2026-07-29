@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useEffect } from "react";
 import { View, Text, Image, TouchableOpacity, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import theme from "@/constants/theme";
 
 export default function Messages() {
   const { rooms, addRoom } = useRooms();
@@ -27,11 +28,11 @@ export default function Messages() {
           style={{
             flexDirection: "row",
             paddingVertical: 10,
-            paddingHorizontal: 15,
-            borderBottomWidth: 1,
-            borderBottomColor: "#e0e0e0",
+            paddingHorizontal: theme.LAYOUT.contentPadding,
+            borderBottomWidth: theme.BORDER.width.xs,
+            borderBottomColor: theme.COLORS.borderDivider,
             alignItems: "center",
-            height: 60,
+            height: theme.SIZING.headerHeight,
           }}
         >
           <TouchableOpacity onPress={() => router.back()}>
@@ -39,9 +40,9 @@ export default function Messages() {
           </TouchableOpacity>
           <Text
             style={{
-              fontSize: 22,
-              fontWeight: "bold",
-              color: "#6366f1",
+              fontSize: theme.TYPOGRAPHY.fontSize.xl6,
+              fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+              color: theme.COLORS.primary,
               position: "absolute",
               left: 70,
             }}
@@ -60,12 +61,12 @@ export default function Messages() {
       </View>
 
       <FlatList
-        style={{ flex: 1, marginTop: 20, paddingHorizontal: 15 }}
+        style={{ flex: 1, marginTop: theme.SPACING.xxl, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
         data={rooms}
-        keyExtractor={(item) => item.id} // ✅ add this
+        keyExtractor={(item) => item.id}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         renderItem={(
-          { item }, // ✅ destructure properly
+          { item },
         ) => (
           <PrivateMessageCard
             message={item.lastMessage}

@@ -16,9 +16,10 @@ import {
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Ionicons } from '@expo/vector-icons';
- 
+import theme from "@/constants/theme";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
- 
+
 interface VideoPlayerProps {
   uri: string;
   width?: number;
@@ -27,29 +28,24 @@ interface VideoPlayerProps {
   borderRadius?: number;
   style?: ViewStyle;
 }
- 
+
 // ─── Constants ────────────────────────────────────────────────────────────────
- 
-const ACCENT          = '#ffffff';
-const CONTROLS_BG     = 'rgba(0,0,0,0.45)';
-const SEEK_TRACK      = 'rgba(255,255,255,0.3)';
-const SEEK_FILLED     = '#ffffff';
-const SEEK_THUMB      = '#ffffff';
+
 const SPEED_OPTIONS   = [0.5, 1, 1.5, 2] as const;
 type SpeedOption      = typeof SPEED_OPTIONS[number];
 const HIDE_CONTROLS_MS = 3000;
- 
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
- 
+
 function formatTime(seconds: number): string {
   const s = Math.floor(seconds);
   const m = Math.floor(s / 60);
   const rem = s % 60;
   return `${m}:${String(rem).padStart(2, '0')}`;
 }
- 
+
 // ─── Seek Bar ─────────────────────────────────────────────────────────────────
- 
+
 interface SeekBarProps {
   progress: number;       // 0–1
   buffered?: number;      // 0–1
@@ -57,16 +53,16 @@ interface SeekBarProps {
   onSeekStart: () => void;
   onSeekEnd: () => void;
 }
- 
+
 const SeekBar: React.FC<SeekBarProps> = ({ progress, buffered = 0, onSeek, onSeekStart, onSeekEnd }) => {
   const trackRef = useRef<View>(null);
   const trackWidth = useRef(0);
- 
+
   const computeSeek = (x: number) => {
     const p = Math.max(0, Math.min(1, x / trackWidth.current));
     onSeek(p);
   };
- 
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -83,7 +79,7 @@ const SeekBar: React.FC<SeekBarProps> = ({ progress, buffered = 0, onSeek, onSee
       },
     }),
   ).current;
- 
+
   return (
     <View
       ref={trackRef}
@@ -100,9 +96,9 @@ const SeekBar: React.FC<SeekBarProps> = ({ progress, buffered = 0, onSeek, onSee
     </View>
   );
 };
- 
+
 // ─── Controls Overlay ─────────────────────────────────────────────────────────
- 
+
 interface ControlsProps {
   visible: boolean;
   isPlaying: boolean;
@@ -120,14 +116,14 @@ interface ControlsProps {
   onSpeedPress: () => void;
   onFullscreen: () => void;
 }
- 
+
 const Controls: React.FC<ControlsProps> = ({
   visible, isPlaying, isLoading, progress, buffered,
   elapsed, duration, speed, isFullscreen,
   onPlayPause, onSeek, onSeekStart, onSeekEnd, onSpeedPress, onFullscreen,
 }) => {
   const opacity = useRef(new Animated.Value(0)).current;
- 
+
   useEffect(() => {
     Animated.timing(opacity, {
       toValue: visible ? 1 : 0,
@@ -135,19 +131,19 @@ const Controls: React.FC<ControlsProps> = ({
       useNativeDriver: true,
     }).start();
   }, [visible]);
- 
+
   return (
     <Animated.View style={[styles.controlsOverlay, { opacity }]} pointerEvents={visible ? "box-none" : "box-only" }>
 
       {/* Center play/pause */}
       <TouchableOpacity onPress={onPlayPause} style={styles.centerBtn} activeOpacity={0.8}>
         {isLoading ? (
-          <ActivityIndicator color="#fff" size="large" />
+          <ActivityIndicator color={theme.COLORS.textWhite} size="large" />
         ) : (
-          <Ionicons name={isPlaying ? 'pause' : 'play'} size={38} color="#fff" />
+          <Ionicons name={isPlaying ? 'pause' : 'play'} size={38} color={theme.COLORS.textWhite} />
         )}
       </TouchableOpacity>
- 
+
       {/* Bottom bar */}
       <View style={styles.bottomBar}>
         <SeekBar
@@ -163,19 +159,19 @@ const Controls: React.FC<ControlsProps> = ({
             {formatTime(elapsed)}
             <Text style={styles.timerTotal}> / {formatTime(duration)}</Text>
           </Text>
- 
+
           <View style={styles.rightControls}>
             {/* Speed */}
             <TouchableOpacity onPress={onSpeedPress} style={styles.speedBtn} activeOpacity={0.7}>
               <Text style={styles.speedText}>{speed}×</Text>
             </TouchableOpacity>
- 
+
             {/* Fullscreen */}
             <TouchableOpacity onPress={onFullscreen} style={styles.iconBtn} activeOpacity={0.7}>
               <Ionicons
                 name={isFullscreen ? 'contract' : 'expand'}
                 size={20}
-                color="#fff"
+                color={theme.COLORS.textWhite}
               />
             </TouchableOpacity>
           </View>
@@ -184,26 +180,26 @@ const Controls: React.FC<ControlsProps> = ({
     </Animated.View>
   );
 };
- 
+
 // ─── Main Component ───────────────────────────────────────────────────────────
- 
+
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
   uri,
   width,
   height,
   thumbnail,
-  borderRadius = 12,
+  borderRadius = theme.BORDER_RADIUS.xxl,
   style,
 }) => {
   const screen = Dimensions.get('window');
   const inlineWidth  = width  ?? screen.width * 0.75;
   const inlineHeight = height ?? inlineWidth * (9 / 16);
- 
+
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
     p.muted = false;
   });
- 
+
   const [isPlaying, setIsPlaying]       = useState(false);
   const [isLoading, setIsLoading]       = useState(true);
   const [progress, setProgress]         = useState(0);
@@ -214,10 +210,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [showControls, setShowControls] = useState(true);
   const [isSeeking, setIsSeeking]       = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
- 
+
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tickRef   = useRef<ReturnType<typeof setInterval> | null>(null);
- 
+
   // ── Progress polling ──────────────────────────────────────────────────────
   useEffect(() => {
     tickRef.current = setInterval(async () => {
@@ -226,14 +222,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const status = player.status;
         if (status === 'readyToPlay') setIsLoading(false);
         if (status === 'loading') setIsLoading(true);
- 
+
         const pos = player.currentTime ?? 0;
         const dur = player.duration ?? 0;
         setElapsed(pos);
         setDuration(dur);
         setProgress(dur > 0 ? pos / dur : 0);
         setIsPlaying(player.playing);
- 
+
         // buffered: expo-video doesn't expose buffered ranges directly,
         // so we estimate 15s ahead of playhead as a visual hint
         if (dur > 0) setBuffered(Math.min(1, (pos + 15) / dur));
@@ -241,18 +237,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // player may not be ready yet
       }
     }, 250);
- 
+
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, [player, isSeeking]);
- 
+
   // Auto-hide controls
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setShowControls(false), HIDE_CONTROLS_MS);
   }, []);
- 
+
   const handleTap = useCallback(() => {
     setShowControls(prev => {
       if (!prev) scheduleHide();
@@ -260,7 +256,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return !prev;
     });
   }, [scheduleHide]);
- 
+
   // ── Play / Pause ──────────────────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
     if (player.playing) {
@@ -270,7 +266,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     scheduleHide();
   }, [player, scheduleHide]);
- 
+
   // ── Seek ──────────────────────────────────────────────────────────────────
   const handleSeek = useCallback((p: number) => {
     const dur = player.duration ?? 0;
@@ -278,17 +274,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setProgress(p);
     setElapsed(p * dur);
   }, [player]);
- 
+
   const handleSeekStart = useCallback(() => {
     setIsSeeking(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
   }, []);
- 
+
   const handleSeekEnd = useCallback(() => {
     setIsSeeking(false);
     scheduleHide();
   }, [scheduleHide]);
- 
+
   // ── Speed ─────────────────────────────────────────────────────────────────
   const handleSpeed = useCallback(() => {
     const idx = SPEED_OPTIONS.indexOf(speed);
@@ -297,7 +293,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     player.playbackRate = next;
     scheduleHide();
   }, [speed, player, scheduleHide]);
- 
+
   // ── Fullscreen ────────────────────────────────────────────────────────────
   const handleFullscreen = useCallback(async () => {
     if (!isFullscreen) {
@@ -308,7 +304,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsFullscreen(f => !f);
     scheduleHide();
   }, [isFullscreen, scheduleHide]);
- 
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -317,7 +313,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     };
   }, []);
- 
+
   // ── Shared player view ────────────────────────────────────────────────────
   const renderPlayer = (w: number, h: number, fs: boolean) => (
     <Pressable
@@ -352,14 +348,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       />
     </Pressable>
   );
- 
+
   return (
     <>
       {/* Inline bubble */}
       <View style={[styles.wrapper, style]}>
         {renderPlayer(inlineWidth, inlineHeight, false)}
       </View>
- 
+
       {/* Fullscreen modal */}
       <Modal
         visible={isFullscreen}
@@ -376,50 +372,50 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </>
   );
 };
- 
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
- 
+
 const styles = StyleSheet.create({
   wrapper: {
     alignSelf: 'flex-start',
   },
   container: {
     overflow: 'hidden',
-    backgroundColor: '#000',
+    backgroundColor: theme.COLORS.black,
     position: 'relative',
     width: '100%',
     height: '100%',
   },
   fullscreenBg: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: theme.COLORS.black,
     alignItems: 'center',
     justifyContent: 'center',
   },
- 
+
   // Controls overlay
   controlsOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: CONTROLS_BG,
+    backgroundColor: theme.COLORS.shadowBlack,
     justifyContent: 'center',
     alignItems: 'center',
   },
   centerBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: theme.SIZING.centerPlayBtn,
+    height: theme.SIZING.centerPlayBtn,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxxl,
+    backgroundColor: theme.COLORS.centerPlayBtnBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
- 
+
   // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 12,
+    paddingHorizontal: theme.SPACING.lg,
     paddingBottom: 10,
     paddingTop: 6,
     gap: 6,
@@ -432,36 +428,36 @@ const styles = StyleSheet.create({
   rightControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: theme.SPACING.md,
   },
- 
+
   // Timer
   timer: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.textWhite,
   },
   timerTotal: {
-    fontWeight: '400',
-    color: 'rgba(255,255,255,0.6)',
+    fontWeight: theme.TYPOGRAPHY.fontWeight.regular,
+    color: theme.COLORS.timerTotal,
   },
- 
+
   // Speed
   speedBtn: {
-    paddingHorizontal: 8,
+    paddingHorizontal: theme.SPACING.md,
     paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: theme.BORDER_RADIUS.md,
+    backgroundColor: theme.COLORS.speedBtnBg,
   },
   speedText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: theme.COLORS.textWhite,
   },
   iconBtn: {
-    padding: 2,
+    padding: theme.SPACING.xs,
   },
- 
+
   // Seek bar
   seekTrack: {
     height: 28,
@@ -471,15 +467,15 @@ const styles = StyleSheet.create({
   seekBuffered: {
     position: 'absolute',
     height: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: theme.BORDER_RADIUS.xs,
+    backgroundColor: theme.COLORS.seekBuffered,
     left: 0,
   },
   seekFilled: {
     position: 'absolute',
     height: 3,
-    borderRadius: 2,
-    backgroundColor: SEEK_FILLED,
+    borderRadius: theme.BORDER_RADIUS.xs,
+    backgroundColor: theme.COLORS.textWhite,
     left: 0,
   },
   seekThumb: {
@@ -487,15 +483,15 @@ const styles = StyleSheet.create({
     width: 13,
     height: 13,
     borderRadius: 7,
-    backgroundColor: SEEK_THUMB,
+    backgroundColor: theme.COLORS.textWhite,
     top: '50%' as any,
     marginTop: -6.5,
     marginLeft: -6.5,
-    shadowColor: '#000',
+    shadowColor: theme.COLORS.black,
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 4,
   },
 });
- 
+
 export default VideoPlayer;

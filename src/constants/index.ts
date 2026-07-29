@@ -20,14 +20,10 @@ import send from "@/assets/icons/send.png";
 import add from "@/assets/icons/add.png";
 import emoji from "@/assets/icons/emoji.png";
 import micactive from "@/assets/icons/mic_active.png";
+import { COLORS } from "./theme";
 
-// App constants
-export const COLORS = {
-  primary: "#6366f1",
-  secondary: "#f43f5e",
-};
+export { COLORS };
 
-//app icons
 export const icons = {
   profile,
   rightArrow,

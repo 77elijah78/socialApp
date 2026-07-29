@@ -3,9 +3,10 @@ import { PaperProvider } from "react-native-paper";
 import { runMigrations } from "../db/migrations";
 import { useEffect, useState } from "react";
 import { Provider } from "react-redux";
-import { store, persistor } from '@/store/index'
-import { ActivityIndicator, View } from 'react-native';
-
+import { store, persistor } from "@/store/index";
+import { ActivityIndicator, View } from "react-native";
+import { KeyboardProvider } from "react-native-keyboard-controller";
+import theme from "@/constants/theme";
 function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
@@ -22,7 +23,7 @@ function PersistGate({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator />
       </View>
     );
@@ -31,31 +32,34 @@ function PersistGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-
 export default function RootLayout() {
   useEffect(() => {
     runMigrations();
   }, []);
 
   return (
-<Provider store={store}>
-  <PersistGate>
-        <PaperProvider>
-          <Stack
-            screenOptions={{
-              contentStyle: {
-                backgroundColor: "#f5f5f5",
-                borderColor: "#f5f5f5",
-              },
-            }}
-          >
-            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(chatRoom)" options={{ headerShown: false }} />
-          </Stack>
-        </PaperProvider>
+    <KeyboardProvider>
+      <Provider store={store}>
+        <PersistGate>
+          <PaperProvider>
+            <Stack
+              screenOptions={{
+                contentStyle: {
+                  backgroundColor: theme.COLORS.bgLight,
+                  borderColor: theme.COLORS.bgLight,
+                },
+              }}
+            >
+              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="(chatRoom)"
+                options={{ headerShown: false }}
+              />
+            </Stack>
+          </PaperProvider>
         </PersistGate>
-        </Provider>
-
+      </Provider>
+    </KeyboardProvider>
   );
 }

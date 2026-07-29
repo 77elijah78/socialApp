@@ -10,23 +10,16 @@ import {
 } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
+import theme from '@/constants/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface VoiceMessageBubbleProps {
   audioUri: string;
-  /** Total duration in seconds */
   duration: number;
-  /**
-   * Waveform amplitude data — 30 to 50 values, each 0–100.
-   * If omitted a deterministic waveform is generated from the URI.
-   */
   waveform?: number[];
-  /** Right-aligned outgoing style when true */
   isOwn?: boolean;
-  /** Display time string, e.g. "14:32" */
   timestamp?: string;
-  /** Show read receipts (outgoing only) */
   isRead?: boolean;
   style?: ViewStyle;
 }
@@ -34,16 +27,10 @@ interface VoiceMessageBubbleProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WAVEFORM_BARS   = 40;
-const BUBBLE_COLOR    = '#f0ecf9';
-const PLAYED_COLOR    = '#7b7fe8';
-const UNPLAYED_COLOR  = 'rgba(141, 141, 141, 0.38)';
-const PLAY_BTN_COLOR  = '#6366f1';
-const BAR_WIDTH       = 2;
-const BAR_GAP         = 2;
-
-// Equalizer: how many center bars animate as a "live" visualizer
-const EQ_BARS         = 5;   // bars on each side of the cursor that pulse
-const EQ_INTERVAL_MS  = 80;  // animation tick
+const BAR_WIDTH       = theme.SIZING.sendButton;
+const BAR_GAP         = theme.BORDER_RADIUS.sm;
+const EQ_BARS         = 5;
+const EQ_INTERVAL_MS  = 80;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +52,6 @@ function formatTime(seconds: number): string {
 }
 
 // ─── Equalizer Hook ───────────────────────────────────────────────────────────
-// Drives per-bar Animated.Values so bars near the playhead pulse while playing.
 
 function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
   const animValues = useRef<Animated.Value[]>(
@@ -77,7 +63,6 @@ function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
   useEffect(() => {
     if (!isPlaying) {
       if (tickRef.current) clearInterval(tickRef.current);
-      // Reset all bars to their static height
       animValues.forEach(v => Animated.spring(v, { toValue: 1, useNativeDriver: false, speed: 20, bounciness: 0 }).start());
       return;
     }
@@ -88,7 +73,6 @@ function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
       animValues.forEach((v, i) => {
         const dist = Math.abs(i - cursor);
         if (dist <= EQ_BARS) {
-          // Bars close to the playhead pulse between 0.6× and 1.4× their height
           const intensity = 1 - dist / (EQ_BARS + 1);
           const lo = Math.max(0.55, 1 - intensity * 0.55);
           const hi = Math.min(1.5, 1 + intensity * 0.6 * (0.5 + Math.random() * 0.5));
@@ -122,7 +106,7 @@ function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
 interface WaveformProps {
   bars: number[];
   animValues: Animated.Value[];
-  progress: number; // 0–1
+  progress: number;
   onSeek?: (progress: number) => void;
 }
 
@@ -143,7 +127,7 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
 
   return (
     <TouchableOpacity
-      activeOpacity={0.9}
+      activeOpacity={theme.OPACITY.pressed}
       onPress={handleTouch}
       style={styles.waveformContainer}
       accessible
@@ -151,14 +135,13 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
     >
       {bars.map((amplitude, i) => {
         const played = i < playedCount;
-        const staticHeight = Math.max(3, (amplitude / 100) * 32);
+        const staticHeight = Math.max(3, (amplitude / 100) * theme.SIZING.waveformHeight);
         const animatedHeight = animValues[i].interpolate({
           inputRange: [0, 2],
-          outputRange: [0, 64],
+          outputRange: [0, theme.SIZING.waveformHeight * 2],
           extrapolate: 'clamp',
         });
 
-        // Scale the static height by the animated multiplier
         const barHeight = Animated.multiply(animValues[i], staticHeight);
 
         return (
@@ -168,7 +151,7 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
               styles.bar,
               {
                 height: barHeight,
-                backgroundColor: played ? PLAYED_COLOR : UNPLAYED_COLOR,
+                backgroundColor: played ? theme.COLORS.playedWave : theme.COLORS.unplayedWave,
               },
             ]}
           />
@@ -190,12 +173,10 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   style,
 }) => {
 
-  
   const bars = waveform && waveform.length >= 10
     ? waveform
     : generateWaveform(audioUri, WAVEFORM_BARS);
 
-  // expo-audio player
   const player = useAudioPlayer({ uri: audioUri });
   const playerStatus = useAudioPlayerStatus(player);
 
@@ -203,24 +184,22 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed]   = useState(0);
 
-  // Configure audio session once
- useEffect(() => {
-  setAudioModeAsync({
-    allowsRecording: false,
-    playsInSilentMode: true,
-  });
+  useEffect(() => {
+    setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+    });
 
-  return () => {
-    try {
-      player.pause();
-      player.remove();
-    } catch (e) {
-      // prevent crash if already removed
-    }
-  };
-}, []);
+    return () => {
+      try {
+        player.pause();
+        player.remove();
+      } catch (e) {
+       // prevent crash if already removed
+      }
+    };
+  }, []);
 
-  // Sync UI state from playerStatus
   useEffect(() => {
     if (!playerStatus) return;
 
@@ -256,7 +235,6 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
         setStatus('playing');
         return;
       }
-      // Fresh play
       setStatus('loading');
       player.seekTo(0);
       player.play();
@@ -286,27 +264,25 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
         isOwn ? styles.bubbleOwn : styles.bubbleOther,
       ]}>
 
-        {/* Play / Pause button */}
         <TouchableOpacity
           onPress={handlePlayPause}
           style={styles.playBtn}
-          activeOpacity={0.8}
+          activeOpacity={theme.OPACITY.pressed}
           accessibilityRole="button"
           accessibilityLabel={isPlaying ? 'Pause voice message' : 'Play voice message'}
           disabled={status === 'loading'}
         >
           {status === 'loading' ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={theme.COLORS.textWhite} />
           ) : (
             <Ionicons
               name={isPlaying ? 'pause' : 'play'}
-              size={18}
-              color="#fff"
+              size={theme.SIZING.avatarXs}
+              color={theme.COLORS.textWhite}
             />
           )}
         </TouchableOpacity>
 
-        {/* Waveform + meta */}
         <View style={styles.right}>
           <Waveform
             bars={bars}
@@ -315,7 +291,6 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
             onSeek={handleSeek}
           />
 
-          {/* Duration + timestamp row */}
           <View style={styles.meta}>
             <Text style={styles.durationText}>{displayTime}</Text>
             {timestamp && (
@@ -324,8 +299,8 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
                 {isOwn && (
                   <Ionicons
                     name={isRead ? 'checkmark-done' : 'checkmark'}
-                    size={13}
-                    color={isRead ? PLAYED_COLOR : UNPLAYED_COLOR}
+                    size={theme.SIZING.avatarXs}
+                    color={isRead ? theme.COLORS.playedWave : theme.COLORS.unplayedWave}
                     style={styles.tick}
                   />
                 )}
@@ -345,7 +320,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginVertical: 3,
+    marginVertical: theme.SPACING.xs,
   },
   rowOther: {
     justifyContent: 'flex-end',
@@ -357,26 +332,26 @@ const styles = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    width: '80%',
-    backgroundColor: BUBBLE_COLOR,
-    gap: 10,
+    paddingVertical: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.lg,
+    width: theme.SIZING.messageWidth,
+    backgroundColor: theme.COLORS.bubbleBg,
+    gap: theme.SPACING.lg,
   },
   bubbleOther: {
-    borderRadius: 16,
-    borderBottomLeftRadius: 4,
+    borderRadius: theme.BORDER_RADIUS.xxxl,
+    borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
   },
   bubbleOwn: {
-    borderRadius: 16,
-    borderBottomRightRadius: 4,
+    borderRadius: theme.BORDER_RADIUS.xxxl,
+    borderBottomRightRadius: theme.BORDER_RADIUS.sm,
   },
 
   playBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: PLAY_BTN_COLOR,
+    width: theme.SIZING.voicePlayButton,
+    height: theme.SIZING.voicePlayButton,
+    borderRadius: theme.SIZING.voicePlayButton / 2,
+    backgroundColor: theme.COLORS.playedWave,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -384,20 +359,20 @@ const styles = StyleSheet.create({
 
   right: {
     flex: 1,
-    gap: 4,
+    gap: theme.SPACING.sm,
   },
 
   waveformContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 32,
-    maxHeight: 32,
+    height: theme.SIZING.waveformHeight,
+    maxHeight: theme.SIZING.waveformHeight,
     overflow: 'hidden',
     gap: BAR_GAP,
   },
   bar: {
     width: BAR_WIDTH,
-    borderRadius: 2,
+    borderRadius: theme.BORDER_RADIUS.xs,
     minHeight: 3,
   },
 
@@ -407,20 +382,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   durationText: {
-    fontSize: 11,
-    color: 'black',
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.textBlack,
   },
   timestampRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: theme.BORDER_RADIUS.xs,
   },
   timestampText: {
-    fontSize: 11,
-    color: 'rgba(141,141,141,0.8)',
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.unplayedWave,
   },
   tick: {
-    marginLeft: 1,
+    marginLeft: theme.BORDER_RADIUS.xs,
   },
 });
 

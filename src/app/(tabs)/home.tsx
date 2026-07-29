@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import StoriesBar from "@/components/feed/StoriesBar";
 import { useRooms } from "@/hooks/useRooms";
 import { roomStore } from "@/db/RoomStore";
+import theme from "@/constants/theme";
 
 const POSTS: SocialPost[] = [
   {
@@ -119,19 +120,19 @@ export default function FeedScreen() {
     <SafeAreaView
       style={{
         flex: 1,
-        backgroundColor: "#fff",
+        backgroundColor: theme.COLORS.white,
       }}
     >
       <View>
         <View
           style={{
             paddingVertical: 10,
-            paddingHorizontal: 15,
-            borderBottomWidth: 1,
-            borderBottomColor: "#e0e0e0",
+            paddingHorizontal: theme.LAYOUT.contentPadding,
+            borderBottomWidth: theme.BORDER.width.xs,
+            borderBottomColor: theme.COLORS.borderDivider,
           }}
         >
-          <Text style={{ fontSize: 22, fontWeight: "bold", color: "#6366f1" }}>
+          <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xl6, fontWeight: theme.TYPOGRAPHY.fontWeight.bold, color: theme.COLORS.primary }}>
             Feed
           </Text>
         </View>
@@ -140,8 +141,8 @@ export default function FeedScreen() {
       <FlatList
         style={{
           flex: 1,
-          paddingHorizontal: 15,
-          backgroundColor: "#f5f5f5",
+          paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+          backgroundColor: theme.COLORS.bgLight,
         }}
         data={POSTS}
         showsVerticalScrollIndicator={false}

@@ -1,7 +1,7 @@
 // components/chat/WaveformBars.tsx
 import React from "react";
 import { View, StyleSheet, Animated } from "react-native";
-import { COLORS } from "@/constants/theme";
+import theme from "@/constants/theme";
 
 const BAR_WIDTH = 2.5;
 const BAR_GAP = 1.2;
@@ -19,11 +19,11 @@ interface WaveformBar {
 
 const getBarColor = (index: number, total: number): string => {
   const ratio = index / total;
-  if (ratio < 0.2) return COLORS.wave1;
-  if (ratio < 0.4) return COLORS.wave2;
-  if (ratio < 0.6) return COLORS.wave3;
-  if (ratio < 0.8) return COLORS.wave4;
-  return COLORS.wave5;
+  if (ratio < 0.2) return theme.COLORS.wave1;
+  if (ratio < 0.4) return theme.COLORS.wave2;
+  if (ratio < 0.6) return theme.COLORS.wave3;
+  if (ratio < 0.8) return theme.COLORS.wave4;
+  return theme.COLORS.wave5;
 };
 
 const WaveformBars: React.FC<WaveformBarsProps> = ({ bars, barCount }) => {
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   bar: {
     width: BAR_WIDTH,
     borderRadius: BAR_WIDTH / 2,
-    minHeight: MIN_BAR_HEIGHT,
+    minHeight: theme.SPACING.xs,
   },
 });
 

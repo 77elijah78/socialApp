@@ -1,5 +1,6 @@
 import { icons } from "@/constants";
 import { privateMessagesCardProps } from "@/types";
+import theme from "@/constants/theme";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 
 export default function PrivateMessageCard({
@@ -79,18 +80,18 @@ export default function PrivateMessageCard({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: theme.COLORS.white,
     alignItems: "center",
     flexDirection: "row",
     paddingVertical: 10,
     paddingHorizontal: 15,
-    height: 90,
-    borderRadius: 15,
+    height: theme.SIZING.privateMessageCard,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: theme.SIZING.avatarXl,
+    height: theme.SIZING.avatarXl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxxl,
     marginRight: 10,
   },
   content: {
@@ -104,31 +105,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  time: { color: "#bdbdbd", position: "absolute", right: 10, bottom: 5 },
+  time: { color: theme.COLORS.textTimeRead, position: "absolute", right: 10, bottom: 5 },
   senderName: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     position: "absolute",
     bottom: 5,
   },
-  messageRead: { color: "#bdbdbd", fontSize: 14 },
+  messageRead: { color: theme.COLORS.textTimeRead, fontSize: theme.TYPOGRAPHY.fontSize.xl },
   lastImage: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: theme.SIZING.iconXs,
+    height: theme.SIZING.iconXs,
+    borderRadius: theme.BORDER_RADIUS.xl,
     marginRight: 5,
     marginBottom: 5,
   },
   read: {
-    width: 20,
-    height: 20,
+    width: theme.SIZING.iconXs,
+    height: theme.SIZING.iconXs,
     position: "absolute",
     right: 5,
     top: 4,
   },
   messageNotRead: {
-    color: "#000000",
-    fontSize: 14,
-    fontWeight: "bold",
+    color: theme.COLORS.textBlack,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
 });

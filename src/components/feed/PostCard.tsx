@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import theme from '@/constants/theme';
 import { SocialPost } from '@/types';
 import { PostUser } from '@/types';
 
@@ -40,31 +41,31 @@ function formatCount(n: number): string {
 // Replace with react-native-vector-icons or @expo/vector-icons as needed.
 
 const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <Text style={{ fontSize: 16, color: filled ? '#f43f5e' : '#6b7280' }}>
+  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxxl, color: filled ? theme.COLORS.secondary : theme.COLORS.textMutedGray }}>
     {filled ? '♥' : '♡'}
   </Text>
 );
 
 const CommentIcon = () => (
-  <Text style={{ fontSize: 15, color: '#6b7280' }}>💬</Text>
+  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: theme.COLORS.textMutedGray }}>💬</Text>
 );
 
 const ShareIcon = () => (
-  <Text style={{ fontSize: 15, color: '#6b7280' }}>↑</Text>
+  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: theme.COLORS.textMutedGray }}>↑</Text>
 );
 
 const BookmarkIcon = ({ filled }: { filled: boolean }) => (
-  <Text style={{ fontSize: 15, color: filled ? '#7c3aed' : '#6b7280' }}>
+  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: filled ? theme.COLORS.accentPurple : theme.COLORS.textMutedGray }}>
     {filled ? '🔖' : '🏷'}
   </Text>
 );
 
 const DotsIcon = () => (
-  <Text style={{ fontSize: 20, color: '#6b7280', letterSpacing: 1 }}>···</Text>
+  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xl5, color: theme.COLORS.textMutedGray, letterSpacing: theme.TYPOGRAPHY.letterSpacing.sm }}>···</Text>
 );
 
 const CheckIcon = () => (
-  <Text style={{ fontSize: 8, color: '#fff' }}>✓</Text>
+  <Text style={{ fontSize: 8, color: theme.COLORS.textWhite }}>✓</Text>
 );
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ export default function PostCard({
         <TouchableOpacity
           style={styles.userRow}
           onPress={() => onUserPress?.(post.id)}
-          activeOpacity={0.7}
+          activeOpacity={theme.OPACITY.semiTransparent}
         >
           {/* Avatar */}
           <View style={styles.avatarWrapper}>
@@ -148,7 +149,7 @@ export default function PostCard({
               <TouchableOpacity
                 key={tag}
                 onPress={() => onTagPress?.(tag)}
-                activeOpacity={0.7}
+                activeOpacity={theme.OPACITY.semiTransparent}
               >
                 <Text style={styles.tag}>#{tag}</Text>
               </TouchableOpacity>
@@ -178,7 +179,7 @@ export default function PostCard({
           <TouchableOpacity
             onPress={handleLike}
             style={[styles.actionBtn, liked && styles.actionBtnLiked]}
-            activeOpacity={0.7}
+            activeOpacity={theme.OPACITY.semiTransparent}
           >
             <HeartIcon filled={liked} />
             <Text style={[styles.actionCount, liked && styles.actionCountLiked]}>
@@ -190,7 +191,7 @@ export default function PostCard({
           <TouchableOpacity
             onPress={() => onComment?.(post.id)}
             style={styles.actionBtn}
-            activeOpacity={0.7}
+            activeOpacity={theme.OPACITY.semiTransparent}
           >
             <CommentIcon />
             <Text style={styles.actionCount}>
@@ -202,7 +203,7 @@ export default function PostCard({
           <TouchableOpacity
             onPress={() => onShare?.(post.id)}
             style={styles.actionBtn}
-            activeOpacity={0.7}
+            activeOpacity={theme.OPACITY.semiTransparent}
           >
             <ShareIcon />
             <Text style={styles.actionCount}>
@@ -215,7 +216,7 @@ export default function PostCard({
         <TouchableOpacity
           onPress={handleBookmark}
           style={[styles.actionBtn, bookmarked && styles.actionBtnBookmarked]}
-          activeOpacity={0.7}
+          activeOpacity={theme.OPACITY.semiTransparent}
         >
           <BookmarkIcon filled={bookmarked} />
         </TouchableOpacity>
@@ -228,11 +229,11 @@ export default function PostCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ffffff12',
-    marginBottom: 12,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxl,
+    borderWidth: theme.BORDER.width.xs,
+    borderColor: theme.COLORS.cardBorder,
+    marginBottom: theme.SPACING.lg,
     overflow: 'hidden',
   },
   // Header
@@ -240,8 +241,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingTop: theme.SPACING.xl,
     paddingBottom: 10,
   },
   userRow: {
@@ -251,118 +252,118 @@ const styles = StyleSheet.create({
   },
   avatarWrapper: {
     position: 'relative',
-    marginRight: 10,
+    marginRight: theme.SPACING.lg,
   },
   avatar: {
-    width: 42,
-    height: 42,
+    width: theme.SIZING.avatarMd,
+    height: theme.SIZING.avatarMd,
     borderRadius: 21,
-    borderWidth: 2,
-    borderColor: '#7c3aed59',
+    borderWidth: theme.BORDER.width.sm,
+    borderColor: theme.COLORS.verifiedBorder,
   },
   verifiedBadge: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#7c3aed',
+    bottom: -theme.SPACING.xs,
+    right: -theme.SPACING.xs,
+    width: theme.SIZING.iconXs,
+    height: theme.SIZING.iconXs,
+    borderRadius: theme.BORDER_RADIUS.xl,
+    backgroundColor: theme.COLORS.accentPurple,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#16161d',
+    borderWidth: theme.BORDER.width.sm,
+    borderColor: theme.COLORS.textDark,
   },
   userMeta: {
     flex: 1,
   },
   userName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#16161d',
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.textDark,
     lineHeight: 18,
   },
   userHandle: {
-    fontSize: 12,
-    color: '#16161d',
-    marginTop: 2,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.textDark,
+    marginTop: theme.SPACING.xs,
   },
   menuBtn: {
     padding: 4,
-    borderRadius: 8,
+    borderRadius: theme.BORDER_RADIUS.lg,
   },
   // Body
   body: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingBottom: theme.SPACING.lg,
   },
   content: {
-    fontSize: 14,
-    color: '#16161d)',
-    lineHeight: 22,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    color: theme.COLORS.textDark,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.xxl,
   },
   tags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
+    gap: theme.SPACING.md,
+    marginTop: theme.SPACING.md,
   },
   tag: {
-    fontSize: 13,
-    color: '#a78bfa',
-    fontWeight: '500',
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    color: theme.COLORS.tagText,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   // Image
   imageWrapper: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 14,
+    marginHorizontal: theme.SPACING.xl,
+    marginBottom: theme.SPACING.lg,
+    borderRadius: theme.BORDER_RADIUS.xxxl,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: theme.COLORS.bgImageWrapper,
   },
   postImage: {
     width: '100%',
-    height: 210,
+    height: theme.SIZING.postImage,
   },
   // Divider
   divider: {
     height: 1,
-    marginHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginHorizontal: theme.SPACING.xl,
+    backgroundColor: theme.COLORS.bgDivider,
   },
   // Actions
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.md,
   },
   actionsLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: theme.SPACING.xs,
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 10,
+    gap: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xl,
   },
   actionBtnLiked: {
-    backgroundColor: 'rgba(244,63,94,0.1)',
+    backgroundColor: theme.COLORS.likedActionBg,
   },
   actionBtnBookmarked: {
-    backgroundColor: 'rgba(124,58,237,0.1)',
+    backgroundColor: theme.COLORS.bookmarkedActionBg,
   },
   actionCount: {
-    fontSize: 13,
-    color: '#16161d',
-    fontWeight: '500',
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    color: theme.COLORS.textDark,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   actionCountLiked: {
-    color: '#f43f5e',
+    color: theme.COLORS.secondary,
   },
 });

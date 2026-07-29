@@ -1,5 +1,6 @@
 import { images } from "@/constants";
 import { messagesCardProps } from "@/types";
+import theme from "@/constants/theme";
 import {
   View,
   Text,
@@ -39,10 +40,10 @@ export default function MessageCard({
             style={{
               flex: 1,
               width: "100%",
-              minHeight: 250,
-              maxHeight: 250,
-              borderTopLeftRadius: 15,
-              borderTopRightRadius: 15,
+              minHeight: theme.SIZING.messageMaxImage,
+              maxHeight: theme.SIZING.messageMaxImage,
+              borderTopLeftRadius: theme.BORDER_RADIUS.xxxxl,
+              borderTopRightRadius: theme.BORDER_RADIUS.xxxxl,
             }}
           />
           <Text style={{ padding: 10 }}>{message}</Text>
@@ -50,7 +51,7 @@ export default function MessageCard({
       )}
       {type === "video/mp4" && (
         <View>
-          <VideoPlayer style={{}} uri={uri} thumbnail="" borderRadius={12} />
+          <VideoPlayer style={{}} uri={uri} thumbnail="" borderRadius={theme.BORDER_RADIUS.xxl} />
         </View>
       )}
       {type === "audio/mpeg" && (
@@ -60,8 +61,8 @@ export default function MessageCard({
       )}
       <Text
         style={{
-          fontSize: 14,
-          color: "#646464",
+          fontSize: theme.TYPOGRAPHY.fontSize.xl,
+          color: theme.COLORS.textGray,
           alignSelf: isSent ? "flex-start" : "flex-end",
           marginHorizontal: 10,
         }}
@@ -75,7 +76,7 @@ export default function MessageCard({
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: "transparent",
+    backgroundColor: theme.COLORS.transparent,
     width: "100%",
     marginVertical: 15,
     alignItems: "flex-start",
@@ -83,9 +84,9 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
-    backgroundColor: "#f0ecf9",
-    width: "70%",
-    borderRadius: 10,
+    backgroundColor: theme.COLORS.bubbleBg,
+    width: theme.SIZING.contentWidth,
+    borderRadius: theme.BORDER_RADIUS.xl,
     padding: 10,
     justifyContent: "center",
     marginTop: 10,
@@ -95,9 +96,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexGrow: 1,
     alignItems: "flex-start",
-    backgroundColor: "#f0ecf9",
-    width: "80%",
-    borderRadius: 15,
+    backgroundColor: theme.COLORS.bubbleBg,
+    width: theme.SIZING.messageWidth,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
     justifyContent: "flex-start",
   },
 });

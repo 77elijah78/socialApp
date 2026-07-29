@@ -9,7 +9,7 @@ import {
   Animated,
 } from "react-native";
 import { icons } from "@/constants";
-import { COLORS, SPACING, RADIUS, FONT, SHADOW } from "@/constants/theme";
+import theme from "@/constants/theme";
 
 interface ChatInputProps {
   inputText: string;
@@ -40,7 +40,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       <TouchableOpacity onPress={onAttach} style={styles.iconButton}>
         <Image
           source={icons.add}
-          style={[styles.icon, { tintColor: COLORS.primary }]}
+          style={[styles.icon, { tintColor: theme.COLORS.primary }]}
         />
       </TouchableOpacity>
 
@@ -51,7 +51,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </TouchableOpacity>
         <TextInput
           placeholder="Type a message..."
-          placeholderTextColor={COLORS.textMuted}
+          placeholderTextColor={theme.COLORS.textMuted}
           style={styles.textInput}
           multiline
           numberOfLines={4}
@@ -69,7 +69,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           <View style={styles.actionButton}>
             <Image
               source={icons.mic}
-              style={[styles.actionIcon, { tintColor: COLORS.textWhite }]}
+              style={[styles.actionIcon, { tintColor: theme.COLORS.textWhite }]}
             />
           </View>
         </Animated.View>
@@ -77,7 +77,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <TouchableOpacity style={styles.actionButton} onPress={onSend}>
           <Image
             source={icons.send}
-            style={[styles.actionIcon, { tintColor: COLORS.textWhite }]}
+            style={[styles.actionIcon, { tintColor: theme.COLORS.textWhite }]}
           />
         </TouchableOpacity>
       )}
@@ -89,21 +89,21 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.bgWhite,
+    paddingHorizontal: theme.SPACING.sm,
+    paddingVertical: theme.SPACING.sm,
+    backgroundColor: theme.COLORS.bgWhite,
     borderTopWidth: 1,
-    borderTopColor: COLORS.primaryGhostBorder,
-    gap: SPACING.sm,
+    borderTopColor: theme.COLORS.primaryGhostBorder,
+    gap: theme.SPACING.sm,
   },
   iconButton: {
-    width: 40,
-    height: 40,
+    width: theme.SIZING.bottomBar,
+    height: theme.SIZING.bottomBar,
     borderRadius: 20,
-    backgroundColor: COLORS.primaryGhost,
+    backgroundColor: theme.COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2,
+    marginBottom: theme.SPACING.xs,
   },
   icon: {
     width: 22,
@@ -113,20 +113,20 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.bgInput,
-    borderRadius: RADIUS.xl,
-    paddingHorizontal: SPACING.sm,
+    backgroundColor: theme.COLORS.bgInput,
+    borderRadius: theme.BORDER_RADIUS.xl,
+    paddingHorizontal: theme.SPACING.sm,
     paddingVertical: 6,
-    minHeight: 40,
+    minHeight: theme.SIZING.bottomBar,
     borderWidth: 1,
-    borderColor: COLORS.primaryGhostBorder,
+    borderColor: theme.COLORS.primaryGhostBorder,
   },
   emojiButton: {
     width: 28,
     height: 28,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2,
+    marginBottom: theme.SPACING.xs,
   },
   emojiIcon: {
     width: 22,
@@ -134,30 +134,30 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    marginLeft: SPACING.xs,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    color: theme.COLORS.textPrimary,
+    marginLeft: theme.SPACING.xs,
     paddingVertical: 0,
     maxHeight: 100,
-    lineHeight: 20,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
   },
   micOuter: {
-    width: 42,
-    height: 42,
+    width: theme.SIZING.iconXl,
+    height: theme.SIZING.iconXl,
     marginBottom: 1,
   },
   actionButton: {
-    width: 42,
-    height: 42,
+    width: theme.SIZING.iconXl,
+    height: theme.SIZING.iconXl,
     borderRadius: 21,
-    backgroundColor: COLORS.primary,
+    backgroundColor: theme.COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    ...SHADOW.primary,
+    ...theme.SHADOWS.primary,
   },
   actionIcon: {
-    width: 20,
-    height: 20,
+    width: theme.SIZING.iconXs,
+    height: theme.SIZING.iconXs,
   },
 });
 

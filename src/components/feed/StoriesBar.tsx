@@ -1,6 +1,7 @@
 import React from "react";
 import { FlatList, View, Text, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import theme from "@/constants/theme";
 
 const tests = [
   { title: "reza" },
@@ -10,15 +11,15 @@ const tests = [
 export function GradientBorderCard() {
   return (
     <LinearGradient
-      colors={["#a855f7", "#3b82f6"]}
+      colors={[theme.COLORS.accentLightPurple, theme.COLORS.accentBlue]}
       start={{ x: 0, y: 1 }}
       end={{ x: 1, y: 0 }}
       style={{
-        padding: 2, // border thickness
-        borderRadius: 100,
+        padding: theme.SPACING.xs,
+        borderRadius: theme.BORDER_RADIUS.xxxxxxxxl,
         position: "absolute",
-        width: 75,
-        height: 75,
+        width: theme.SIZING.storyItem,
+        height: theme.SIZING.storyItem,
       }}
     ></LinearGradient>
   );
@@ -29,9 +30,9 @@ export default function StoriesBar() {
     <View
       style={{
         width: "100%",
-        height: 100,
-        backgroundColor: "#f5f5f5",
-        borderRadius: 10,
+        height: theme.SIZING.storiesBar,
+        backgroundColor: theme.COLORS.bgLight,
+        borderRadius: theme.BORDER_RADIUS.xl,
         justifyContent: "center",
         marginVertical: 10,
       }}
@@ -49,17 +50,17 @@ export default function StoriesBar() {
                 uri: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
               }}
               style={{
-                width: 70,
-                height: 70,
-                borderRadius: 100,
-                backgroundColor: "white",
-                borderWidth: 1,
-                borderColor: "white",
+                width: theme.SIZING.storyImage,
+                height: theme.SIZING.storyImage,
+                borderRadius: theme.BORDER_RADIUS.xxxxxxxxl,
+                backgroundColor: theme.COLORS.white,
+                borderWidth: theme.BORDER.width.xs,
+                borderColor: theme.COLORS.white,
                 marginRight: 5,
                 top: 3
               }}
             />
-          <Text style={{ color: "black", fontSize: 16, fontWeight: "light",top:3 }}>Me</Text>
+          <Text style={{ color: theme.COLORS.textBlack, fontSize: theme.TYPOGRAPHY.fontSize.xxxl, fontWeight: theme.TYPOGRAPHY.fontWeight.light,top:3 }}>Me</Text>
           </View>
           }
         showsHorizontalScrollIndicator={false}
@@ -67,11 +68,11 @@ export default function StoriesBar() {
         renderItem={({ item }) => (
           <View
             style={{
-              backgroundColor: "transparent",
+              backgroundColor: theme.COLORS.transparent,
               padding: 5,
-              borderRadius: 100,
-              width: 75,
-              height: 75,
+              borderRadius: theme.BORDER_RADIUS.xxxxxxxxl,
+              width: theme.SIZING.storyItem,
+              height: theme.SIZING.storyItem,
               marginRight: 5,
               alignItems: "center",
               justifyContent: "center",
@@ -83,20 +84,20 @@ export default function StoriesBar() {
                 uri: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
               }}
               style={{
-                width: 70,
-                height: 70,
-                borderRadius: 100,
-                backgroundColor: "white",
-                borderWidth: 1,
-                borderColor: "white",
+                width: theme.SIZING.storyImage,
+                height: theme.SIZING.storyImage,
+                borderRadius: theme.BORDER_RADIUS.xxxxxxxxl,
+                backgroundColor: theme.COLORS.white,
+                borderWidth: theme.BORDER.width.xs,
+                borderColor: theme.COLORS.white,
               }}
             />
             <Text
               style={{
-                fontSize: 14,
-                fontWeight: "light",
+                fontSize: theme.TYPOGRAPHY.fontSize.xl,
+                fontWeight: theme.TYPOGRAPHY.fontWeight.light,
                 marginLeft: 10,
-                color: "black",
+                color: theme.COLORS.textBlack,
                 position: "absolute",
                 top: 75,
                 left: 15,

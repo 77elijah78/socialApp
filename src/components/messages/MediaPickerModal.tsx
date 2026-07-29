@@ -13,7 +13,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS, SPACING, RADIUS, SHADOW, FONT } from "@/constants/theme";
+import theme from "@/constants/theme";
 import { PickedFile } from "@/types";
 
 interface Props {
@@ -191,7 +191,7 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
             <Ionicons
               name="document-outline"
               size={22}
-              color={COLORS.primary}
+              color={theme.COLORS.primary}
             />
           </View>
         )}
@@ -201,12 +201,14 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
           style={[
             styles.checkBadge,
             {
-              backgroundColor: item.selected ? COLORS.primary : COLORS.bgWhite,
+              backgroundColor: item.selected
+                ? theme.COLORS.primary
+                : theme.COLORS.bgWhite,
             },
           ]}
         >
           {item.selected && (
-            <Ionicons name="checkmark" size={14} color="#fff" />
+            <Ionicons name="checkmark" size={14} color={theme.COLORS.white} />
           )}
         </View>
       </TouchableOpacity>
@@ -219,7 +221,7 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
       </View>
 
       <TouchableOpacity onPress={() => removeFile(item.uri)}>
-        <Ionicons name="close" size={18} color={COLORS.danger} />
+        <Ionicons name="close" size={18} color={theme.COLORS.danger} />
       </TouchableOpacity>
     </View>
   );
@@ -255,16 +257,21 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
                 data={pickedFiles}
                 keyExtractor={(item) => item.uri}
                 renderItem={renderFileItem}
-                style={{ marginTop: SPACING.lg }}
+                style={{ marginTop: theme.SPACING.lg }}
               />
 
               <View style={styles.actionsRow}>
                 <TouchableOpacity onPress={clearAll}>
-                  <Text style={{ color: COLORS.danger }}>Clear</Text>
+                  <Text style={{ color: theme.COLORS.danger }}>Clear</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
-                  <Text style={{ color: "#fff", fontWeight: FONT.semibold }}>
+                  <Text
+                    style={{
+                      color: theme.COLORS.white,
+                      fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+                    }}
+                  >
                     Send ({pickedFiles.filter((f) => f.selected).length})
                   </Text>
                 </TouchableOpacity>
@@ -283,7 +290,7 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
 
 const Option = ({ icon, label, onPress }: any) => (
   <TouchableOpacity style={styles.option} onPress={onPress}>
-    <Ionicons name={icon} size={22} color={COLORS.primary} />
+    <Ionicons name={icon} size={22} color={theme.COLORS.primary} />
     <Text style={styles.optionText}>{label}</Text>
   </TouchableOpacity>
 );
@@ -296,30 +303,30 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "transparent",
+    backgroundColor: theme.COLORS.transparent,
   },
   modalContainer: {
-    backgroundColor: COLORS.bgWhite,
-    padding: SPACING.xl,
-    borderTopLeftRadius: RADIUS.xl,
-    borderTopRightRadius: RADIUS.xl,
+    backgroundColor: theme.COLORS.bgWhite,
+    padding: theme.SPACING.xl,
+    borderTopLeftRadius: theme.BORDER_RADIUS.xl,
+    borderTopRightRadius: theme.BORDER_RADIUS.xl,
     maxHeight: "85%",
   },
   handle: {
-    width: 50,
+    width: theme.SIZING.avatarLg,
     height: 5,
-    backgroundColor: COLORS.textMuted,
-    borderRadius: RADIUS.full,
+    backgroundColor: theme.COLORS.textMuted,
+    borderRadius: theme.BORDER_RADIUS.full,
     alignSelf: "center",
-    marginBottom: SPACING.lg,
+    marginBottom: theme.SPACING.lg,
     opacity: 0.4,
   },
   title: {
-    fontSize: 16,
-    fontWeight: FONT.semibold,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     textAlign: "center",
-    marginBottom: SPACING.lg,
-    color: COLORS.textPrimary,
+    marginBottom: theme.SPACING.lg,
+    color: theme.COLORS.textPrimary,
   },
   optionsRow: {
     flexDirection: "row",
@@ -329,62 +336,62 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   optionText: {
-    fontSize: 12,
-    marginTop: 4,
-    color: COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    marginTop: theme.SPACING.sm,
+    color: theme.COLORS.textSecondary,
   },
   fileItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: SPACING.md,
+    marginBottom: theme.SPACING.md,
   },
   thumbnail: {
-    width: 50,
-    height: 50,
-    borderRadius: RADIUS.md,
-    marginRight: SPACING.md,
+    width: theme.SIZING.avatarLg,
+    height: theme.SIZING.avatarLg,
+    borderRadius: theme.BORDER_RADIUS.md,
+    marginRight: theme.SPACING.md,
   },
   fileIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.primaryGhost,
+    width: theme.SIZING.avatarLg,
+    height: theme.SIZING.avatarLg,
+    borderRadius: theme.BORDER_RADIUS.md,
+    backgroundColor: theme.COLORS.primaryGhost,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: SPACING.md,
+    marginRight: theme.SPACING.md,
   },
   fileName: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    fontWeight: FONT.medium,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    color: theme.COLORS.textPrimary,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   fileSize: {
-    fontSize: 12,
-    color: COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.textMuted,
   },
   checkBadge: {
     position: "absolute",
     top: -6,
     right: 6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: theme.SIZING.iconXs,
+    height: theme.SIZING.iconXs,
+    borderRadius: theme.BORDER_RADIUS.xl,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: COLORS.primary,
+    borderColor: theme.COLORS.primary,
   },
   actionsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: SPACING.lg,
+    marginTop: theme.SPACING.lg,
   },
   sendBtn: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.full,
-    ...SHADOW.primary,
+    backgroundColor: theme.COLORS.primary,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.full,
+    ...theme.SHADOWS.primary,
   },
 });

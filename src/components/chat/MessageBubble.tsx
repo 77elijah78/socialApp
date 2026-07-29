@@ -1,7 +1,7 @@
 // components/chat/MessageBubble.tsx
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { COLORS, SPACING, RADIUS, FONT, SHADOW } from "@/constants/theme";
+import theme from "@/constants/theme";
 
 interface MessageBubbleProps {
   message: string;
@@ -50,8 +50,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                     {
                       height: h * 16,
                       backgroundColor: isSent
-                        ? "rgba(255,255,255,0.5)"
-                        : COLORS.primaryLight,
+                        ? theme.COLORS.voiceIndicator
+                        : theme.COLORS.primaryLight,
                     },
                   ]}
                 />
@@ -89,8 +89,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginVertical: SPACING.xs,
-    paddingHorizontal: SPACING.sm,
+    marginVertical: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
   },
   wrapperSent: {
     alignItems: "flex-end",
@@ -100,69 +100,69 @@ const styles = StyleSheet.create({
   },
   bubble: {
     maxWidth: "78%",
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.xl,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xl,
   },
   bubbleSent: {
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: SPACING.xs,
-    ...SHADOW.primary,
+    backgroundColor: theme.COLORS.primary,
+    borderBottomRightRadius: theme.SPACING.xs,
+    ...theme.SHADOWS.primary,
   },
   bubbleReceived: {
-    backgroundColor: COLORS.bgWhite,
-    borderBottomLeftRadius: SPACING.xs,
-    ...SHADOW.sm,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderBottomLeftRadius: theme.SPACING.xs,
+    ...theme.SHADOWS.sm,
   },
   voiceIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: SPACING.xs,
-    gap: SPACING.sm,
+    marginBottom: theme.SPACING.xs,
+    gap: theme.SPACING.sm,
   },
   voiceIcon: {
-    fontSize: 16,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
   },
   voiceWaves: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: theme.SPACING.xs,
   },
   miniBar: {
     width: 2.5,
     borderRadius: 1.5,
   },
   messageText: {
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: FONT.regular,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.regular,
   },
   textSent: {
-    color: COLORS.textWhite,
+    color: theme.COLORS.textWhite,
   },
   textReceived: {
-    color: COLORS.textPrimary,
+    color: theme.COLORS.textPrimary,
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    marginTop: SPACING.xs,
-    gap: SPACING.xs,
+    marginTop: theme.SPACING.xs,
+    gap: theme.SPACING.xs,
   },
   timeText: {
-    fontSize: 11,
-    fontWeight: FONT.medium,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   timeSent: {
-    color: "rgba(255,255,255,0.6)",
+    color: theme.COLORS.timeSent,
   },
   timeReceived: {
-    color: COLORS.textMuted,
+    color: theme.COLORS.textMuted,
   },
   checkMark: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.7)",
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.checkMark,
   },
 });
 

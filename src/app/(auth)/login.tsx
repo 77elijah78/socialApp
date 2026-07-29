@@ -1,5 +1,6 @@
 import PrimaryButton from "@/components/common/PrimaryButton";
 import { icons } from "@/constants";
+import theme from "@/constants/theme";
 import { authService } from "@/services/AuthService";
 import { useAppDispatch } from "@/store/hooks";
 import { router } from "expo-router";
@@ -92,15 +93,15 @@ export default function LoginScreen() {
           onPress={() => {
             authService.login(form.email,form.password,dispatch)
           }}
-          style={{ marginTop: 10 }}
+          style={{ marginTop: theme.SPACING.lg }}
           rightIcon={icons.rightArrow}
         />
         <Text
           style={{
             textAlign: "center",
-            color: "gray",
-            fontSize: 15,
-            marginVertical: 20,
+            color: theme.COLORS.gray,
+            fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+            marginVertical: theme.SPACING.xxl,
           }}
         >
           --------------or continue with--------------
@@ -110,18 +111,18 @@ export default function LoginScreen() {
           onPress={() => {}}
           leftIcon={icons.google}
           style={{
-            marginVertical: 15,
-            backgroundColor: "#fafafa",
+            marginVertical: theme.SPACING.xxl,
+            backgroundColor: theme.COLORS.bgOAuth,
             elevation: 5,
-            borderWidth: 1,
-            borderColor: "gray",
+            borderWidth: theme.BORDER.width.sm,
+            borderColor: theme.COLORS.gray,
           }}
           iconStyle={{
-            marginHorizontal: 20,
+            marginHorizontal: theme.SPACING.xxl,
           }}
           textStyle={{
-            fontSize: 18,
-            color: "gray",
+            fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+            color: theme.COLORS.gray,
           }}
         />
         <PrimaryButton
@@ -129,18 +130,18 @@ export default function LoginScreen() {
           onPress={() => {}}
           leftIcon={icons.apple}
           style={{
-            marginVertical: 0,
-            backgroundColor: "#fafafa",
+            marginVertical: theme.SPACING.xs,
+            backgroundColor: theme.COLORS.bgOAuth,
             elevation: 5,
-            borderWidth: 1,
-            borderColor: "gray",
+            borderWidth: theme.BORDER.width.sm,
+            borderColor: theme.COLORS.gray,
           }}
           iconStyle={{
-            marginHorizontal: 20,
+            marginHorizontal: theme.SPACING.xxl,
           }}
           textStyle={{
-            fontSize: 18,
-            color: "gray",
+            fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+            color: theme.COLORS.gray,
           }}
         />
       </View>
@@ -155,7 +156,7 @@ export default function LoginScreen() {
         <Text>Don't have an account?</Text>
         <Text
           style={{
-            color: "#6366f1",
+            color: theme.COLORS.primaryLink,
           }}
           onPress={() => {
             router.replace("(auth)/register");
@@ -172,70 +173,70 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingVertical: 50,
-    paddingHorizontal: 20,
-    backgroundColor: "#f5f5f5",
+    paddingVertical: theme.SPACING.xxxxxxl,
+    paddingHorizontal: theme.SPACING.xxl,
+    backgroundColor: theme.COLORS.bgLight,
   },
   header: {
     alignItems: "center",
     justifyContent: "center",
   },
   title: {
-    fontSize: 30,
-    fontWeight: "bold",
+    fontSize: theme.TYPOGRAPHY.fontSize.xl9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     marginVertical: 10,
-    color: "#4F46E5",
+    color: theme.COLORS.indigo,
   },
   subtitle: {
-    fontSize: 25,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl8,
   },
   card: {
     width: "100%",
-    height: 530,
-    marginVertical: 30,
-    borderRadius: 15,
-    backgroundColor: "#fff",
-    paddingHorizontal: 25,
-    paddingVertical: 25,
+    height: theme.SIZING.loginCard,
+    marginVertical: theme.SPACING.xxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    backgroundColor: theme.COLORS.bgWhite,
+    paddingHorizontal: theme.SPACING.xxxxl,
+    paddingVertical: theme.SPACING.xxxxl,
 
     // Android
     elevation: 5,
 
     // iOS
-    shadowColor: "#000",
+    shadowColor: theme.COLORS.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   inputContainer: {
-    height: 55,
+    height: theme.SIZING.inputHeight,
     width: "100%",
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 8,
-    backgroundColor: "#f5f2ff",
+    borderColor: theme.COLORS.borderLight,
+    borderRadius: theme.BORDER_RADIUS.xl,
+    padding: theme.SPACING.lg,
+    backgroundColor: theme.COLORS.bgAuthInput,
     flexDirection: "row",
     elevation: 1,
   },
   icon: {
-    width: 25,
-    height: 25,
+    width: theme.SIZING.iconSm,
+    height: theme.SIZING.iconSm,
     alignSelf: "center",
-    marginRight: 10,
+    marginRight: theme.SPACING.lg,
   },
   label: {
     marginBottom: 5,
-    fontSize: 14,
-    fontWeight: "100",
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.light,
     marginHorizontal: 5,
   },
   inputWrapper: {
-    marginVertical: 10,
+    marginVertical: theme.SPACING.xxl,
   },
   button: {
-    backgroundColor: "#f0ecf9",
+    backgroundColor: theme.COLORS.bubbleBg,
     padding: 10,
-    borderRadius: 10,
+    borderRadius: theme.BORDER_RADIUS.xl,
     marginVertical: 10,
   },
   labelContiner: {
@@ -243,7 +244,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   forgotPassword: {
-    color: "#6366f1",
+    color: theme.COLORS.primaryLink,
   },
   input: {
     flex: 1,
@@ -251,6 +252,6 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
     alignItems: "center",
-    fontSize: 16,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
   },
 });

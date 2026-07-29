@@ -1,4 +1,5 @@
 // components/chat/RecordingBar.tsx
+/* eslint-disable import/no-named-as-default-member */
 import React from "react";
 import {
   View,
@@ -9,10 +10,9 @@ import {
   Animated,
 } from "react-native";
 import { icons } from "@/constants";
-import { COLORS, SPACING, RADIUS, FONT, SHADOW } from "@/constants/theme";
+import theme from "@/constants/theme";
 import WaveformBars from "./WaveformBars";
 
-// ─── Define types LOCALLY (not imported from hook) ──────────────
 interface WaveformBar {
   height: Animated.Value;
 }
@@ -65,7 +65,6 @@ const RecordingBar: React.FC<RecordingBarProps> = ({
           },
         ]}
       >
-        {/* Lock indicator */}
         {!isLocked && (
           <Animated.View
             style={[
@@ -93,7 +92,6 @@ const RecordingBar: React.FC<RecordingBarProps> = ({
           </Animated.View>
         )}
 
-        {/* Left side */}
         {isLocked ? (
           <TouchableOpacity onPress={onCancel} style={styles.cancelButton}>
             <Text style={styles.cancelX}>✕</Text>
@@ -122,7 +120,6 @@ const RecordingBar: React.FC<RecordingBarProps> = ({
           </Animated.View>
         )}
 
-        {/* Dot + duration */}
         <View style={styles.infoRow}>
           <Animated.View style={[styles.redDot, { opacity: pulseAnim }]} />
           <Text style={styles.durationText}>
@@ -130,15 +127,13 @@ const RecordingBar: React.FC<RecordingBarProps> = ({
           </Text>
         </View>
 
-        {/* Waveform */}
         <WaveformBars bars={bars} barCount={barCount} />
 
-        {/* Right side */}
         {isLocked ? (
           <TouchableOpacity onPress={onSend} style={styles.sendButton}>
             <Image
               source={icons.send}
-              style={[styles.sendIcon, { tintColor: COLORS.textWhite }]}
+              style={[styles.sendIcon, { tintColor: theme.COLORS.textWhite }]}
             />
           </TouchableOpacity>
         ) : (
@@ -175,104 +170,104 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.bgWhite,
-    paddingVertical: SPACING.sm + 2,
-    paddingHorizontal: SPACING.md,
-    marginHorizontal: SPACING.sm,
-    borderRadius: RADIUS.xxl,
-    minHeight: 54,
-    ...SHADOW.lg,
+    backgroundColor: theme.COLORS.bgWhite,
+    paddingVertical: theme.SPACING.sm + 2,
+    paddingHorizontal: theme.SPACING.md,
+    marginHorizontal: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xxl,
+    minHeight: theme.SIZING.recordingBarMinHeight,
+    ...theme.SHADOWS.lg,
   },
   lockIndicator: {
     position: "absolute",
     top: -52,
     right: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.bgWhite,
+    width: theme.SIZING.lockPill,
+    height: theme.SIZING.lockPill,
+    borderRadius: theme.SIZING.lockPill / 2,
+    backgroundColor: theme.COLORS.bgWhite,
     alignItems: "center",
     justifyContent: "center",
-    ...SHADOW.md,
+    ...theme.SHADOWS.md,
   },
   lockEmoji: {
-    fontSize: 18,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
   },
   cancelButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: COLORS.dangerLight,
+    width: theme.SIZING.cancelButton,
+    height: theme.SIZING.cancelButton,
+    borderRadius: theme.SIZING.cancelButton / 2,
+    backgroundColor: theme.COLORS.dangerLight,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: SPACING.sm,
+    marginRight: theme.SPACING.sm,
   },
   cancelX: {
-    color: COLORS.danger,
-    fontSize: 14,
-    fontWeight: FONT.bold,
+    color: theme.COLORS.danger,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   cancelHint: {
     position: "absolute",
-    left: SPACING.md,
+    left: theme.SPACING.md,
     top: -22,
   },
   cancelHintText: {
-    color: COLORS.danger,
-    fontSize: 12,
-    fontWeight: FONT.semibold,
+    color: theme.COLORS.danger,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: SPACING.sm,
+    marginRight: theme.SPACING.sm,
   },
   redDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: COLORS.danger,
-    marginRight: 6,
+    backgroundColor: theme.COLORS.danger,
+    marginRight: theme.SPACING.xs,
   },
   durationText: {
-    color: COLORS.textPrimary,
-    fontSize: 13,
-    fontWeight: FONT.semibold,
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     fontVariant: ["tabular-nums"],
     minWidth: 32,
   },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
+    width: theme.SIZING.sendButton,
+    height: theme.SIZING.sendButton,
+    borderRadius: theme.SIZING.sendButton / 2,
+    backgroundColor: theme.COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: SPACING.sm,
-    ...SHADOW.primary,
+    marginLeft: theme.SPACING.sm,
+    ...theme.SHADOWS.primary,
   },
   sendIcon: {
-    width: 18,
-    height: 18,
+    width: theme.SIZING.iconSm,
+    height: theme.SIZING.iconSm,
   },
   slideHintWrapper: {
-    marginLeft: SPACING.xs,
+    marginLeft: theme.SPACING.xs,
     minWidth: 40,
     alignItems: "center",
   },
   slideHintText: {
-    color: COLORS.textMuted,
-    fontSize: 10,
-    fontWeight: FONT.medium,
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   lockedHint: {
     alignItems: "center",
-    paddingVertical: SPACING.xs,
+    paddingVertical: theme.SPACING.xs,
   },
   lockedHintText: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    fontWeight: FONT.medium,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
 });
 

@@ -1,5 +1,6 @@
 import PrimaryButton from "@/components/common/PrimaryButton";
 import { icons, images } from "@/constants";
+import theme from "@/constants/theme";
 import { router } from "expo-router";
 import React from "react";
 import {
@@ -69,56 +70,37 @@ export default function RegisterScreen() {
           }}
         />
         <Text
-          style={{
-            textAlign: "center",
-            color: "gray",
-            fontSize: 15,
-            marginVertical: 20,
-          }}
+          style={styles.orText}
         >
           ----------------or continue with----------------
         </Text>
-        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <View style={styles.socialRow}>
           <PrimaryButton
             title="Google"
-            style={{
-              width: "48%",
-              backgroundColor: "#f5f5f5",
-              borderWidth: 1,
-              elevation: 1,
-              borderRadius: 15,
-            }}
+            style={styles.socialButton}
             leftIcon={icons.google}
             iconStyle={{
               marginRight: 10,
             }}
-            textStyle={{ color: "black", fontWeight: "light", fontSize: 16 }}
+            textStyle={styles.socialButtonText}
             onPress={() => {}}
           />
           <PrimaryButton
             title="Apple"
-            style={{
-              width: "48%",
-              backgroundColor: "#f5f5f5",
-              borderWidth: 1,
-              elevation: 1,
-              borderRadius: 15,
-            }}
+            style={styles.socialButton}
             leftIcon={icons.apple}
             iconStyle={{
               marginRight: 10,
             }}
-            textStyle={{ color: "black", fontWeight: "light", fontSize: 16 }}
+            textStyle={styles.socialButtonText}
             onPress={() => {}}
           />
         </View>
-        <View style={{ flexDirection: "row", marginTop: 20,alignItems:"center", justifyContent:"center" }}>
+        <View style={styles.accountRow}>
         <Text>Already have an account?</Text>
         <Text onPress={()=>{
           router.replace("(auth)/login")
-        }} style={{
-          color: "#6366f1",
-        }}> Log In </Text>
+        }} style={styles.loginText}> Log In </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -128,8 +110,8 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flexDirection: "column",
-    padding: 20,
-    backgroundColor: "#fff",
+    padding: theme.SPACING.xxl,
+    backgroundColor: theme.COLORS.bgWhite,
   },
   icon: {
     width: 35,
@@ -139,34 +121,34 @@ const styles = StyleSheet.create({
     right: 310,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#6366f1",
+    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: theme.COLORS.indigo,
   },
   image: {
     width: "100%",
-    height: 200,
-    borderRadius: 15,
-    marginTop: 40,
-    marginBottom: 20,
+    height: theme.SIZING.signUpImage,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    marginTop: theme.SPACING.xxxxl,
+    marginBottom: theme.SPACING.xxl,
   },
   subtitle: {
-    fontSize: 30,
-    color: "#6366f1",
-    fontWeight: "bold",
+    fontSize: theme.TYPOGRAPHY.fontSize.xl9,
+    color: theme.COLORS.indigo,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   description: {
-    fontSize: 16,
-    color: "black",
-    marginBottom: 20,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
+    color: theme.COLORS.textBlack,
+    marginBottom: theme.SPACING.xxl,
   },
   inputContainer: {
-    height: 55,
+    height: theme.SIZING.inputHeight,
     width: "100%",
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 8,
-    backgroundColor: "#f5f2ff",
+    borderColor: theme.COLORS.borderLight,
+    borderRadius: theme.BORDER_RADIUS.xl,
+    padding: theme.SPACING.md,
+    backgroundColor: theme.COLORS.bgAuthInput,
     flexDirection: "row",
     elevation: 1,
   },
@@ -176,7 +158,7 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
     alignItems: "center",
-    fontSize: 16,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
   },
   inputIcon: {
     width: 25,
@@ -186,14 +168,45 @@ const styles = StyleSheet.create({
   },
   label: {
     marginBottom: 5,
-    fontSize: 16,
-    fontWeight: "light",
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.light,
     marginHorizontal: 5,
-    color: "black",
+    color: theme.COLORS.textBlack,
     marginTop: 15,
   },
   button: {
-    marginTop: 20,
-    borderRadius: 15,
+    marginTop: theme.SPACING.xxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+  },
+  orText: {
+    textAlign: "center",
+    color: theme.COLORS.gray,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    marginVertical: theme.SPACING.xxl,
+  },
+  socialRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  socialButton: {
+    width: theme.SIZING.oauthButtonWidth,
+    backgroundColor: theme.COLORS.bgLight,
+    borderWidth: theme.BORDER.width.xs,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    elevation: 1,
+  },
+  socialButtonText: {
+    color: theme.COLORS.textBlack,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.light,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
+  },
+  accountRow: {
+    flexDirection: "row",
+    marginTop: theme.SPACING.xxl,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loginText: {
+    color: theme.COLORS.indigo,
   },
 });
