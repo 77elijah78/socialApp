@@ -1,5 +1,3 @@
-import { VideoUploader } from "./VideoUploader";
-import { AudioUploader } from "./AudioUploader";
 import { MessageService } from "./MessageService";
 import { socketReceiver, SocketReceiver } from "./SocketReceiver";
 
@@ -32,16 +30,12 @@ import { socketReceiver, SocketReceiver } from "./SocketReceiver";
  *   mediaService.disconnectSocket();
  */
 export class MediaService {
-  readonly video:   VideoUploader;
-  readonly audio:   AudioUploader;
   readonly message: MessageService;
-  readonly socket:  SocketReceiver;
+  readonly socket: SocketReceiver;
 
   constructor(baseUrl: string, authToken: any = null) {
-    this.video   = new VideoUploader(baseUrl, authToken);
-    this.audio   = new AudioUploader(baseUrl, authToken);
     this.message = new MessageService(baseUrl, authToken);
-    this.socket  = socketReceiver;
+    this.socket = socketReceiver;
   }
 
   /**
@@ -49,8 +43,6 @@ export class MediaService {
    * Call after login or token refresh.
    */
   setAuthToken(token: string): void {
-    this.video.setAuthToken(token);
-    this.audio.setAuthToken(token);
     this.message.setAuthToken(token);
   }
 
@@ -73,5 +65,5 @@ export class MediaService {
 // ─── App-wide singleton ───────────────────────────────────────────────────────
 // Import this everywhere — one instance, one socket connection, one token state.
 export const mediaService = new MediaService(
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000"
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000",
 );
