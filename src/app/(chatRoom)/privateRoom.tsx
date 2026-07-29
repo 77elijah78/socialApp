@@ -8,16 +8,18 @@ import {
   Image,
   FlatList,
   TextInput,
-  Platform,
   Pressable,
   Alert,
-  KeyboardAvoidingView,
+  useWindowDimensions,
+  Keyboard,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
+import theme from "@/constants/theme";
 import {
   AudioModule,
   RecordingPresets,
@@ -35,8 +37,10 @@ export default function PrivateRoom() {
   }>();
 
   const [record, setRecord] = useState(true);
-  const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+  const [inputText, setInputText] = useState("");
+  const [sending, setSending] = useState(false);
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -53,11 +57,10 @@ export default function PrivateRoom() {
         return;
       }
 
-      setRecordedUri(null);
       await recorder.prepareToRecordAsync();
       recorder.record();
     } catch (err) {
-      console.error("Failed to start recording", err);
+      console.error(err);
     }
   };
 
@@ -66,14 +69,13 @@ export default function PrivateRoom() {
       if (recorder.isRecording) {
         await recorder.stop();
         const uri = recorder.uri;
-        setRecordedUri(uri);
 
         if (uri) {
-          // TODO: send voice message
+          // send voice message here
         }
       }
     } catch (err) {
-      console.error("Failed to stop recording", err);
+      console.error(err);
     }
   };
 
@@ -87,9 +89,6 @@ export default function PrivateRoom() {
       token: currentUserToken ?? "",
     },
   });
-
-  const [inputText, setInputText] = useState("");
-  const [sending, setSending] = useState(false);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
@@ -107,11 +106,7 @@ export default function PrivateRoom() {
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
-      try {
-        sendMedia(files[0].type, files[0].uri, conversationId);
-      } catch (error) {
-        console.log(error);
-      }
+      sendMedia(files[0].type, files[0].uri, conversationId);
     },
     [conversationId],
   );
@@ -120,73 +115,89 @@ export default function PrivateRoom() {
     flatListRef.current?.scrollToEnd({ animated: false });
   }, []);
 
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+      Animated.spring(keyboardHeight, {
+        toValue: e.endCoordinates.height,
+        useNativeDriver: true,
+        speed: 100,
+        bounciness: 0,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      Animated.spring(keyboardHeight, {
+        toValue: 0,
+        useNativeDriver: true,
+        speed: 100,
+        bounciness: 0,
+      }).start();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardHeight]);
+
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-      >
-        {/* HEADER */}
-        <View style={styles.headerContainer}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Image source={icons.leftArrow} style={styles.backIcon} />
-          </TouchableOpacity>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right", "bottom"]}>
+      {/* HEADER */}
+      <View style={styles.headerContainer}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Image source={icons.leftArrow} style={styles.backIcon} />
+        </TouchableOpacity>
 
-          <Image
-            source={{
-              uri: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg",
-            }}
-            style={styles.avatar}
-          />
-
-          <View style={styles.userNameContainer}>
-            <Text style={styles.userName}>{receiverName}</Text>
-            <Text style={styles.lastSeen}>Online</Text>
-          </View>
-
-          <TouchableOpacity style={styles.menuButton}>
-            <Image source={icons.dots} />
-          </TouchableOpacity>
-        </View>
-
-        {/* MESSAGES */}
-        <FlatList
-          ref={flatListRef}
-          style={{ flex: 1, paddingHorizontal: 15 }}
-          keyExtractor={(item) => item.localId}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
-          data={messages}
-          renderItem={({ item }) => (
-            <MessageCard
-              message={item.text}
-              time={item.timestamp}
-              sender=""
-              isRead={false}
-              isSent={item.direction === "sent"}
-              type={item.type}
-              uri={item.mediaUrl}
-            />
-          )}
+        <Image
+          source={{
+            uri: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg",
+          }}
+          style={styles.avatar}
         />
 
-        {/* INPUT */}
+        <View style={styles.userNameContainer}>
+          <Text style={styles.userName}>{receiverName}</Text>
+          <Text style={styles.lastSeen}>Online</Text>
+        </View>
+      </View>
+
+      <FlatList
+        ref={flatListRef}
+        style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
+        keyExtractor={(item) => item.localId}
+        keyboardShouldPersistTaps="handled"
+        data={messages}
+        contentContainerStyle={{ paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl }}
+        renderItem={({ item }) => (
+          <MessageCard
+            message={item.text}
+            time={item.timestamp}
+            sender=""
+            isRead={false}
+            isSent={item.direction === "sent"}
+            type={item.type}
+            uri={item.mediaUrl}
+          />
+        )}
+      />
+
+      {/* INPUT */}
+      <Animated.View
+        style={[
+          styles.inputWrapper,
+          {
+            transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }],
+          },
+        ]}
+      >
         <View style={styles.inputContainer}>
-          <TouchableOpacity onPress={() => setVisible(true)}>
+          <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
             <Image source={icons.add} style={styles.iconSmall} />
           </TouchableOpacity>
 
           <View style={styles.textInputWrapper}>
-            <TouchableOpacity>
-              <Image source={icons.emoji} style={styles.iconSmall} />
-            </TouchableOpacity>
-
             <TextInput
               placeholder="Message..."
+              placeholderTextColor={theme.COLORS.textMuted}
               style={styles.textInput}
               multiline
               value={inputText}
@@ -214,11 +225,11 @@ export default function PrivateRoom() {
             </Pressable>
           ) : (
             <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-              <Image source={icons.send} style={styles.sendIcon} />
+              <Image source={icons.send} style={styles.iconSmall} />
             </TouchableOpacity>
           )}
         </View>
-      </KeyboardAvoidingView>
+      </Animated.View>
 
       <MediaPickerModal
         visible={visible}
@@ -232,79 +243,94 @@ export default function PrivateRoom() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#e0e0e0",
+    backgroundColor: theme.COLORS.bgLight,
   },
   headerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    paddingBottom: 15,
-    paddingHorizontal: 15,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingVertical: theme.SPACING.md,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.COLORS.primaryGhostBorder,
+    ...theme.SHADOWS.sm,
   },
   backIcon: {
-    width: 30,
-    height: 30,
+    width: theme.SIZING.iconMd,
+    height: theme.SIZING.iconMd,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 30,
-    marginLeft: 20,
+    width: theme.SIZING.avatarLg,
+    height: theme.SIZING.avatarLg,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
+    marginLeft: theme.SPACING.xxl,
   },
   userNameContainer: {
-    marginLeft: 10,
+    marginLeft: theme.SPACING.lg,
   },
   userName: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: theme.COLORS.textPrimary,
   },
   lastSeen: {
-    color: "#6366f1",
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.online,
+    marginTop: theme.SPACING.xs,
   },
-  menuButton: {
-    position: "absolute",
-    right: 10,
-    width: 30,
-    height: 30,
+  inputWrapper: {
+    backgroundColor: theme.COLORS.bgWhite,
+    borderTopWidth: 1,
+    borderTopColor: theme.COLORS.primaryGhostBorder,
+    ...theme.SHADOWS.sm,
   },
   inputContainer: {
     flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.md,
+    backgroundColor: theme.COLORS.bgWhite,
+    gap: theme.SPACING.sm,
+  },
+  attachButton: {
+    width: theme.SIZING.bottomBar,
+    height: theme.SIZING.bottomBar,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
+    backgroundColor: theme.COLORS.primaryGhost,
     alignItems: "center",
-    padding: 10,
-    backgroundColor: "#e0e0e0",
-    borderTopColor: "#aaaaaa",
-    paddingVertical: 15,
+    justifyContent: "center",
+    marginBottom: theme.SPACING.xs,
   },
   textInputWrapper: {
     flex: 1,
-    marginLeft: 10,
-    backgroundColor: "#fcf8ff",
-    borderRadius: 15,
-    paddingHorizontal: 10,
-    marginRight: 10,
-    flexDirection: "row",
-    alignItems: "center",
+    backgroundColor: theme.COLORS.bgInput,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.sm,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
+    minHeight: theme.SIZING.bottomBar,
   },
   textInput: {
-    flex: 1,
-    marginLeft: 10,
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    color: theme.COLORS.textPrimary,
+    maxHeight: 100,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
+    paddingVertical: 0,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: "#fff",
+    width: theme.SIZING.sendButton,
+    height: theme.SIZING.sendButton,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#6366f1",
-  },
-  sendIcon: {
-    width: 28,
-    height: 28,
+    backgroundColor: theme.COLORS.primary,
+    ...theme.SHADOWS.primary,
+    marginBottom: theme.SPACING.xs,
   },
   iconSmall: {
-    width: 25,
-    height: 25,
+    width: theme.SIZING.iconSm,
+    height: theme.SIZING.iconSm,
   },
   micButtonActive: {
     transform: [{ scale: 1.2 }],
