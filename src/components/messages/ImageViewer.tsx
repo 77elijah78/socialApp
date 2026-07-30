@@ -78,16 +78,7 @@ export default function ImageViewer({ visible, uri, onClose }: ImageViewerProps)
       <View style={styles.container} {...panResponder.panHandlers}>
         <Animated.Image
           source={{ uri }}
-          style={[
-            styles.image,
-            {
-              transform: [
-                { scale },
-                { translateY },
-                { translateX },
-              ],
-            },
-          ]}
+          style={styles.image}
           resizeMode="contain"
         />
       </View>
@@ -122,7 +113,7 @@ const styles = StyleSheet.create({
   },
   image: {
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.8,
+    height: SCREEN_HEIGHT,
   },
   closeArea: {
     position: "absolute",

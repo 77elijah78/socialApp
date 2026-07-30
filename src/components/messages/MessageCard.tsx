@@ -23,7 +23,7 @@ export default function MessageCard({
   uri,
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
-  const maxContentWidth = width * 0.72;
+  const maxContentWidth = width * 0.7;
   const [viewerVisible, setViewerVisible] = useState(false);
 
   const sentBubble = {
@@ -73,7 +73,15 @@ export default function MessageCard({
             activeOpacity={0.9}
             onPress={() => setViewerVisible(true)}
           >
-            <View style={styles.imageWrapper}>
+            <View
+              style={[
+                styles.imageWrapper,
+                {
+                  width: maxContentWidth,
+                  alignSelf: isSent ? "flex-end" : "flex-start",
+                },
+              ]}
+            >
               <Image
                 source={{ uri }}
                 style={styles.thumbnail}
@@ -159,7 +167,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: theme.COLORS.bgImageWrapper,
     position: "relative",
-    width: "100%",
   },
   thumbnail: {
     width: "100%",
