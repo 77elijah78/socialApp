@@ -24,6 +24,7 @@ export default function MessageCard({
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
+  const [aspectRatio, setAspectRatio] = useState(1);
 
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
@@ -41,9 +42,7 @@ export default function MessageCard({
     borderTopRightRadius: theme.BORDER_RADIUS.xxxl,
   };
 
-  const textColor = isSent
-    ? theme.COLORS.textWhite
-    : theme.COLORS.textPrimary;
+  const textColor = isSent ? theme.COLORS.textWhite : theme.COLORS.textPrimary;
 
   const timeColor = isSent
     ? theme.COLORS.voiceIndicator
@@ -88,8 +87,11 @@ export default function MessageCard({
             >
               <Image
                 source={{ uri }}
-                style={styles.thumbnail}
+                style={[styles.thumbnail, { aspectRatio }]}
                 resizeMode="contain"
+                onLoad={(e) =>
+                  setAspectRatio(e.nativeEvent.source.width / e.nativeEvent.source.height)
+                }
               />
             </View>
           </TouchableOpacity>
@@ -108,11 +110,7 @@ export default function MessageCard({
 
         {type === "audio/mpeg" && (
           <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-            <VoiceMessageBubble
-              audioUri={uri}
-              duration={30}
-              isOwn={isSent}
-            />
+            <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
           </View>
         )}
 
@@ -165,7 +163,6 @@ const styles = StyleSheet.create({
   },
   thumbnail: {
     width: "100%",
-    aspectRatio: 1,
   },
   caption: {
     fontSize: theme.TYPOGRAPHY.fontSize.xxl,
