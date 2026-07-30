@@ -226,27 +226,26 @@ export default function PrivateRoom() {
         </TouchableOpacity>
       )}
 
-      {/* MESSAGES */}
-      <FlatList
-        ref={flatListRef}
-        style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
-        keyExtractor={(item) => item.localId}
-        keyboardShouldPersistTaps="handled"
-        data={messages}
-        contentContainerStyle={{ paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl }}
-        renderItem={renderMessage}
-        showsVerticalScrollIndicator={false}
-      />
-
-      {/* INPUT */}
+      {/* MESSAGES + INPUT */}
       <Animated.View
         style={[
-          styles.inputWrapper,
+          styles.contentArea,
           {
             transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }],
           },
         ]}
       >
+        <FlatList
+          ref={flatListRef}
+          style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
+          keyExtractor={(item) => item.localId}
+          keyboardShouldPersistTaps="handled"
+          data={messages}
+          contentContainerStyle={{ paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl }}
+          renderItem={renderMessage}
+          showsVerticalScrollIndicator={false}
+        />
+
         <View style={styles.inputContainer}>
           <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
             <Image source={icons.add} style={styles.iconSmall} />
@@ -343,6 +342,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: theme.COLORS.primaryGhostBorder,
     ...theme.SHADOWS.sm,
+  },
+  contentArea: {
+    flex: 1,
   },
   inputContainer: {
     flexDirection: "row",

@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   imageContainer: {
-    width: "85%",
+    width: "70%",
     aspectRatio: 1,
     justifyContent: "center",
     alignItems: "center",
