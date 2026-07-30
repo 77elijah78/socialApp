@@ -224,7 +224,7 @@ export const SIZING = {
   headerHeight: 60,
   centerPlayBtn: 64,
   waveformHeight: 32,
-  messageMaxImage: 250,
+  messageMaxImage: 350,
   storyImage: 70,
   storyItem: 75,
   storiesBar: 100,

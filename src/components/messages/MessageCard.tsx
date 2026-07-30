@@ -20,7 +20,7 @@ export default function MessageCard({
   uri,
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
-  const maxContentWidth = width * 0.72;
+  const maxContentWidth = width * 0.85;
 
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
