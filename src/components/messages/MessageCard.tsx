@@ -12,7 +12,7 @@ import {
 import { useState } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
-import ImageViewer from "./ImageViewer";
+import { router } from "expo-router";
 
 export default function MessageCard({
   type,
@@ -24,7 +24,6 @@ export default function MessageCard({
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
-  const [viewerVisible, setViewerVisible] = useState(false);
 
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
@@ -71,7 +70,12 @@ export default function MessageCard({
         {type === "image/jpeg" && (
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => setViewerVisible(true)}
+            onPress={() =>
+              router.push({
+                pathname: "/(chatRoom)/imageViewer",
+                params: { uri },
+              })
+            }
           >
             <View
               style={[
@@ -85,7 +89,7 @@ export default function MessageCard({
               <Image
                 source={{ uri }}
                 style={styles.thumbnail}
-                resizeMode="cover"
+                resizeMode="contain"
               />
               <View style={styles.zoomOverlay}>
                 <Text style={styles.zoomIcon}>🔍</Text>
@@ -127,12 +131,6 @@ export default function MessageCard({
           })}
         </Text>
       </View>
-
-      <ImageViewer
-        visible={viewerVisible}
-        uri={uri}
-        onClose={() => setViewerVisible(false)}
-      />
     </View>
   );
 }
