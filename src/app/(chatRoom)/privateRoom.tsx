@@ -10,12 +10,12 @@ import {
   TextInput,
   Pressable,
   Alert,
-  useWindowDimensions,
   Keyboard,
   Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ChatHeader from "@/components/chat/ChatHeader";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
@@ -30,11 +30,13 @@ import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 
 export default function PrivateRoom() {
-  const { roomId, receiverName, conversationId } = useLocalSearchParams<{
-    roomId: string;
-    receiverName: string;
-    conversationId: string;
-  }>();
+  const { roomId, receiverName, receiverAvatar, conversationId } =
+    useLocalSearchParams<{
+      roomId: string;
+      receiverName: string;
+      receiverAvatar?: string;
+      conversationId: string;
+    }>();
 
   const [record, setRecord] = useState(true);
   const [visible, setVisible] = useState(false);
@@ -91,6 +93,22 @@ export default function PrivateRoom() {
     },
   });
 
+  const firstUnreadIndex = messages.findIndex(
+    (m) => m.status !== "read" && m.direction === "received"
+  );
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  const handleProfilePress = useCallback(() => {
+    // TODO: navigate to profile
+  }, []);
+
+  const handleMenuPress = useCallback(() => {
+    // TODO: show menu
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || sending) return;
@@ -109,8 +127,18 @@ export default function PrivateRoom() {
     async (files: PickedFile[]) => {
       sendMedia(files[0].type, files[0].uri, conversationId);
     },
-    [conversationId],
+    [conversationId, sendMedia],
   );
+
+  const scrollToFirstUnread = useCallback(() => {
+    if (firstUnreadIndex > 0 && flatListRef.current) {
+      flatListRef.current.scrollToIndex({
+        index: firstUnreadIndex,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    }
+  }, [firstUnreadIndex]);
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: false });
@@ -119,7 +147,7 @@ export default function PrivateRoom() {
   useEffect(() => {
     const timer = setTimeout(() => {
       textInputRef.current?.focus();
-    }, 300);
+    }, 400);
     return () => clearTimeout(timer);
   }, []);
 
@@ -128,7 +156,7 @@ export default function PrivateRoom() {
       Animated.spring(keyboardHeight, {
         toValue: e.endCoordinates.height,
         useNativeDriver: true,
-        speed: 100,
+        speed: 120,
         bounciness: 0,
       }).start();
     });
@@ -136,7 +164,7 @@ export default function PrivateRoom() {
       Animated.spring(keyboardHeight, {
         toValue: 0,
         useNativeDriver: true,
-        speed: 100,
+        speed: 120,
         bounciness: 0,
       }).start();
     });
@@ -147,27 +175,64 @@ export default function PrivateRoom() {
     };
   }, [keyboardHeight]);
 
+  const renderMessage = useCallback(
+    ({ item, index }: { item: any; index: number }) => {
+      const showUnreadDivider =
+        index === firstUnreadIndex && firstUnreadIndex > 0;
+
+      return (
+        <View>
+          {showUnreadDivider && (
+            <View style={styles.unreadDivider}>
+              <View style={styles.unreadLine} />
+              <Text style={styles.unreadText}>New messages</Text>
+              <View style={styles.unreadLine} />
+            </View>
+          )}
+          <MessageCard
+            message={item.text}
+            time={item.timestamp}
+            sender=""
+            isRead={item.isRead}
+            isSent={item.direction === "sent"}
+            type={item.type}
+            uri={item.mediaUrl}
+          />
+        </View>
+      );
+    },
+    [firstUnreadIndex],
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right", "bottom"]}>
       {/* HEADER */}
-      <View style={styles.headerContainer}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Image source={icons.leftArrow} style={styles.backIcon} />
+      <ChatHeader
+        receiverName={receiverName as string}
+        avatarUri={
+          (receiverAvatar as string) ||
+          "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
+        }
+        isOnline={true}
+        onBack={handleBack}
+        onProfilePress={handleProfilePress}
+        onMenuPress={handleMenuPress}
+      />
+
+      {/* UNREAD JUMP BUTTON */}
+      {firstUnreadIndex > 0 && (
+        <TouchableOpacity
+          style={styles.jumpToUnread}
+          onPress={scrollToFirstUnread}
+          activeOpacity={0.9}
+        >
+          <View style={styles.jumpDot} />
+          <Text style={styles.jumpText}>Jump to new messages</Text>
+          <Text style={styles.jumpChevron}>⌄</Text>
         </TouchableOpacity>
+      )}
 
-        <Image
-          source={{
-            uri: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg",
-          }}
-          style={styles.avatar}
-        />
-
-        <View style={styles.userNameContainer}>
-          <Text style={styles.userName}>{receiverName}</Text>
-          <Text style={styles.lastSeen}>Online</Text>
-        </View>
-      </View>
-
+      {/* MESSAGES */}
       <FlatList
         ref={flatListRef}
         style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
@@ -175,17 +240,8 @@ export default function PrivateRoom() {
         keyboardShouldPersistTaps="handled"
         data={messages}
         contentContainerStyle={{ paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl }}
-        renderItem={({ item }) => (
-          <MessageCard
-            message={item.text}
-            time={item.timestamp}
-            sender=""
-            isRead={false}
-            isSent={item.direction === "sent"}
-            type={item.type}
-            uri={item.mediaUrl}
-          />
-        )}
+        renderItem={renderMessage}
+        showsVerticalScrollIndicator={false}
       />
 
       {/* INPUT */}
@@ -252,40 +308,41 @@ export default function PrivateRoom() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
+    backgroundColor: theme.COLORS.bgMain,
   },
-  headerContainer: {
+  jumpToUnread: {
+    position: "absolute",
+    top: theme.SIZING.headerHeight + theme.SPACING.sm,
+    left: theme.LAYOUT.listPaddingHorizontal,
+    right: theme.LAYOUT.listPaddingHorizontal,
+    backgroundColor: theme.COLORS.primary,
+    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.lg,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.SPACING.xl,
-    paddingVertical: theme.SPACING.md,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.COLORS.primaryGhostBorder,
-    ...theme.SHADOWS.sm,
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    zIndex: 10,
+    ...theme.SHADOWS.primary,
   },
-  backIcon: {
-    width: theme.SIZING.iconMd,
-    height: theme.SIZING.iconMd,
+  jumpDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.COLORS.textWhite,
   },
-  avatar: {
-    width: theme.SIZING.avatarLg,
-    height: theme.SIZING.avatarLg,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
-    marginLeft: theme.SPACING.xxl,
+  jumpText: {
+    color: theme.COLORS.textWhite,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    flex: 1,
+    textAlign: "center",
   },
-  userNameContainer: {
-    marginLeft: theme.SPACING.lg,
-  },
-  userName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+  jumpChevron: {
+    color: theme.COLORS.textWhite,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textPrimary,
-  },
-  lastSeen: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.online,
-    marginTop: theme.SPACING.xs,
   },
   inputWrapper: {
     backgroundColor: theme.COLORS.bgWhite,
@@ -343,5 +400,24 @@ const styles = StyleSheet.create({
   },
   micButtonActive: {
     transform: [{ scale: 1.2 }],
+  },
+  unreadDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: theme.SPACING.lg,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+    gap: theme.SPACING.md,
+  },
+  unreadLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.COLORS.primaryGhostBorder,
+  },
+  unreadText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 });
