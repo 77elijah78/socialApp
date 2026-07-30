@@ -82,7 +82,6 @@ export default function MessageCard({
                 styles.imageWrapper,
                 {
                   width: maxContentWidth,
-                  maxHeight: maxContentHeight,
                   alignSelf: isSent ? "flex-end" : "flex-start",
                 },
               ]}
