@@ -24,7 +24,7 @@ export default function MessageCard({
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
-  const maxContentHeight = width * 0.5;
+  const maxContentHeight = width * 0.55;
   const [aspectRatio, setAspectRatio] = useState(1);
 
   const sentBubble = {
@@ -82,7 +82,7 @@ export default function MessageCard({
                 styles.imageWrapper,
                 {
                   width: maxContentWidth,
-                  height: maxContentHeight,
+                  maxHeight: maxContentHeight,
                   alignSelf: isSent ? "flex-end" : "flex-start",
                 },
               ]}
@@ -167,7 +167,6 @@ const styles = StyleSheet.create({
   },
   thumbnail: {
     width: "100%",
-    maxHeight: 280,
   },
   caption: {
     fontSize: theme.TYPOGRAPHY.fontSize.xxl,
