@@ -24,6 +24,7 @@ export default function MessageCard({
 }: messagesCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
+  const maxContentHeight = width * 0.5;
   const [aspectRatio, setAspectRatio] = useState(1);
 
   const sentBubble = {
@@ -81,6 +82,7 @@ export default function MessageCard({
                 styles.imageWrapper,
                 {
                   width: maxContentWidth,
+                  height: maxContentHeight,
                   alignSelf: isSent ? "flex-end" : "flex-start",
                 },
               ]}
@@ -90,7 +92,9 @@ export default function MessageCard({
                 style={[styles.thumbnail, { aspectRatio }]}
                 resizeMode="contain"
                 onLoad={(e) =>
-                  setAspectRatio(e.nativeEvent.source.width / e.nativeEvent.source.height)
+                  setAspectRatio(
+                    e.nativeEvent.source.width / e.nativeEvent.source.height,
+                  )
                 }
               />
             </View>
