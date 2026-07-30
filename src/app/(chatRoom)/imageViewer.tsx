@@ -20,14 +20,12 @@ export default function ImageViewerScreen() {
         </View>
       </TouchableOpacity>
 
-      <View style={styles.imageContainer}>
-        <Image
-          source={{ uri }}
-          style={styles.image}
-          contentFit="contain"
-          transition={200}
-        />
-      </View>
+      <Image
+        source={{ uri }}
+        style={styles.image}
+        contentFit="contain"
+        transition={200}
+      />
     </View>
   );
 }
@@ -36,12 +34,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  imageContainer: {
-    width: "70%",
-    aspectRatio: 1,
     justifyContent: "center",
     alignItems: "center",
   },

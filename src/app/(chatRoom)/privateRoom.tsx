@@ -201,17 +201,19 @@ export default function PrivateRoom() {
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right", "bottom"]}>
       {/* HEADER */}
-      <ChatHeader
-        receiverName={receiverName as string}
-        avatarUri={
-          (receiverAvatar as string) ||
-          "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
-        }
-        isOnline={true}
-        onBack={handleBack}
-        onProfilePress={handleProfilePress}
-        onMenuPress={handleMenuPress}
-      />
+      <View style={styles.headerWrapper}>
+        <ChatHeader
+          receiverName={receiverName as string}
+          avatarUri={
+            (receiverAvatar as string) ||
+            "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
+          }
+          isOnline={true}
+          onBack={handleBack}
+          onProfilePress={handleProfilePress}
+          onMenuPress={handleMenuPress}
+        />
+      </View>
 
       {/* UNREAD JUMP BUTTON */}
       {firstUnreadIndex > 0 && (
@@ -302,6 +304,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.COLORS.bgMain,
+  },
+  headerWrapper: {
+    zIndex: 10,
+    elevation: 5,
   },
   jumpToUnread: {
     position: "absolute",
