@@ -167,6 +167,7 @@ const styles = StyleSheet.create({
   },
   thumbnail: {
     width: "100%",
+    maxHeight: 280,
   },
   caption: {
     fontSize: theme.TYPOGRAPHY.fontSize.xxl,
