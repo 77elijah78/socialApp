@@ -76,10 +76,7 @@ export default function MessageCard({
             <View style={styles.imageWrapper}>
               <Image
                 source={{ uri }}
-                style={[
-                  styles.thumbnail,
-                  { maxWidth: maxContentWidth },
-                ]}
+                style={styles.thumbnail}
                 resizeMode="cover"
               />
               <View style={styles.zoomOverlay}>
@@ -162,10 +159,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: theme.COLORS.bgImageWrapper,
     position: "relative",
+    width: "100%",
   },
   thumbnail: {
     width: "100%",
-    height: 200,
+    height: 220,
   },
   zoomOverlay: {
     position: "absolute",
