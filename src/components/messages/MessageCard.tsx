@@ -19,86 +19,152 @@ export default function MessageCard({
   isRead,
   uri,
 }: messagesCardProps) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
+  const maxContentWidth = width * 0.72;
+
+  const sentBubble = {
+    backgroundColor: theme.COLORS.primary,
+    borderBottomRightRadius: theme.BORDER_RADIUS.sm,
+    borderBottomLeftRadius: theme.BORDER_RADIUS.xxxl,
+    borderTopLeftRadius: theme.BORDER_RADIUS.xxxl,
+    borderTopRightRadius: theme.BORDER_RADIUS.xxxl,
+  };
+
+  const receivedBubble = {
+    backgroundColor: theme.COLORS.bgWhite,
+    borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
+    borderBottomRightRadius: theme.BORDER_RADIUS.xxxl,
+    borderTopLeftRadius: theme.BORDER_RADIUS.xxxl,
+    borderTopRightRadius: theme.BORDER_RADIUS.xxxl,
+  };
+
+  const textColor = isSent
+    ? theme.COLORS.textWhite
+    : theme.COLORS.textPrimary;
+
+  const timeColor = isSent
+    ? theme.COLORS.voiceIndicator
+    : theme.COLORS.textTimeRead;
+
   return (
     <View
-      style={
-        isSent
-          ? styles.container
-          : [styles.container, { alignItems: "flex-end" }]
-      }
+      style={[
+        styles.container,
+        isSent ? styles.sentContainer : styles.receivedContainer,
+      ]}
     >
-      {type === "text" && (
-        <View style={styles.contentContainer}>
-          <Text>{message}</Text>
-        </View>
-      )}
-      {type === "image/jpeg" && (
-        <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: uri }}
-            style={{
-              flex: 1,
-              width: "100%",
-              minHeight: theme.SIZING.messageMaxImage,
-              maxHeight: theme.SIZING.messageMaxImage,
-              borderTopLeftRadius: theme.BORDER_RADIUS.xxxxl,
-              borderTopRightRadius: theme.BORDER_RADIUS.xxxxl,
-            }}
-          />
-          <Text style={{ padding: 10 }}>{message}</Text>
-        </View>
-      )}
-      {type === "video/mp4" && (
-        <View>
-          <VideoPlayer style={{}} uri={uri} thumbnail="" borderRadius={theme.BORDER_RADIUS.xxl} />
-        </View>
-      )}
-      {type === "audio/mpeg" && (
-        <View>
-          <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
-        </View>
-      )}
-      <Text
-        style={{
-          fontSize: theme.TYPOGRAPHY.fontSize.xl,
-          color: theme.COLORS.textGray,
-          alignSelf: isSent ? "flex-start" : "flex-end",
-          marginHorizontal: 10,
-        }}
+      <View
+        style={[
+          styles.bubble,
+          isSent ? sentBubble : receivedBubble,
+          type === "text" && styles.textBubblePadding,
+        ]}
       >
-        {new Date(time).toLocaleTimeString()}
-      </Text>
+        {type === "text" && (
+          <Text style={[styles.text, { color: textColor }]}>{message}</Text>
+        )}
+
+        {type === "image/jpeg" && (
+          <View style={styles.imageWrapper}>
+            <Image
+              source={{ uri }}
+              style={[
+                styles.image,
+                { maxWidth: maxContentWidth },
+              ]}
+              resizeMode="contain"
+            />
+            {!!message && (
+              <Text style={[styles.caption, { color: textColor }]}>
+                {message}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {type === "video/mp4" && (
+          <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
+            <VideoPlayer
+              style={{}}
+              uri={uri}
+              thumbnail=""
+              borderRadius={theme.BORDER_RADIUS.lg}
+            />
+          </View>
+        )}
+
+        {type === "audio/mpeg" && (
+          <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
+            <VoiceMessageBubble
+              audioUri={uri}
+              duration={30}
+              isOwn={isSent}
+            />
+          </View>
+        )}
+
+        <Text
+          style={[
+            styles.time,
+            { color: timeColor, alignSelf: isSent ? "flex-end" : "flex-start" },
+          ]}
+        >
+          {new Date(time).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1,
-    backgroundColor: theme.COLORS.transparent,
     width: "100%",
-    marginVertical: 15,
-    alignItems: "flex-start",
-    justifyContent: "flex-start",
+    marginVertical: theme.SPACING.xs,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
   },
-  contentContainer: {
-    flexGrow: 1,
-    backgroundColor: theme.COLORS.bubbleBg,
-    width: theme.SIZING.contentWidth,
-    borderRadius: theme.BORDER_RADIUS.xl,
-    padding: 10,
-    justifyContent: "center",
-    marginTop: 10,
+  sentContainer: {
+    alignItems: "flex-end",
+  },
+  receivedContainer: {
     alignItems: "flex-start",
   },
-  imageContainer: {
-    flex: 1,
-    flexGrow: 1,
-    alignItems: "flex-start",
-    backgroundColor: theme.COLORS.bubbleBg,
-    width: theme.SIZING.messageWidth,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
-    justifyContent: "flex-start",
+  bubble: {
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.md,
+    maxWidth: "100%",
+    ...theme.SHADOWS.sm,
+  },
+  textBubblePadding: {
+    paddingVertical: theme.SPACING.sm,
+  },
+  text: {
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
+  },
+  imageWrapper: {
+    borderRadius: theme.BORDER_RADIUS.xxxl,
+    overflow: "hidden",
+    backgroundColor: theme.COLORS.bgImageWrapper,
+  },
+  image: {
+    width: "100%",
+    height: theme.SIZING.messageMaxImage,
+  },
+  caption: {
+    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
+    padding: theme.SPACING.md,
+  },
+  mediaWrapper: {
+    borderRadius: theme.BORDER_RADIUS.xxxl,
+    overflow: "hidden",
+  },
+  time: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginTop: theme.SPACING.xs,
+    marginHorizontal: theme.SPACING.sm,
   },
 });
