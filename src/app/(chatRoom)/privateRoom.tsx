@@ -145,13 +145,6 @@ export default function PrivateRoom() {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      textInputRef.current?.focus();
-    }, 400);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
       Animated.spring(keyboardHeight, {
         toValue: e.endCoordinates.height,
