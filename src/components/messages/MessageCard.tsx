@@ -91,9 +91,6 @@ export default function MessageCard({
                 style={styles.thumbnail}
                 resizeMode="contain"
               />
-              <View style={styles.zoomOverlay}>
-                <Text style={styles.zoomIcon}>🔍</Text>
-              </View>
             </View>
           </TouchableOpacity>
         )}
@@ -168,22 +165,7 @@ const styles = StyleSheet.create({
   },
   thumbnail: {
     width: "100%",
-    height: 220,
-  },
-  zoomOverlay: {
-    position: "absolute",
-    bottom: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  zoomIcon: {
-    fontSize: 16,
-    color: theme.COLORS.textWhite,
+    aspectRatio: 1,
   },
   caption: {
     fontSize: theme.TYPOGRAPHY.fontSize.xxl,

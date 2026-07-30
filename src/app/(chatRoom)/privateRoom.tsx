@@ -152,6 +152,7 @@ export default function PrivateRoom() {
         speed: 120,
         bounciness: 0,
       }).start();
+      flatListRef.current?.scrollToEnd({ animated: true });
     });
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       Animated.spring(keyboardHeight, {
