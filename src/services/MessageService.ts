@@ -1,9 +1,7 @@
 import { BaseUploader } from "./BaseUploader";
 import { messageStore } from "../db/MessageStore";
-import { MessageRow, NewMessageRow } from "../db/schema";
-import { SocketReceiver, socketReceiver } from "./SocketReceiver";
-import { mediaService } from "./MediaService";
-import { Conversation, LoginResponse, User } from "@/types";
+import { NewMessageRow } from "../db/schema";
+import { api } from "./api";
 
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -15,55 +13,16 @@ function uid(): string {
 interface SendMeta {
   senderId: string;
   receiverId: string;
-  roomId: string;
+  conversationId: string;
 }
 
 interface ServerMessageResponse {
-  id?: string;
-  messageId?: string;
-  timestamp?: number;
-}
-interface ServerMessagesResponse {
   id: string;
-  content: string;
-  mediaUrl?: string;
-  senderId: string;
-  receiverId: string;
-  conversationId: string;
-  sender: User;
-  receiver: User;
-  conversation: Conversation;
-  isRead: boolean;
-  createdAt: Date;
+  createdAt: string;
 }
 
-/**
- * MessageService
- *
- * Sends messages to the Node.js backend and keeps SQLite in sync optimistically.
- *
- * Flow for send():
- *   1. Build optimistic row (status: "sending") → insert into SQLite immediately
- *   2. POST to server
- *   3a. Success → confirm() sets real server id + status "sent"
- *   3b. Failure → markFailed() so UI shows retry button
- */
 export class MessageService extends BaseUploader {
-  //static sendMediaRecord(
-  //  type: string,
-  //  uri: string | null,
-  //  arg2: { roomId: string; conversationId: any },
-  //) {
-  //  throw new Error("Method not implemented.");
-  //}
-  private readonly endpoint = "/conversations";
   private readonly maxLength = 5000;
-
-  constructor(baseUrl: string, authToken: any) {
-    super(baseUrl, authToken);
-  }
-
-  // ─── Validation ───────────────────────────────────────────────────────────
 
   private validate(text: string): void {
     if (!text || text.trim().length === 0) {
@@ -74,13 +33,6 @@ export class MessageService extends BaseUploader {
     }
   }
 
-  // ─── Send text ────────────────────────────────────────────────────────────
-
-  /**
-   * Send a text message.
-   * Saves optimistically to SQLite before the network request so the UI
-   * updates instantly, then confirms or marks failed based on the response.
-   */
   async send(text: string, meta: SendMeta) {
     this.validate(text);
 
@@ -88,38 +40,31 @@ export class MessageService extends BaseUploader {
 
     const optimistic: NewMessageRow = {
       localId,
-      id: localId, // temp — overwritten on confirm
+      id: localId,
       text: text.trim(),
       type: "text",
       mediaUrl: null,
       senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId: meta.roomId,
+      roomId: meta.conversationId,
       status: "sending",
       direction: "sent",
       timestamp: Date.now(),
     };
 
-    // 1. Write to SQLite — UI sees it immediately
     await messageStore.save(optimistic);
 
     try {
-      const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
-        },
-        body: JSON.stringify({ text: text.trim(), ...meta }),
-      });
+      const server = await api.post<ServerMessageResponse>(
+        `/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+        { content: text.trim(), receiverId: meta.receiverId },
+        this.authToken ?? undefined,
+      );
 
-      if (!res.ok) throw new Error(`[${res.status}]`);
+      const serverId = server.id;
+      const serverTimestamp = new Date(server.createdAt).getTime();
 
-      const server: ServerMessageResponse = await res.json();
-      const serverId = server.id ?? server.messageId ?? localId;
-
-      // 2. Confirm — sets real id + status "sent"
-      return messageStore.confirm(localId, serverId, server.timestamp);
+      return messageStore.confirm(localId, serverId, serverTimestamp);
     } catch (err) {
       console.log(err);
       await messageStore.markFailed(localId);
@@ -127,30 +72,14 @@ export class MessageService extends BaseUploader {
     }
   }
 
-  // ─── Retry failed ─────────────────────────────────────────────────────────
-
-  /**
-   * Retry a message that previously failed.
-   * Resets its status to "sending" then re-sends.
-   */
-  async retry(roomId: string, localId: string, meta: Omit<SendMeta, "roomId">) {
+  async retry(conversationId: string, localId: string, meta: Omit<SendMeta, "conversationId">) {
     const msg = await messageStore.getByLocalId(localId);
     if (!msg) throw new Error("Message not found in local store.");
 
     await messageStore.resetForRetry(localId);
-    return this.send(msg.text ?? "", { ...meta, roomId });
+    return this.send(msg.text ?? "", { ...meta, conversationId });
   }
 
-  // ─── Send media record ────────────────────────────────────────────────────
-
-  /**
-   * After AudioUploader / VideoUploader finishes uploading a file,
-   * call this to save the media message locally and notify the server.
-   *
-   * @param type      "audio" | "video"
-   * @param mediaUrl  CDN URL returned by the upload
-   * @param meta      senderId, receiverId, roomId
-   */
   async sendMediaRecord(type: string, mediaUrl: string | null, meta: SendMeta) {
     const localId = uid();
 
@@ -162,7 +91,7 @@ export class MessageService extends BaseUploader {
       mediaUrl,
       senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId: meta.roomId,
+      roomId: meta.conversationId,
       status: "sending",
       direction: "sent",
       timestamp: Date.now(),
@@ -171,109 +100,73 @@ export class MessageService extends BaseUploader {
     await messageStore.save(optimistic);
 
     try {
-      const res = await fetch(`${this.baseUrl}${this.endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
-        },
-        body: JSON.stringify({ type, mediaUrl, ...meta }),
-      });
+      const server = await api.post<ServerMessageResponse>(
+        `/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+        { content: "", mediaUrl, receiverId: meta.receiverId },
+        this.authToken ?? undefined,
+      );
 
-      if (!res.ok) throw new Error(`[${res.status}]`);
+      const serverId = server.id;
+      const serverTimestamp = new Date(server.createdAt).getTime();
 
-      const server: ServerMessageResponse = await res.json();
-      const serverId = server.id ?? server.messageId ?? localId;
-
-      return messageStore.confirm(localId, serverId, server.timestamp);
+      return messageStore.confirm(localId, serverId, serverTimestamp);
     } catch (err) {
       await messageStore.markFailed(localId);
       throw err;
     }
   }
 
-  // ─── Sync from server ─────────────────────────────────────────────────────
-
-  /**
-   * Fetch message history from the server and upsert into SQLite.
-   * Call on room open to catch any messages received while offline.
-   *
-   * @param roomId
-   * @param currentUserId   Needed to set direction correctly
-   * @param page            For pagination
-   * @param limit
-   */
   async syncFromServer(
     conversationId: string,
     currentUserId: string,
     page = 1,
     limit = 30,
   ) {
-    const data: any = await this._get(
-      `${this.endpoint}:${conversationId}/messages`,
+    const data = await api.get<any>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages?page=${page}&limit=${limit}`,
+      this.authToken ?? undefined,
     );
 
-    const incoming: NewMessageRow[] = (data.messages ?? data).map((m: any) => ({
+    const messages = Array.isArray(data) ? data : data.messages ?? data.data ?? [];
+
+    const incoming: NewMessageRow[] = messages.map((m: any) => ({
       localId: m.id,
       id: m.id,
       text: m.content ?? null,
       type: m.type ?? "text",
       mediaUrl: m.mediaUrl ?? null,
       senderId: m.senderId,
-      receiverId: m.receiverId,
+      receiverId: m.receiverId ?? currentUserId,
       roomId: m.conversationId,
       direction: m.senderId === currentUserId ? "sent" : "received",
       status: m.status ?? (m.senderId === currentUserId ? "sent" : "delivered"),
-      timestamp: m.timestamp ?? Date.now(),
+      timestamp: m.timestamp ?? m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
     }));
 
     return messageStore.saveMany(incoming);
   }
 
-  // ─── Delete ───────────────────────────────────────────────────────────────
-
-  /**
-   * Delete a message locally and on the server.
-   */
-  async delete(roomId: string, messageId: string) {
+  async delete(messageId: string) {
     await messageStore.deleteOne(messageId);
 
-    const res = await fetch(`${this.baseUrl}${this.endpoint}/${messageId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${this.authToken ?? ""}` },
-    });
-    if (!res.ok) throw new Error(`Delete failed [${res.status}]`);
-    return res.json();
+    await api.delete(
+      `/conversations/messages/${encodeURIComponent(messageId)}`,
+      this.authToken ?? undefined,
+    );
   }
 
-  // ─── Edit ─────────────────────────────────────────────────────────────────
-
-  /**
-   * Edit a message locally and on the server.
-   */
-  async edit(roomId: string, messageId: string, newText: string) {
+  async edit(messageId: string, newText: string) {
     this.validate(newText);
 
     await messageStore.editText(messageId, newText.trim());
 
-    const res = await fetch(`${this.baseUrl}${this.endpoint}/${messageId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.authToken ?? ""}`,
-      },
-      body: JSON.stringify({ text: newText.trim() }),
-    });
-    if (!res.ok) throw new Error(`Edit failed [${res.status}]`);
-    return res.json();
+    await api.patch(
+      `/conversations/messages/${encodeURIComponent(messageId)}`,
+      { text: newText.trim() },
+      this.authToken ?? undefined,
+    );
   }
 
-  // ─── Mark read ────────────────────────────────────────────────────────────
-
-  /**
-   * Mark all received messages in a room as read.
-   * Call when the user opens a conversation.
-   */
   async markRoomAsRead(roomId: string) {
     return messageStore.markRoomAsRead(roomId, Date.now());
   }

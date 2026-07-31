@@ -2,7 +2,6 @@ import { io, Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
 import { NewMessageRow } from "../db/schema";
 import { roomStore } from "@/db/RoomStore";
-import { uuid } from "drizzle-orm/gel-core";
 
 type Listener = (data?: any) => void;
 
