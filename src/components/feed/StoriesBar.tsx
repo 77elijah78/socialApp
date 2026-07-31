@@ -11,7 +11,8 @@ const STORIES: Story[] = [
     userId: "me",
     username: "johndoe",
     displayName: "Your story",
-    avatarUrl: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    avatarUrl:
+      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
     mediaUrl: "",
     mediaType: "image",
     createdAt: new Date(),
@@ -23,8 +24,10 @@ const STORIES: Story[] = [
     userId: "u1",
     username: "sarahchen",
     displayName: "Sarah",
-    avatarUrl: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    avatarUrl:
+      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    mediaUrl:
+      "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     mediaType: "image",
     createdAt: new Date(Date.now() - 30 * 60 * 1000),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -35,8 +38,10 @@ const STORIES: Story[] = [
     userId: "u2",
     username: "marcuswebb",
     displayName: "Marcus",
-    avatarUrl: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    avatarUrl:
+      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    mediaUrl:
+      "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     mediaType: "image",
     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -47,8 +52,10 @@ const STORIES: Story[] = [
     userId: "u3",
     username: "leilamoradi",
     displayName: "Leila",
-    avatarUrl: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    avatarUrl:
+      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    mediaUrl:
+      "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
     mediaType: "image",
     createdAt: new Date(Date.now() - 45 * 60 * 1000),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -59,8 +66,10 @@ const STORIES: Story[] = [
     userId: "u4",
     username: "jamesokafor",
     displayName: "James",
-    avatarUrl: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    avatarUrl:
+      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    mediaUrl:
+      "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     mediaType: "image",
     createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -71,8 +80,10 @@ const STORIES: Story[] = [
     userId: "u5",
     username: "anyapetrov",
     displayName: "Anya",
-    avatarUrl: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    avatarUrl:
+      "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+    mediaUrl:
+      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
     mediaType: "image",
     createdAt: new Date(Date.now() - 90 * 60 * 1000),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -80,7 +91,17 @@ const STORIES: Story[] = [
   },
 ];
 
-function StoryRing({ isViewed, isMe, size, avatarUrl }: { isViewed: boolean; isMe: boolean; size: number; avatarUrl: string }) {
+function StoryRing({
+  isViewed,
+  isMe,
+  size,
+  avatarUrl,
+}: {
+  isViewed: boolean;
+  isMe: boolean;
+  size: number;
+  avatarUrl: string;
+}) {
   if (isMe) {
     return (
       <View
@@ -158,11 +179,16 @@ export default function StoriesBar() {
       <TouchableOpacity
         style={{
           alignItems: "center",
-          width: theme.SIZING.storyItem + 40,
+          width: theme.SIZING.storyItem + 20,
         }}
         activeOpacity={theme.OPACITY.semiTransparent}
       >
-        <StoryRing isViewed={item.isViewed} isMe={item.userId === "me"} size={storySize} avatarUrl={item.avatarUrl} />
+        <StoryRing
+          isViewed={item.isViewed}
+          isMe={item.userId === "me"}
+          size={storySize}
+          avatarUrl={item.avatarUrl}
+        />
         <Text
           style={{
             fontSize: theme.TYPOGRAPHY.fontSize.xs,
@@ -195,7 +221,7 @@ export default function StoriesBar() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{
-          gap: 10,
+          gap: 0,
           alignItems: "center",
         }}
       />

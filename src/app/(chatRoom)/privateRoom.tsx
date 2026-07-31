@@ -30,19 +30,20 @@ import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 
 export default function PrivateRoom() {
-  const { roomId, receiverName, receiverAvatar, conversationId } =
+  const { roomId, receiverName, receiverAvatar, conversationId, receiverId } =
     useLocalSearchParams<{
       roomId: string;
       receiverName: string;
       receiverAvatar?: string;
       conversationId: string;
+      receiverId: string;
     }>();
 
   const [record, setRecord] = useState(true);
   const [visible, setVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
+  const [keyboardHeight] = useState(new Animated.Value(0));
   const textInputRef = useRef<TextInput>(null);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -87,6 +88,7 @@ export default function PrivateRoom() {
 
   const { messages, send, flatListRef, onTyping, sendMedia } = useChat({
     roomId,
+    conversationId,
     currentUser: {
       id: currentUserId ?? "",
       token: currentUserToken ?? "",
@@ -117,17 +119,17 @@ export default function PrivateRoom() {
     setSending(true);
 
     try {
-      await send(text, receiverName);
+      await send(text, receiverId);
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, send, receiverName]);
+  }, [inputText, sending, send, receiverId]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
-      sendMedia(files[0].type, files[0].uri, conversationId);
+      sendMedia(files[0].type, files[0].uri, receiverId);
     },
-    [conversationId, sendMedia],
+    [conversationId, receiverId, sendMedia],
   );
 
   const scrollToFirstUnread = useCallback(() => {
