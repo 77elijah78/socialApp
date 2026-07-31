@@ -1,12 +1,10 @@
 import { LoginResponse } from "@/types";
-import { useAppDispatch, useAppSelector } from "../store/hooks";
-import { setCredentials, logout } from "../store/slices/authSlice";
-import { AppDispatch } from "@/store";
+import { useAppDispatch } from "../store/hooks";
+import { setCredentials } from "../store/slices/authSlice";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
-  private baseUrl = 'http://192.168.1.3:3000/api/v1/auth';
-  private readonly loginEndpoint = "/login";
-  private readonly registerEndpoint = "/register";
+  private readonly baseUrl = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000/api/v1"}/auth`;
 
   private validate(email: string, password: string): void {
     if (!email || !password) {
@@ -14,52 +12,71 @@ export class AuthService {
     }
   }
 
-  async register(email: string, password: string): Promise<any> {
+  async register(email: string, password: string): Promise<void> {
     this.validate(email, password);
 
-    const response = await fetch(
-      `${process.env.EXPO_PUBLIC_API_URL}${this.registerEndpoint}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
+    const response = await fetch(`${this.baseUrl}/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({ email, password }),
+    });
 
     if (!response.ok) {
-      throw new Error("Registration failed.");
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || "Registration failed.");
     }
   }
 
-  async login(email: string, password: string,dispatch:AppDispatch): Promise<any> {
-    const email2 = "alice"
+  async login(email: string, password: string, dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
     this.validate(email, password);
 
-    const response = await fetch(
-      `${this.baseUrl}${this.loginEndpoint}`,
-      {
+    const response = await fetch(`${this.baseUrl}/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data: LoginResponse = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Login failed.");
+    }
+
+    const { user, accessToken, refreshToken } = data.data;
+
+    dispatch(
+      setCredentials({
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          avatarUrl: null,
+        },
+        token: accessToken,
+      }),
+    );
+
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
+    }
+  }
+
+  async logout(): Promise<void> {
+    const token = await AsyncStorage.getItem("refreshToken");
+    if (token) {
+      await fetch(`${this.baseUrl}/logout`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password,email2 }),
-      },
-    );
-
-
-    const data:  LoginResponse = await response.json();
-    console.log("data",data)
-    dispatch(
-      setCredentials({
-        user: { id: "1", username: data.data.user.email, email:data.data.user.email },
-        token: data.data.accessToken,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error("Login failed.");
+        body: JSON.stringify({ refreshToken: token }),
+      }).catch(() => {});
+      await AsyncStorage.removeItem("refreshToken");
     }
   }
 }
