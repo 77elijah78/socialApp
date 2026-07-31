@@ -63,7 +63,15 @@ const STORIES: StoryItem[] = [
   },
 ];
 
-function StoryRing({ isViewed, isMe, size }: { isViewed: boolean; isMe: boolean; size: number }) {
+function StoryRing({
+  isViewed,
+  isMe,
+  size,
+}: {
+  isViewed: boolean;
+  isMe: boolean;
+  size: number;
+}) {
   if (isMe) {
     return (
       <View
@@ -141,7 +149,7 @@ export default function StoriesBar() {
       <TouchableOpacity
         style={{
           alignItems: "center",
-          width: theme.SIZING.storyItem + 40,
+          width: theme.SIZING.storyItem + 15,
         }}
         activeOpacity={theme.OPACITY.semiTransparent}
       >
@@ -178,7 +186,7 @@ export default function StoriesBar() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{
-          gap: 10,
+          gap: 0,
           alignItems: "center",
         }}
       />
