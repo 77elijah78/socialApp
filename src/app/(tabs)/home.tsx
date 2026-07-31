@@ -1,15 +1,11 @@
-// Feed Screen
-import PostCard from "@/components/feed/PostCard";
-import PostScreen from "@/components/feed/PostCard";
-import { icons } from "@/constants";
-import React from "react";
-import { View, Text, FlatList, ScrollView } from "react-native";
-import { SocialPost } from "@/types";
-import { SafeAreaView } from "react-native-safe-area-context";
-import StoriesBar from "@/components/feed/StoriesBar";
-import { useRooms } from "@/hooks/useRooms";
-import { roomStore } from "@/db/RoomStore";
-import theme from "@/constants/theme";
+import React, { useCallback } from 'react';
+import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import PostCard from '@/components/feed/PostCard';
+import StoriesBar from '@/components/feed/StoriesBar';
+import { SocialPost } from '@/types';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import theme from '@/constants/theme';
 
 const POSTS: SocialPost[] = [
   {
@@ -18,14 +14,14 @@ const POSTS: SocialPost[] = [
       name: "Sarah Chen",
       username: "sarahchen",
       avatarUrl:
-        "https://wallsanddreams.com/wp-content/uploads/2025/01/IMG_1778-1024x576.jpg",
+        "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: true,
     },
     timestamp: "2m ago",
     content:
       "Just wrapped up an incredible weekend adventure in the mountains 🏔️ There's something magical about being completely disconnected from the world up there. Highly recommend everyone takes a trip like this at least once.",
     imageUrl:
-      "https://wallsanddreams.com/wp-content/uploads/2025/01/IMG_1778-1024x576.jpg",
+      "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     likeCount: 1243,
     commentCount: 87,
     shareCount: 34,
@@ -39,7 +35,7 @@ const POSTS: SocialPost[] = [
       name: "Marcus Webb",
       username: "marcuswebb",
       avatarUrl:
-        "https://wallsanddreams.com/wp-content/uploads/2025/01/IMG_1778-1024x576.jpg",
+        "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: false,
     },
     timestamp: "18m ago",
@@ -99,7 +95,8 @@ const POSTS: SocialPost[] = [
     user: {
       name: "Anya Petrov",
       username: "anyapetrov",
-      avatarUrl: "",
+      avatarUrl:
+        "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: true,
     },
     timestamp: "5h ago",
@@ -116,32 +113,48 @@ const POSTS: SocialPost[] = [
 ];
 
 export default function FeedScreen() {
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 1200);
+  }, []);
+
   return (
     <SafeAreaView
       style={{
         flex: 1,
-        backgroundColor: theme.COLORS.white,
+        backgroundColor: theme.COLORS.bgLight,
       }}
     >
-      <View>
-        <View
-          style={{
-            paddingVertical: 10,
-            paddingHorizontal: theme.LAYOUT.contentPadding,
-            borderBottomWidth: theme.BORDER.width.xs,
-            borderBottomColor: theme.COLORS.borderDivider,
-          }}
-        >
-          <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xl6, fontWeight: theme.TYPOGRAPHY.fontWeight.bold, color: theme.COLORS.primary }}>
-            Feed
-          </Text>
+      {/* Header */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: theme.LAYOUT.contentPadding,
+          paddingTop: theme.SPACING.md,
+          paddingBottom: theme.SPACING.sm,
+          backgroundColor: theme.COLORS.bgLight,
+          ...theme.SHADOWS.xl,
+          zIndex: 10,
+        }}
+      >
+        <Text style={styles.headerTitle}>Feed</Text>
+        <View style={styles.headerActions}>
+          <Pressable style={styles.headerIconBtn}>
+            <Ionicons name="search" size={22} color={theme.COLORS.textPrimary} />
+          </Pressable>
+          <Pressable style={styles.headerIconBtn}>
+            <Ionicons name="notifications-outline" size={22} color={theme.COLORS.textPrimary} />
+          </Pressable>
         </View>
       </View>
 
       <FlatList
         style={{
           flex: 1,
-          paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
           backgroundColor: theme.COLORS.bgLight,
         }}
         data={POSTS}
@@ -149,11 +162,41 @@ export default function FeedScreen() {
         numColumns={1}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={<StoriesBar />}
-        ListFooterComponent={<View style={{ height: 150 }} />}
-        renderItem={({ item, index }) => {
-          return <PostCard post={POSTS[index]} />;
-        }}
+        ListFooterComponent={<View style={{ height: theme.SPACING.xxxxl }} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.COLORS.primary}
+            colors={[theme.COLORS.primary]}
+          />
+        }
+        renderItem={({ item }) => <PostCard post={item} />}
       />
     </SafeAreaView>
   );
 }
+
+const styles = {
+  headerTitle: {
+    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: theme.COLORS.textPrimary,
+    letterSpacing: theme.TYPOGRAPHY.letterSpacing.xs,
+  } as const,
+  headerActions: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: theme.SPACING.sm,
+  } as const,
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: theme.BORDER_RADIUS.full,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: theme.BORDER.width.xs,
+    borderColor: theme.COLORS.borderDivider,
+  } as const,
+};

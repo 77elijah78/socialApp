@@ -88,6 +88,12 @@ export const COLORS = {
   wave5: '#6C5CE7',
 };
 
+export const STORY = {
+  gradientStart: '#a855f7',
+  gradientEnd: '#3b82f6',
+  seenBorder: '#e5e7eb',
+};
+
 export const SPACING = {
   xs: 2,
   sm: 4,
@@ -277,4 +283,4 @@ export const LAYOUT = {
   listPaddingHorizontal: 15,
 };
 
-export default { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS, SHADOWS, SIZING, OPACITY, BORDER, LAYOUT };
+export default { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS, SHADOWS, SIZING, OPACITY, BORDER, LAYOUT, STORY };

@@ -4,18 +4,11 @@ import {
   Text,
   Image,
   TouchableOpacity,
-  StyleSheet,
-  Dimensions,
+  Animated,
 } from 'react-native';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { Ionicons } from '@expo/vector-icons';
 import theme from '@/constants/theme';
 import { SocialPost } from '@/types';
-import { PostUser } from '@/types';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-
 
 export interface SocialPostCardProps {
   post: SocialPost;
@@ -28,47 +21,11 @@ export interface SocialPostCardProps {
   onUserPress?: (userId: string) => void;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function formatCount(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(n);
 }
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-// Using text-based icons for zero-dependency setup.
-// Replace with react-native-vector-icons or @expo/vector-icons as needed.
-
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxxl, color: filled ? theme.COLORS.secondary : theme.COLORS.textMutedGray }}>
-    {filled ? '♥' : '♡'}
-  </Text>
-);
-
-const CommentIcon = () => (
-  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: theme.COLORS.textMutedGray }}>💬</Text>
-);
-
-const ShareIcon = () => (
-  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: theme.COLORS.textMutedGray }}>↑</Text>
-);
-
-const BookmarkIcon = ({ filled }: { filled: boolean }) => (
-  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xxl, color: filled ? theme.COLORS.accentPurple : theme.COLORS.textMutedGray }}>
-    {filled ? '🔖' : '🏷'}
-  </Text>
-);
-
-const DotsIcon = () => (
-  <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xl5, color: theme.COLORS.textMutedGray, letterSpacing: theme.TYPOGRAPHY.letterSpacing.sm }}>···</Text>
-);
-
-const CheckIcon = () => (
-  <Text style={{ fontSize: 8, color: theme.COLORS.textWhite }}>✓</Text>
-);
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PostCard({
   post,
@@ -83,12 +40,27 @@ export default function PostCard({
   const [liked, setLiked] = useState(post.isLiked ?? false);
   const [bookmarked, setBookmarked] = useState(post.isBookmarked ?? false);
   const [likeCount, setLikeCount] = useState(post.likeCount);
+  const [likeScale] = useState(new Animated.Value(1));
 
   const handleLike = () => {
     const next = !liked;
     setLiked(next);
     setLikeCount((c) => (next ? c + 1 : c - 1));
     onLike?.(post.id, next);
+
+    Animated.sequence([
+      Animated.timing(likeScale, {
+        toValue: 1.35,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.spring(likeScale, {
+        toValue: 1,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
   const handleBookmark = () => {
@@ -99,50 +71,44 @@ export default function PostCard({
 
   return (
     <View style={styles.card}>
-      {/* ── Header ── */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.userRow}
-          onPress={() => onUserPress?.(post.id)}
-          activeOpacity={theme.OPACITY.semiTransparent}
-        >
-          {/* Avatar */}
-          <View style={styles.avatarWrapper}>
-            <Image
-              source={{ uri: post.user.avatarUrl }}
-              style={styles.avatar}
-            />
-            {post.user.isVerified && (
-              <View style={styles.verifiedBadge}>
-                <CheckIcon />
-              </View>
-            )}
-          </View>
+      {/* Header */}
+      <TouchableOpacity
+        style={styles.header}
+        activeOpacity={theme.OPACITY.semiTransparent}
+        onPress={() => onUserPress?.(post.id)}
+      >
+        <View style={styles.avatarWrapper}>
+          <Image
+            source={{ uri: post.user.avatarUrl }}
+            style={styles.avatar}
+          />
+          {post.user.isVerified && (
+            <View style={styles.verifiedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color={theme.COLORS.accentPurple} />
+            </View>
+          )}
+        </View>
 
-          {/* Meta */}
-          <View style={styles.userMeta}>
-            <Text style={styles.userName}>{post.user.name}</Text>
-            <Text style={styles.userHandle}>
-              @{post.user.username} · {post.timestamp}
-            </Text>
-          </View>
-        </TouchableOpacity>
+        <View style={styles.userMeta}>
+          <Text style={styles.userName}>{post.user.name}</Text>
+          <Text style={styles.userHandle}>
+            @{post.user.username} · {post.timestamp}
+          </Text>
+        </View>
 
-        {/* 3-dot menu */}
         <TouchableOpacity
           onPress={() => onMenuPress?.(post.id)}
           style={styles.menuBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <DotsIcon />
+          <Ionicons name="ellipsis-horizontal" size={20} color={theme.COLORS.textMutedGray} />
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
 
-      {/* ── Body ── */}
+      {/* Body */}
       <View style={styles.body}>
         <Text style={styles.content}>{post.content}</Text>
 
-        {/* Tags */}
         {post.tags && post.tags.length > 0 && (
           <View style={styles.tags}>
             {post.tags.map((tag) => (
@@ -151,28 +117,32 @@ export default function PostCard({
                 onPress={() => onTagPress?.(tag)}
                 activeOpacity={theme.OPACITY.semiTransparent}
               >
-                <Text style={styles.tag}>#{tag}</Text>
+                <View style={styles.tagPill}>
+                  <Text style={styles.tag}>#{tag}</Text>
+                </View>
               </TouchableOpacity>
             ))}
           </View>
         )}
       </View>
 
-      {/* ── Post Image ── */}
+      {/* Post Image */}
       {post.imageUrl ? (
-        <View style={styles.imageWrapper}>
-          <Image
-            source={{ uri: post.imageUrl }}
-            style={styles.postImage}
-            resizeMode="cover"
-          />
-        </View>
+        <TouchableOpacity activeOpacity={0.95}>
+          <View style={styles.imageWrapper}>
+            <Image
+              source={{ uri: post.imageUrl }}
+              style={styles.postImage}
+              resizeMode="cover"
+            />
+          </View>
+        </TouchableOpacity>
       ) : null}
 
-      {/* ── Divider ── */}
+      {/* Divider */}
       <View style={styles.divider} />
 
-      {/* ── Actions ── */}
+      {/* Actions */}
       <View style={styles.actions}>
         <View style={styles.actionsLeft}>
           {/* Like */}
@@ -181,7 +151,13 @@ export default function PostCard({
             style={[styles.actionBtn, liked && styles.actionBtnLiked]}
             activeOpacity={theme.OPACITY.semiTransparent}
           >
-            <HeartIcon filled={liked} />
+            <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+              <Ionicons
+                name={liked ? "heart" : "heart-outline"}
+                size={22}
+                color={liked ? theme.COLORS.secondary : theme.COLORS.textMutedGray}
+              />
+            </Animated.View>
             <Text style={[styles.actionCount, liked && styles.actionCountLiked]}>
               {formatCount(likeCount)}
             </Text>
@@ -193,7 +169,7 @@ export default function PostCard({
             style={styles.actionBtn}
             activeOpacity={theme.OPACITY.semiTransparent}
           >
-            <CommentIcon />
+            <Ionicons name="chatbubble-outline" size={20} color={theme.COLORS.textMutedGray} />
             <Text style={styles.actionCount}>
               {formatCount(post.commentCount)}
             </Text>
@@ -205,7 +181,7 @@ export default function PostCard({
             style={styles.actionBtn}
             activeOpacity={theme.OPACITY.semiTransparent}
           >
-            <ShareIcon />
+            <Ionicons name="share-outline" size={20} color={theme.COLORS.textMutedGray} />
             <Text style={styles.actionCount}>
               {formatCount(post.shareCount)}
             </Text>
@@ -218,152 +194,146 @@ export default function PostCard({
           style={[styles.actionBtn, bookmarked && styles.actionBtnBookmarked]}
           activeOpacity={theme.OPACITY.semiTransparent}
         >
-          <BookmarkIcon filled={bookmarked} />
+          <Ionicons
+            name={bookmarked ? "bookmark" : "bookmark-outline"}
+            size={20}
+            color={bookmarked ? theme.COLORS.accentPurple : theme.COLORS.textMutedGray}
+          />
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
+const styles = {
   card: {
     backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
     borderWidth: theme.BORDER.width.xs,
     borderColor: theme.COLORS.cardBorder,
     marginBottom: theme.SPACING.lg,
     overflow: 'hidden',
-  },
-  // Header
+    ...theme.SHADOWS.sm,
+  } as const,
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     paddingHorizontal: theme.SPACING.xl,
     paddingTop: theme.SPACING.xl,
-    paddingBottom: 10,
-  },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
+    paddingBottom: theme.SPACING.md,
+    gap: theme.SPACING.lg,
+  } as const,
   avatarWrapper: {
     position: 'relative',
-    marginRight: theme.SPACING.lg,
-  },
+  } as const,
   avatar: {
-    width: theme.SIZING.avatarMd,
-    height: theme.SIZING.avatarMd,
-    borderRadius: 21,
-    borderWidth: theme.BORDER.width.sm,
-    borderColor: theme.COLORS.verifiedBorder,
-  },
+    width: theme.SIZING.avatarLg,
+    height: theme.SIZING.avatarLg,
+    borderRadius: theme.SIZING.avatarLg / 2,
+    backgroundColor: theme.COLORS.bgLight,
+  } as const,
   verifiedBadge: {
     position: 'absolute',
-    bottom: -theme.SPACING.xs,
-    right: -theme.SPACING.xs,
-    width: theme.SIZING.iconXs,
-    height: theme.SIZING.iconXs,
-    borderRadius: theme.BORDER_RADIUS.xl,
-    backgroundColor: theme.COLORS.accentPurple,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.BORDER.width.sm,
-    borderColor: theme.COLORS.textDark,
-  },
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderRadius: theme.BORDER_RADIUS.full,
+    padding: 2,
+  } as const,
   userMeta: {
     flex: 1,
-  },
+  } as const,
   userName: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     color: theme.COLORS.textDark,
-    lineHeight: 18,
-  },
+    lineHeight: 20,
+  } as const,
   userHandle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textDark,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.textMuted,
     marginTop: theme.SPACING.xs,
-  },
+  } as const,
   menuBtn: {
-    padding: 4,
-    borderRadius: theme.BORDER_RADIUS.lg,
-  },
-  // Body
+    padding: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.full,
+  } as const,
   body: {
     paddingHorizontal: theme.SPACING.xl,
     paddingBottom: theme.SPACING.lg,
-  },
+    gap: theme.SPACING.md,
+  } as const,
   content: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    color: theme.COLORS.textDark,
+    color: theme.COLORS.textPrimary,
     lineHeight: theme.TYPOGRAPHY.lineHeight.xxl,
-  },
+  } as const,
   tags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.SPACING.md,
-    marginTop: theme.SPACING.md,
-  },
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: theme.SPACING.sm,
+  } as const,
+  tagPill: {
+    backgroundColor: theme.COLORS.primaryGhost,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.xs,
+    borderRadius: theme.BORDER_RADIUS.full,
+    borderWidth: theme.BORDER.width.xs,
+    borderColor: theme.COLORS.primaryGhostBorder,
+  } as const,
   tag: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
     color: theme.COLORS.tagText,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  // Image
+  } as const,
   imageWrapper: {
     marginHorizontal: theme.SPACING.xl,
     marginBottom: theme.SPACING.lg,
     borderRadius: theme.BORDER_RADIUS.xxxl,
     overflow: 'hidden',
     backgroundColor: theme.COLORS.bgImageWrapper,
-  },
+  } as const,
   postImage: {
     width: '100%',
     height: theme.SIZING.postImage,
-  },
-  // Divider
+  } as const,
   divider: {
-    height: 1,
+    height: theme.BORDER.width.xs,
     marginHorizontal: theme.SPACING.xl,
     backgroundColor: theme.COLORS.bgDivider,
-  },
-  // Actions
+  } as const,
   actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.SPACING.md,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: theme.SPACING.xl,
     paddingVertical: theme.SPACING.md,
-  },
+  } as const,
   actionsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     gap: theme.SPACING.xs,
-  },
+  } as const,
   actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     gap: theme.SPACING.sm,
     paddingHorizontal: theme.SPACING.lg,
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.xl,
-  },
+  } as const,
   actionBtnLiked: {
     backgroundColor: theme.COLORS.likedActionBg,
-  },
+  } as const,
   actionBtnBookmarked: {
     backgroundColor: theme.COLORS.bookmarkedActionBg,
-  },
+  } as const,
   actionCount: {
     fontSize: theme.TYPOGRAPHY.fontSize.lg,
     color: theme.COLORS.textDark,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
+  } as const,
   actionCountLiked: {
     color: theme.COLORS.secondary,
-  },
-});
+  } as const,
+};
