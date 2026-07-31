@@ -1,90 +1,140 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
-import { useCallback, useEffect, useRef, useState } from "react";
 
-interface IncomingMessageInfo {
-  conversationId: string; // unique id of the chat/sender — from your socket payload
-  name?: string; // may be unknown for a stranger
-  avatarUrl?: string;
-  lastMessage?: string;
-  lastMessageType?: string;
-  timestamp?: number;
+interface BackendParticipant {
+  user: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
+}
+
+interface BackendConversation {
+  id: string;
+  isGroup: boolean;
+  groupName: string | null;
+  groupAvatar: string | null;
+  updatedAt: string;
+  participants: BackendParticipant[];
+  messages?: {
+    id: string;
+    content: string;
+    mediaUrl: string | null;
+    createdAt: string;
+    senderId: string;
+  }[];
+}
+
+interface RoomWithReceiver extends RoomRow {
+  receiverId?: string;
+}
+
+function toRoomRow(conversation: BackendConversation, currentUserId?: string): RoomWithReceiver {
+  const otherParticipant = conversation.participants.find(
+    (p) => p.user.id !== currentUserId,
+  );
+
+  const lastMessage = conversation.messages?.[0];
+  const name =
+    conversation.isGroup && conversation.groupName
+      ? conversation.groupName
+      : otherParticipant?.user.displayName ||
+        otherParticipant?.user.username ||
+        "Unknown";
+
+  const avatarUrl =
+    conversation.isGroup && conversation.groupAvatar
+      ? conversation.groupAvatar
+      : otherParticipant?.user.avatarUrl || "";
+
+  const receiverId = otherParticipant?.user.id;
+
+  return {
+    id: conversation.id,
+    name,
+    conversationId: conversation.id,
+    avatarUrl,
+    lastMessage: lastMessage?.content || "",
+    lastMessageType: lastMessage?.mediaUrl ? "media" : "text",
+    lastMessageTimestamp: lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now(),
+    unreadCount: 0,
+    receiverId,
+  };
 }
 
 export function useRooms() {
-  const [rooms, setRooms] = useState<RoomRow[]>([]);
+  const [rooms, setRooms] = useState<RoomWithReceiver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-
-  // Guards against an older reload() resolving after a newer one
-  const reloadId = useRef(0);
-
-  const reload = useCallback(async () => {
-    const current = ++reloadId.current;
-    try {
-      setError(null);
-      const rows = await roomStore.getAllRooms();
-      if (current === reloadId.current) setRooms(rows);
-    } catch (err) {
-      if (current === reloadId.current) {
-        setError(err instanceof Error ? err : new Error(String(err)));
-      }
-    } finally {
-      if (current === reloadId.current) setLoading(false);
-    }
-  }, []);
+  const token = useRef<string | null>(null);
+  const currentUserId = useRef<string | null>(null);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!token.current || !currentUserId.current) {
+      setTimeout(() => setLoading(false), 0);
+      return;
+    }
 
-  const addRoom = useCallback(
-    async (room: RoomRow) => {
-      await roomStore.addRoom(room);
-      await reload();
-    },
-    [reload],
-  );
+    let cancelled = false;
 
-  const deleteRoom = useCallback(
-    async (roomId: string) => {
-      await roomStore.deleteOne(roomId);
-      await reload();
-    },
-    [reload],
-  );
+    async function fetchConversations() {
+      try {
+        const conversations = await api.get<BackendConversation[]>(
+          "/conversations",
+          token.current ?? undefined,
+        );
 
-  /**
-   * Telegram-style behavior: call this whenever a message arrives
-   * (e.g. inside your Socket.IO "message" listener).
-   * - If a room for that conversation already exists, bumps its preview.
-   * - If not (first message from a stranger), creates the room on the fly.
-   */
-  const ensureRoomForMessage = useCallback(
-    async (info: IncomingMessageInfo): Promise<RoomRow> => {
-      const room = await roomStore.upsertRoom({
-        id: info.conversationId,
-        conversationId: info.conversationId,
-        name: info.name ?? "Unknown",
-        avatarUrl: info.avatarUrl ?? "",
-        lastMessage: info.lastMessage ?? "",
-        lastMessageType: info.lastMessageType ?? "text",
-        lastMessageTimestamp: info.timestamp ?? Date.now(),
-        unreadCount: 1,
-      });
-      await reload();
-      return room;
-    },
-    [reload],
-  );
+        if (!cancelled) {
+          const mapped = conversations.map((c) => toRoomRow(c, currentUserId.current!));
+          setRooms(mapped);
+
+          for (const room of mapped) {
+            await roomStore.upsertRoom(room);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchConversations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setAuth = useCallback((newToken: string, userId: string) => {
+    token.current = newToken;
+    currentUserId.current = userId;
+  }, []);
+
+  const addRoom = useCallback(async (room: RoomRow) => {
+    await roomStore.addRoom(room);
+    setRooms((prev) => [...prev, room as RoomWithReceiver]);
+  }, []);
+
+  const deleteRoom = useCallback(async (roomId: string) => {
+    await roomStore.deleteOne(roomId);
+    setRooms((prev) => prev.filter((r) => r.id !== roomId));
+  }, []);
 
   return {
     rooms,
     loading,
     error,
-    reload,
+    reload: () => {},
     addRoom,
     deleteRoom,
-    ensureRoomForMessage,
+    setAuth,
   };
 }
