@@ -76,7 +76,7 @@ export default function Messages() {
             isSent={true}
             avatar={{ uri: item.avatarUrl }}
             type={item.lastMessageType}
-            duaration="0:20"
+            duration="0:20"
             newMessages={true}
             onPress={() =>
               router.push({
