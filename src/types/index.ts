@@ -6,56 +6,9 @@ import {
   ViewStyle,
 } from "react-native";
 
-export interface PostUser {
-  name: string;
-  username: string;
-  avatarUrl: string;
-  isVerified?: boolean;
-}
+// ─── UI Components ────────────────────────────────────────────────────────────
 
-export interface SocialPost {
-  id: string;
-  user: PostUser;
-  timestamp: string;
-  content: string;
-  imageUrl?: string;
-  tags?: string[];
-  likeCount: number;
-  commentCount: number;
-  shareCount: number;
-  isLiked?: boolean;
-  isBookmarked?: boolean;
-}
-
-export interface thumbnail {
-  type: string;
-  url: string;
-  width: number;
-  height: number;
-  suports_streaming: boolean;
-}
-
-export interface Media {
-  type: string;
-  file_id: string;
-  url: string;
-  width: number;
-  height: number;
-  mime_type: string;
-  file_size: number;
-  duaration: string;
-  thumbnail: thumbnail;
-}
-
-export interface Message {
-  type: "Text" | "Image" | "Video" | "Voice";
-  chat_id: string;
-  media: Media;
-  timestamp: number;
-  caption: string;
-  replay_to?: string;
-}
-export default interface primaryButtonProps extends ButtonProps {
+export interface PrimaryButtonProps extends ButtonProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   title: string;
@@ -65,7 +18,99 @@ export default interface primaryButtonProps extends ButtonProps {
   iconStyle?: ImageStyle;
 }
 
-export interface privateMessagesCardProps {
+// ─── Feed / Posts ─────────────────────────────────────────────────────────────
+
+export interface PostAuthor {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string;
+  isVerified?: boolean;
+}
+
+export interface PostCounts {
+  likes: number;
+  comments: number;
+}
+
+export interface PostResponse {
+  id: string;
+  content: string;
+  imageUrls: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  author: PostAuthor;
+  _count: PostCounts;
+}
+
+export interface SocialPost extends PostResponse {
+  timestamp: string;
+  imageUrl?: string;
+  tags?: string[];
+  likeCount: number;
+  commentCount: number;
+  shareCount: number;
+  isLiked?: boolean;
+  isBookmarked?: boolean;
+}
+
+// ─── Stories ──────────────────────────────────────────────────────────────────
+
+export interface Story {
+  id: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string;
+  mediaUrl: string;
+  mediaType: "image" | "video";
+  createdAt: Date;
+  expiresAt: Date;
+  isViewed: boolean;
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+export interface MessageAuthor {
+  id: string;
+  username: string;
+  avatarUrl: string;
+}
+
+export interface MessageResponse {
+  id: string;
+  content: string;
+  mediaUrl: string | null;
+  senderId: string;
+  receiverId: string | null;
+  conversationId: string;
+  sender: MessageAuthor;
+  receiver?: MessageAuthor | null;
+  isRead: boolean;
+  createdAt: Date;
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export interface LoginResponse {
+  success: boolean;
+  message: string;
+  data: {
+    user: {
+      id: string;
+      username: string;
+      email: string;
+      displayName: string | null;
+      createdAt: Date;
+    };
+    accessToken: string;
+    refreshToken: string;
+  };
+}
+
+// ─── UI Props ─────────────────────────────────────────────────────────────────
+
+export interface PrivateMessageCardProps {
   message: string;
   time: number;
   sender: string;
@@ -76,11 +121,11 @@ export interface privateMessagesCardProps {
   onBookmarkPress?: () => void;
   avatar: ImageSourcePropType;
   type: string;
-  duaration?: string;
+  duration?: string;
   newMessages?: boolean;
 }
 
-export interface messagesCardProps {
+export interface MessageCardProps {
   message: string | null;
   time: string;
   sender: string;
@@ -91,54 +136,9 @@ export interface messagesCardProps {
   uri: string;
 }
 
-export interface LoginResponse {
-  secces: boolean;
-  message: string;
-  data: {
-    accesstoken: string;
-    refreshToken: string;
-
-    user: {
-      id: string;
-      userName: string;
-      email: string;
-      displayName: string;
-      bio: string;
-      avatarUri: string;
-      isVerified: boolean;
-      createdAt: string;
-      updatedAt: string;
-    };
-  };
-}
-
-export interface receivedMessage {
-  id: string;
-  content: string;
-  conversationId: string;
-  createdAt: string;
-  updatedAt: string;
-  sender: {
-    id: string;
-    userName: string;
-    avatarUri: string;
-  };
-}
-
-// ─────────────────────────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────────────────────────
-
-export type NotificationType =
-  | "LIKE"
-  | "COMMENT"
-  | "FOLLOW"
-  | "MESSAGE"
-  | "MENTION";
-
-// ─────────────────────────────────────────────────────────────
-// USER
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// DATABASE / DOMAIN MODELS
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface User {
   id: string;
@@ -168,15 +168,15 @@ export interface UserWithRelations extends User {
   posts?: Post[];
   likes?: Like[];
   comments?: Comment[];
-  sentMessages?: Message[];
-  receivedMessages?: Message[];
+  sentMessages?: MessageResponse[];
+  receivedMessages?: MessageResponse[];
   conversations?: ConversationParticipant[];
   notifications?: Notification[];
 }
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // AUTH
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface RefreshToken {
   id: string;
@@ -187,14 +187,11 @@ export interface RefreshToken {
   user?: User;
 }
 
-export type CreateRefreshTokenInput = Pick<
-  RefreshToken,
-  "token" | "userId" | "expiresAt"
->;
+export type CreateRefreshTokenInput = Pick<RefreshToken, "token" | "userId" | "expiresAt">;
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // SOCIAL GRAPH
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface Follow {
   followerId: string;
@@ -206,9 +203,9 @@ export interface Follow {
 
 export type CreateFollowInput = Pick<Follow, "followerId" | "followingId">;
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // POSTS
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface Post {
   id: string;
@@ -248,14 +245,11 @@ export interface Comment {
   post?: Post;
 }
 
-export type CreateCommentInput = Pick<
-  Comment,
-  "content" | "authorId" | "postId"
->;
+export type CreateCommentInput = Pick<Comment, "content" | "authorId" | "postId">;
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // MESSAGING
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface Conversation {
   id: string;
@@ -265,7 +259,7 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   participants?: ConversationParticipant[];
-  messages?: Message[];
+  messages?: MessageResponse[];
 }
 
 export interface ConversationParticipant {
@@ -277,23 +271,16 @@ export interface ConversationParticipant {
   user?: User;
 }
 
-export interface Message {
-  id: string;
-  content: string;
-  mediaUrl: string | null;
-  senderId: string;
-  receiverId: string | null;
-  conversationId: string;
-  isRead: boolean;
-  createdAt: Date;
-  sender?: User;
-  receiver?: User | null;
-  conversation?: Conversation;
-}
-
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // NOTIFICATIONS
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type NotificationType =
+  | "LIKE"
+  | "COMMENT"
+  | "FOLLOW"
+  | "MESSAGE"
+  | "MENTION";
 
 export interface Notification {
   id: string;
@@ -307,9 +294,9 @@ export interface Notification {
   user?: User;
 }
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // API RESPONSE HELPERS
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface PaginatedResponse<T> {
   data: T[];

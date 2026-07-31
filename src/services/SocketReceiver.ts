@@ -1,7 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
 import { NewMessageRow } from "../db/schema";
-import { receivedMessage } from "@/types";
 import { roomStore } from "@/db/RoomStore";
 import { uuid } from "drizzle-orm/gel-core";
 

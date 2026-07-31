@@ -1,5 +1,5 @@
 import { icons } from "@/constants";
-import { privateMessagesCardProps } from "@/types";
+import { PrivateMessageCardProps } from "@/types";
 import theme from "@/constants/theme";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 
@@ -14,9 +14,9 @@ export default function PrivateMessageCard({
   isBookmarked,
   onBookmarkPress,
   type,
-  duaration,
+  duration,
   newMessages,
-}: privateMessagesCardProps) {
+}: PrivateMessageCardProps) {
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
       <Image source={avatar} style={styles.avatar} />
@@ -65,7 +65,7 @@ export default function PrivateMessageCard({
             <Text
               style={newMessages ? styles.messageNotRead : styles.messageRead}
             >
-              Voice message {duaration}
+              Voice message {duration}
             </Text>
           </View>
         )}

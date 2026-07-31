@@ -1,5 +1,5 @@
 import { images } from "@/constants";
-import { messagesCardProps } from "@/types";
+import { MessageCardProps } from "@/types";
 import theme from "@/constants/theme";
 import {
   View,
@@ -21,7 +21,7 @@ export default function MessageCard({
   isSent,
   isRead,
   uri,
-}: messagesCardProps) {
+}: MessageCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
   const maxContentHeight = width * 0.55;

@@ -79,10 +79,10 @@ export default function PostCard({
       >
         <View style={styles.avatarWrapper}>
           <Image
-            source={{ uri: post.user.avatarUrl }}
+            source={{ uri: post.author.avatarUrl }}
             style={styles.avatar}
           />
-          {post.user.isVerified && (
+          {post.author.isVerified && (
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark-circle" size={14} color={theme.COLORS.accentPurple} />
             </View>
@@ -90,9 +90,9 @@ export default function PostCard({
         </View>
 
         <View style={styles.userMeta}>
-          <Text style={styles.userName}>{post.user.name}</Text>
+          <Text style={styles.userName}>{post.author.displayName}</Text>
           <Text style={styles.userHandle}>
-            @{post.user.username} · {post.timestamp}
+            @{post.author.username} · {post.timestamp}
           </Text>
         </View>
 

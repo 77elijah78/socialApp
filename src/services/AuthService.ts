@@ -54,7 +54,7 @@ export class AuthService {
     dispatch(
       setCredentials({
         user: { id: "1", username: data.data.user.email, email:data.data.user.email },
-        token: data.data.accesstoken,
+        token: data.data.accessToken,
       }),
     );
 

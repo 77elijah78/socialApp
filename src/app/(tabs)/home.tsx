@@ -10,105 +10,125 @@ import theme from '@/constants/theme';
 const POSTS: SocialPost[] = [
   {
     id: "1",
-    user: {
-      name: "Sarah Chen",
+    author: {
+      id: "u1",
       username: "sarahchen",
-      avatarUrl:
-        "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+      displayName: "Sarah Chen",
+      avatarUrl: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: true,
     },
+    createdAt: new Date(Date.now() - 2 * 60 * 1000),
+    updatedAt: new Date(Date.now() - 2 * 60 * 1000),
     timestamp: "2m ago",
     content:
       "Just wrapped up an incredible weekend adventure in the mountains 🏔️ There's something magical about being completely disconnected from the world up there. Highly recommend everyone takes a trip like this at least once.",
-    imageUrl:
+    imageUrls: [
       "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    ],
+    imageUrl: "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     likeCount: 1243,
     commentCount: 87,
     shareCount: 34,
     isLiked: true,
     isBookmarked: false,
     tags: ["travel", "mountains", "adventure"],
+    _count: { likes: 1243, comments: 87 },
   },
   {
     id: "2",
-    user: {
-      name: "Marcus Webb",
+    author: {
+      id: "u2",
       username: "marcuswebb",
-      avatarUrl:
-        "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-      isVerified: false,
+      displayName: "Marcus Webb",
+      avatarUrl: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
     },
+    createdAt: new Date(Date.now() - 18 * 60 * 1000),
+    updatedAt: new Date(Date.now() - 18 * 60 * 1000),
     timestamp: "18m ago",
     content:
       "Hot take: the best coffee shops are the ones where nobody knows your name ☕ Found this hidden gem today and I'm never leaving.",
+    imageUrls: [],
     likeCount: 562,
     commentCount: 43,
     shareCount: 12,
     isLiked: false,
     isBookmarked: true,
     tags: ["coffee", "vibes"],
+    _count: { likes: 562, comments: 43 },
   },
   {
     id: "3",
-    user: {
-      name: "Leila Moradi",
+    author: {
+      id: "u3",
       username: "leilamoradi",
-      avatarUrl:
-        "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+      displayName: "Leila Moradi",
+      avatarUrl: "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: true,
     },
+    createdAt: new Date(Date.now() - 60 * 60 * 1000),
+    updatedAt: new Date(Date.now() - 60 * 60 * 1000),
     timestamp: "1h ago",
     content:
       "Winter selfies hit different when you're surrounded by your best people 🤍 Grateful for every single moment with this crew.",
-    imageUrl:
+    imageUrls: [
       "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    ],
+    imageUrl: "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     likeCount: 3891,
     commentCount: 214,
     shareCount: 98,
     isLiked: false,
     isBookmarked: false,
     tags: ["friends", "winter", "grateful"],
+    _count: { likes: 3891, comments: 214 },
   },
   {
     id: "4",
-    user: {
-      name: "James Okafor",
+    author: {
+      id: "u4",
       username: "jamesokafor",
-      avatarUrl:
-        "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-      isVerified: false,
+      displayName: "James Okafor",
+      avatarUrl: "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
     },
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
     timestamp: "3h ago",
     content:
       "Reminder that the ocean doesn't care about your deadlines 🌊 Take the trip. Watch the sunrise. Everything else can wait.",
-    imageUrl:
+    imageUrls: [
       "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    ],
+    imageUrl: "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
     likeCount: 2104,
     commentCount: 130,
     shareCount: 77,
     isLiked: true,
     isBookmarked: true,
     tags: ["ocean", "mindfulness", "travel"],
+    _count: { likes: 2104, comments: 130 },
   },
   {
     id: "5",
-    user: {
-      name: "Anya Petrov",
+    author: {
+      id: "u5",
       username: "anyapetrov",
-      avatarUrl:
-        "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
+      displayName: "Anya Petrov",
+      avatarUrl: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
       isVerified: true,
     },
+    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+    updatedAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
     timestamp: "5h ago",
     content:
       "Forest trails with someone you love make every step worth it 🌲 We covered 12km today and I'd do it all over again.",
-    imageUrl: "",
+    imageUrls: [],
     likeCount: 889,
     commentCount: 61,
     shareCount: 22,
     isLiked: false,
     isBookmarked: false,
     tags: ["hiking", "nature", "love"],
+    _count: { likes: 889, comments: 61 },
   },
 ];
 

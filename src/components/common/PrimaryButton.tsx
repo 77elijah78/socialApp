@@ -1,7 +1,7 @@
 // Common reusable Button component
 import React from 'react';
 import { TouchableOpacity,StyleSheet,Text,Image } from 'react-native';
-import primaryButtonProps from '@/types/index';
+import { PrimaryButtonProps } from '@/types/index';
 import theme from '@/constants/theme';
 
 export default function PrimaryButton  ({
@@ -12,7 +12,7 @@ export default function PrimaryButton  ({
     leftIcon,
     iconStyle,
     textStyle
-}:primaryButtonProps)  {
+}: PrimaryButtonProps)  {
     return (
         <TouchableOpacity style={[styles.button,{...style}]} onPress={onPress}>
             {leftIcon && <Image source={leftIcon} style={[styles.icon,{...iconStyle}]} />}

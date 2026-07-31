@@ -3,7 +3,7 @@ import { messageStore } from "../db/MessageStore";
 import { MessageRow, NewMessageRow } from "../db/schema";
 import { SocketReceiver, socketReceiver } from "./SocketReceiver";
 import { mediaService } from "./MediaService";
-import { Conversation, LoginResponse, Message, User } from "@/types";
+import { Conversation, LoginResponse, User } from "@/types";
 
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
