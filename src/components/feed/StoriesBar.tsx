@@ -178,7 +178,7 @@ export default function StoriesBar() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{
-          gap: theme.SPACING.sm,
+          gap: 10,
           alignItems: "center",
         }}
       />
