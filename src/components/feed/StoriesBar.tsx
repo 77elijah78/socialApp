@@ -178,10 +178,9 @@ export default function StoriesBar() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{
-          gap: theme.SPACING.md,
+          gap: theme.SPACING.sm,
           alignItems: "center",
         }}
-        ItemSeparatorComponent={() => <View style={{ width: theme.SPACING.sm }} />}
       />
     </View>
   );
