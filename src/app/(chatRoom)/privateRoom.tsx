@@ -96,7 +96,7 @@ export default function PrivateRoom() {
   });
 
   const firstUnreadIndex = messages.findIndex(
-    (m) => m.status !== "read" && m.direction === "received"
+    (m) => m.senderId !== (currentUserId ?? "") && m.status !== "READ"
   );
 
   const handleBack = useCallback(() => {
@@ -173,6 +173,7 @@ export default function PrivateRoom() {
 
   const renderMessage = useCallback(
     ({ item, index }: { item: any; index: number }) => {
+      const isSent = item.senderId === currentUserId;
       const showUnreadDivider =
         index === firstUnreadIndex && firstUnreadIndex > 0;
 
@@ -186,18 +187,18 @@ export default function PrivateRoom() {
             </View>
           )}
           <MessageCard
-            message={item.text}
+            message={item.content}
             time={item.timestamp}
             sender=""
             isRead={item.isRead}
-            isSent={item.direction === "sent"}
-            type={item.type}
-            uri={item.mediaUrl}
+            isSent={isSent}
+            type={item.type === "TEXT" ? "text" : item.type === "IMAGE" ? "image/jpeg" : item.type === "VIDEO" ? "video/mp4" : item.type === "AUDIO" ? "audio/mpeg" : "text"}
+            uri={item.mediaUrl ?? ""}
           />
         </View>
       );
     },
-    [firstUnreadIndex],
+    [firstUnreadIndex, currentUserId],
   );
 
   return (

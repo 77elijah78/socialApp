@@ -9,15 +9,25 @@ import theme from '@/constants/theme';
 import { usePosts } from '@/hooks/usePosts';
 
 export default function FeedScreen() {
-  const { posts, loading, refresh } = usePosts({ limit: 20 });
+  const { posts, loading, refresh, like, unlike, save, unsave } = usePosts({ limit: 20 });
 
   const onRefresh = useCallback(() => {
     refresh();
   }, [refresh]);
 
   const renderItem = useCallback(({ item }: { item: SocialPost }) => {
-    return <PostCard post={item} />;
-  }, []);
+    return (
+      <PostCard
+        post={item}
+        onLike={(postId, liked) => {
+          if (liked) like(postId); else unlike(postId);
+        }}
+        onBookmark={(postId, bookmarked) => {
+          if (bookmarked) save(postId); else unsave(postId);
+        }}
+      />
+    );
+  }, [like, unlike, save, unsave]);
 
   return (
     <SafeAreaView

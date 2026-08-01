@@ -54,7 +54,7 @@ export default function Messages() {
             sender={item.name}
             isRead={false}
             isSent={false}
-            avatar={{ uri: item.avatarUrl }}
+            avatar={{ uri: item.avatarUrl ?? "" }}
             type={item.lastMessageType}
             duration="0:00"
             newMessages={item.unreadCount > 0}

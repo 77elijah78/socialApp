@@ -79,7 +79,7 @@ export default function PostCard({
       >
         <View style={styles.avatarWrapper}>
           <Image
-            source={{ uri: post.author.avatarUrl }}
+            source={{ uri: post.author.avatarUrl ?? undefined }}
             style={styles.avatar}
           />
           {post.author.isVerified && (

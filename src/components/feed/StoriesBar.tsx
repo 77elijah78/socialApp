@@ -3,9 +3,9 @@ import { FlatList, View, Text, Image, TouchableOpacity } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
-import { Story } from "@/types";
+import { StoryItem } from "@/types";
 
-const STORIES: Story[] = [
+const STORIES: StoryItem[] = [
   {
     id: "me",
     userId: "me",
@@ -173,7 +173,7 @@ function StoryRing({
 }
 
 export default function StoriesBar() {
-  const renderItem = ({ item }: { item: Story }) => {
+  const renderItem = ({ item }: { item: StoryItem }) => {
     const storySize = theme.SIZING.storyItem;
     return (
       <TouchableOpacity
@@ -187,7 +187,7 @@ export default function StoriesBar() {
           isViewed={item.isViewed}
           isMe={item.userId === "me"}
           size={storySize}
-          avatarUrl={item.avatarUrl}
+          avatarUrl={item.avatarUrl ?? ""}
         />
         <Text
           style={{
