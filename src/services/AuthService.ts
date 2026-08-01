@@ -4,7 +4,7 @@ import { setCredentials } from "../store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
-  private readonly baseUrl = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000/api/v1"}/auth`;
+  private readonly baseUrl = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1/auth`;
 
   private validate(email: string, password: string): void {
     if (!email || !password) {
@@ -55,7 +55,7 @@ export class AuthService {
           username: user.username,
           email: user.email,
           displayName: user.displayName,
-          avatarUrl: null,
+          avatarUrl: user.avatarUrl ?? null,
         },
         token: accessToken,
       }),
