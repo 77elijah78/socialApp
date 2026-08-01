@@ -7,6 +7,9 @@ import { store, persistor } from "@/store/index";
 import { ActivityIndicator, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import theme from "@/constants/theme";
+import { useAppSelector } from "@/store/hooks";
+import { mediaService } from "@/services/MediaService";
+
 function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
@@ -17,7 +20,9 @@ function PersistGate({ children }: { children: React.ReactNode }) {
         unsub();
       }
     });
-    if (persistor.getState().bootstrapped) setReady(true);
+    if (persistor.getState().bootstrapped) {
+      setTimeout(() => setReady(true), 0);
+    }
     return unsub;
   }, []);
 
@@ -32,6 +37,23 @@ function PersistGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function SocketProvider() {
+  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const token = useAppSelector((s) => s.auth.token);
+  const userId = useAppSelector((s) => s.auth.user?.id);
+
+  useEffect(() => {
+    if (isAuthenticated && userId && token) {
+      mediaService.setAuthToken(token);
+      mediaService.connectSocket(userId, token);
+    } else if (!isAuthenticated) {
+      mediaService.disconnectSocket();
+    }
+  }, [isAuthenticated, token, userId]);
+
+  return null;
+}
+
 export default function RootLayout() {
   useEffect(() => {
     runMigrations();
@@ -42,6 +64,7 @@ export default function RootLayout() {
       <Provider store={store}>
         <PersistGate>
           <PaperProvider>
+            <SocketProvider />
             <Stack
               screenOptions={{
                 contentStyle: {

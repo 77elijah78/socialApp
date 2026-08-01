@@ -23,12 +23,14 @@ export default function LoginScreen() {
     setBlindedIcon(blinded ? icons.eye : icons.blind);
   };
 
-  const [form,setForm] = useState({
-    email:"",
-    password:""
-  })
+  const [form, setForm] = useState({
+    email: "alice@example.com",
+    password: "Password123!",
+  });
 
-  const dispatch = useAppDispatch()
+  const dispatch = useAppDispatch();
+
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -37,17 +39,24 @@ export default function LoginScreen() {
         <Text style={styles.subtitle}>Welcome Back</Text>
       </View>
 
+      {loginError ? (
+        <View style={{ backgroundColor: "#fee", padding: 12, borderRadius: 8, marginBottom: 12 }}>
+          <Text style={{ color: "#c00", textAlign: "center" }}>{loginError}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.card}>
         <View style={styles.inputWrapper}>
           <Text style={styles.label}>Email or Username</Text>
           <View style={styles.inputContainer}>
             <Image source={icons.email} style={styles.icon} />
-            <TextInput 
-            style={styles.input} 
-            placeholder="Enter Your email"
-            onChangeText={(value)=>{
-              setForm({...form,email:value})
-            }} />
+            <TextInput
+              style={styles.input}
+              placeholder="Enter Your email"
+              onChangeText={(value) => {
+                setForm({ ...form, email: value });
+              }}
+            />
           </View>
         </View>
         <View style={styles.inputWrapper}>
@@ -68,8 +77,8 @@ export default function LoginScreen() {
               style={styles.input}
               placeholder="Enter Your password"
               secureTextEntry={blinded}
-              onChangeText={(value)=>{
-                setForm({...form,password:value})
+              onChangeText={(value) => {
+                setForm({ ...form, password: value });
               }}
             />
             <TouchableOpacity
@@ -90,8 +99,14 @@ export default function LoginScreen() {
         </View>
         <PrimaryButton
           title="Log In"
-          onPress={() => {
-            authService.login(form.email,form.password,dispatch)
+          onPress={async () => {
+            setLoginError(null);
+            try {
+              await authService.login(form.email, form.password, dispatch);
+              router.replace("/(tabs)/home");
+            } catch (err: any) {
+              setLoginError(err.message || "Login failed");
+            }
           }}
           style={{ marginTop: theme.SPACING.lg }}
           rightIcon={icons.rightArrow}
@@ -153,7 +168,7 @@ export default function LoginScreen() {
           flexDirection: "row",
         }}
       >
-        <Text>Don't have an account?</Text>
+        <Text>Don&apos;t have an account?</Text>
         <Text
           style={{
             color: theme.COLORS.primaryLink,
@@ -213,7 +228,7 @@ const styles = StyleSheet.create({
     width: "100%",
     borderColor: theme.COLORS.borderLight,
     borderRadius: theme.BORDER_RADIUS.xl,
-    padding: theme.SPACING.lg,
+    padding: theme.SPACING.sm,
     backgroundColor: theme.COLORS.bgAuthInput,
     flexDirection: "row",
     elevation: 1,
