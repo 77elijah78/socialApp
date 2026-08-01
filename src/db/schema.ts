@@ -1,46 +1,37 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
-/**
- * messages table
- *
- * One row per message (sent or received).
- * direction: "sent" | "received"
- * status:    "sending" | "sent" | "delivered" | "read" | "failed"
- * type:      "text" | "audio" | "video"
- */
 export const messages = sqliteTable("messages", {
-  // localId is the stable primary key (UUID generated on device)
   localId:    text("local_id").primaryKey().notNull(),
-
-  // Server-assigned id — null until server confirms
   id:         text("id"),
-
-  text:       text("text"),
-  type:       text("type").notNull().default("text"),   // "text" | "audio" | "video"
+  content:    text("content"),
   mediaUrl:   text("media_url"),
-
+  thumbnailUrl: text("thumbnail_url"),
+  type:       text("type").notNull().default("TEXT"),
+  status:     text("status").notNull().default("SENT"),
   senderId:   text("sender_id").notNull(),
-  receiverId: text("receiver_id").notNull(),
-  roomId:     text("room_id").notNull(),
-
-  status:     text("status").notNull().default("sending"), // "sending"|"sent"|"delivered"|"read"|"failed"
-  direction:  text("direction").notNull(),                 // "sent" | "received"
-  timestamp:  integer("timestamp").notNull(),              // Unix ms
+  receiverId: text("receiver_id"),
+  conversationId: text("conversation_id").notNull(),
+  isRead:     integer("is_read", { mode: "boolean" }).notNull().default(false),
+  timestamp:  integer("timestamp").notNull(),
+  editedAt:   text("edited_at"),
+  deletedAt:  text("deleted_at"),
+  deletedBy:  text("deleted_by"),
+  duration:   real("duration"),
+  repliedToId: text("replied_to_id"),
+  forwardedFromId: text("forwarded_from_id"),
 });
-
 
 export const rooms = sqliteTable("rooms", {
-  id:         text("id").primaryKey().notNull(),
-  name:       text("name").notNull(),
+  id:           text("id").primaryKey().notNull(),
+  name:         text("name").notNull(),
   conversationId: text("conversation_id").notNull(),
-  avatarUrl:  text("avatar_url").notNull(),
-  lastMessage:text("last_message").notNull(),
+  avatarUrl:    text("avatar_url").notNull(),
+  lastMessage:  text("last_message").notNull(),
   lastMessageType: text("last_message_type").notNull(),
   lastMessageTimestamp: integer("last_message_timestamp").notNull(),
-  unreadCount: integer("unread_count").notNull(),
+  unreadCount:  integer("unread_count").notNull(),
 });
 
-// TypeScript types inferred from schema
 export type MessageRow    = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
 
