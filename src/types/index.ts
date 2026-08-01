@@ -307,6 +307,7 @@ export interface MessageCardProps {
   sender: string;
   isRead: boolean;
   isSent: boolean;
+  status: string;
   onPress?: () => void;
   type: string;
   uri: string;
