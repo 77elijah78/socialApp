@@ -12,13 +12,8 @@ function uid(): string {
 
 interface SendMeta {
   senderId: string;
-  receiverId: string;
+  receiverId: string | null;
   conversationId: string;
-}
-
-interface ServerMessageResponse {
-  id: string;
-  createdAt: string;
 }
 
 export class MessageService extends BaseUploader {
@@ -41,28 +36,35 @@ export class MessageService extends BaseUploader {
     const optimistic: NewMessageRow = {
       localId,
       id: localId,
-      text: text.trim(),
-      type: "text",
+      content: text.trim(),
       mediaUrl: null,
+      thumbnailUrl: null,
+      type: "TEXT",
+      status: "SENDING",
       senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId: meta.conversationId,
-      status: "sending",
-      direction: "sent",
+      conversationId: meta.conversationId,
+      isRead: false,
       timestamp: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      duration: null,
+      repliedToId: null,
+      forwardedFromId: null,
     };
 
     await messageStore.save(optimistic);
 
     try {
-      const server = await api.post<ServerMessageResponse>(
-        `/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+      const resp = await api.post<{ data: { id: string; createdAt: string } }>(
+        `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
         { content: text.trim(), receiverId: meta.receiverId },
         this.authToken ?? undefined,
       );
 
-      const serverId = server.id;
-      const serverTimestamp = new Date(server.createdAt).getTime();
+      const serverId = resp.data.id;
+      const serverTimestamp = new Date(resp.data.createdAt).getTime();
 
       return messageStore.confirm(localId, serverId, serverTimestamp);
     } catch (err) {
@@ -77,37 +79,65 @@ export class MessageService extends BaseUploader {
     if (!msg) throw new Error("Message not found in local store.");
 
     await messageStore.resetForRetry(localId);
-    return this.send(msg.text ?? "", { ...meta, conversationId });
+    return this.send(msg.content ?? "", { ...meta, conversationId });
+  }
+
+  async uploadMedia(file: { uri: string; name: string; type: string }, onProgress?: (pct: number) => void): Promise<{ url: string; thumbnailUrl?: string }> {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+    } as any);
+
+    const resp = await this._uploadWithProgress("/media/upload", formData, onProgress) as any;
+    const data = resp.data ?? resp;
+    return { url: data.url, thumbnailUrl: data.thumbnailUrl };
   }
 
   async sendMediaRecord(type: string, mediaUrl: string | null, meta: SendMeta) {
     const localId = uid();
 
+    const msgType = type === "image/jpeg" ? "IMAGE"
+      : type === "video/mp4" ? "VIDEO"
+      : type === "audio/mpeg" ? "AUDIO"
+      : type.startsWith("image/") ? "IMAGE"
+      : type.startsWith("video/") ? "VIDEO"
+      : type.startsWith("audio/") ? "AUDIO"
+      : "DOCUMENT";
+
     const optimistic: NewMessageRow = {
       localId,
       id: localId,
-      text: null,
-      type,
-      mediaUrl,
+      content: null,
+      mediaUrl: mediaUrl,
+      thumbnailUrl: null,
+      type: msgType,
+      status: "SENDING",
       senderId: meta.senderId,
       receiverId: meta.receiverId,
-      roomId: meta.conversationId,
-      status: "sending",
-      direction: "sent",
+      conversationId: meta.conversationId,
+      isRead: false,
       timestamp: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      duration: null,
+      repliedToId: null,
+      forwardedFromId: null,
     };
 
     await messageStore.save(optimistic);
 
     try {
-      const server = await api.post<ServerMessageResponse>(
-        `/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
-        { content: "", mediaUrl, receiverId: meta.receiverId },
+      const resp = await api.post<{ data: { id: string; createdAt: string } }>(
+        `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+        { content: "", mediaUrl, type: msgType, receiverId: meta.receiverId },
         this.authToken ?? undefined,
       );
 
-      const serverId = server.id;
-      const serverTimestamp = new Date(server.createdAt).getTime();
+      const serverId = resp.data.id;
+      const serverTimestamp = new Date(resp.data.createdAt).getTime();
 
       return messageStore.confirm(localId, serverId, serverTimestamp);
     } catch (err) {
@@ -123,7 +153,7 @@ export class MessageService extends BaseUploader {
     limit = 30,
   ) {
     const data = await api.get<any>(
-      `/conversations/${encodeURIComponent(conversationId)}/messages?page=${page}&limit=${limit}`,
+      `/messages/conversations/${encodeURIComponent(conversationId)}/messages?page=${page}&limit=${limit}`,
       this.authToken ?? undefined,
     );
 
@@ -132,15 +162,22 @@ export class MessageService extends BaseUploader {
     const incoming: NewMessageRow[] = messages.map((m: any) => ({
       localId: m.id,
       id: m.id,
-      text: m.content ?? null,
-      type: m.type ?? "text",
+      content: m.content ?? null,
       mediaUrl: m.mediaUrl ?? null,
+      thumbnailUrl: m.thumbnailUrl ?? null,
+      type: m.type ?? "TEXT",
+      status: m.status ?? (m.senderId === currentUserId ? "SENT" : "DELIVERED"),
       senderId: m.senderId,
-      receiverId: m.receiverId ?? currentUserId,
-      roomId: m.conversationId,
-      direction: m.senderId === currentUserId ? "sent" : "received",
-      status: m.status ?? (m.senderId === currentUserId ? "sent" : "delivered"),
-      timestamp: m.timestamp ?? m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+      receiverId: m.receiverId ?? null,
+      conversationId: m.conversationId,
+      isRead: m.isRead ?? false,
+      timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+      editedAt: m.editedAt ? new Date(m.editedAt).toISOString() : null,
+      deletedAt: m.deletedAt ? new Date(m.deletedAt).toISOString() : null,
+      deletedBy: m.deletedBy ?? null,
+      duration: m.duration ?? null,
+      repliedToId: m.repliedToId ?? null,
+      forwardedFromId: m.forwardedFromId ?? null,
     }));
 
     return messageStore.saveMany(incoming);
@@ -148,26 +185,27 @@ export class MessageService extends BaseUploader {
 
   async delete(messageId: string) {
     await messageStore.deleteOne(messageId);
-
     await api.delete(
-      `/conversations/messages/${encodeURIComponent(messageId)}`,
+      `/messages/${encodeURIComponent(messageId)}`,
       this.authToken ?? undefined,
     );
   }
 
   async edit(messageId: string, newText: string) {
     this.validate(newText);
-
     await messageStore.editText(messageId, newText.trim());
-
-    await api.patch(
-      `/conversations/messages/${encodeURIComponent(messageId)}`,
-      { text: newText.trim() },
+    await api.post(
+      `/messages/${encodeURIComponent(messageId)}/edit`,
+      { content: newText.trim() },
       this.authToken ?? undefined,
     );
   }
 
-  async markRoomAsRead(roomId: string) {
-    return messageStore.markRoomAsRead(roomId, Date.now());
+  async markRoomAsRead(conversationId: string) {
+    return messageStore.markRoomAsRead(conversationId, Date.now());
+  }
+
+  async markDelivered(messageId: string, conversationId: string) {
+    return messageStore.markDelivered(messageId, conversationId);
   }
 }

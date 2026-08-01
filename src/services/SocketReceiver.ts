@@ -12,37 +12,20 @@ function uid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/**
- * SocketReceiver
- *
- * Manages the Socket.IO connection, persists every incoming event
- * directly to SQLite via MessageStore, and notifies React subscribers.
- *
- * Server events handled:
- *   message:new       — new text / audio / video message
- *   message:delivered — server confirmed delivery to recipient
- *   message:read      — recipient opened and read the message
- *   message:deleted   — sender or server deleted a message
- *   message:edited    — sender edited a message
- *   typing:start      — someone is typing in this room
- *   typing:stop       — someone stopped typing
- */
 export class SocketReceiver {
   public socket: Socket | null = null;
   private listeners: Map<string, Set<Listener>> = new Map();
   private readonly baseUrl: string;
+  private currentUserId: string = "";
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
   }
 
-  // ─── Connection ───────────────────────────────────────────────────────────
-
-  /**
-   * Connect and authenticate. Call once after login.
-   */
   connect(userId: string, authToken: string): void {
     if (this.socket?.connected) return;
+
+    this.currentUserId = userId;
 
     this.socket = io(this.baseUrl, {
       auth: {
@@ -57,37 +40,27 @@ export class SocketReceiver {
     this.bindCoreEvents(userId);
   }
 
-  /**
-   * Disconnect gracefully. Call on logout.
-   */
   disconnect(): void {
     this.socket?.disconnect();
     this.socket = null;
     this.listeners.clear();
   }
 
-  /**
-   * Join a chat room. Call when the user opens a conversation.
-   */
-  joinRoom(roomId: string): void {
-    this.socket?.emit(roomId);
+  joinRoom(conversationId: string): void {
+    this.socket?.emit("conversation:join", conversationId);
   }
 
-  /**
-   * Leave a chat room. Call when the user closes a conversation.
-   */
-  leaveRoom(roomId: string): void {
-    this.socket?.emit("room:leave", { roomId });
+  leaveRoom(conversationId: string): void {
+    this.socket?.emit("conversation:leave", conversationId);
   }
 
   get isConnected(): boolean {
     return this.socket?.connected ?? false;
   }
 
-  // ─── Core socket events ───────────────────────────────────────────────────
-
   private bindCoreEvents(currentUserId: string): void {
     const s = this.socket!;
+    this.currentUserId = currentUserId;
 
     s.on("connect", () => {
       this.emit("connect");
@@ -101,140 +74,130 @@ export class SocketReceiver {
       this.emit("error", err.message);
     });
 
-    // ── New message ──────────────────────────────────────────────────────
+    // ── New message via WebSocket ──
+    s.on("message:new", async (payload: any) => {
+      const message = this.normalize(payload, currentUserId);
+      await messageStore.saveReceived(message);
+      this.emit("message:new", message);
+    });
+
+    // ── Push notification when not in the chat room ──
     s.on("message:notification", async (payload: any) => {
       if (!roomStore.findRoom(payload.conversationId)) {
         const localId = uid();
         const room = {
           id: localId,
-          name: payload.sender.userName,
+          name: payload.sender?.username ?? payload.senderUsername ?? "Unknown",
           conversationId: payload.conversationId,
-          avatarUrl: payload.sender.avatarUrl,
-          lastMessage: payload.content,
+          avatarUrl: payload.sender?.avatarUrl ?? payload.avatarUrl ?? "",
+          lastMessage: payload.content ?? "",
           lastMessageTimestamp: Date.now(),
-          lastMessageType: "text",
+          lastMessageType: payload.type ?? "TEXT",
           unreadCount: 1,
+          receiverId: payload.senderId,
         };
-        socketReceiver.joinRoom(payload.conversationId);
         await roomStore.addRoom(room);
       }
       const message = this.normalize(payload, currentUserId);
-      // Persist to SQLite — upsert in case we already have it locally
       await messageStore.saveReceived(message);
-
       this.emit("message:notification", message);
     });
 
-    s.on(
-      "message:send",
-      async (conversationId: string, content: string, receiverId: string) => {
-        this.emit("message:send", { conversationId, content, receiverId });
-      },
-    );
+    // ── Delivery receipt ──
+    s.on("message:delivered", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
+      await messageStore.markDelivered(messageId, conversationId);
+      this.emit("message:delivered", { messageId, conversationId });
+    });
 
-    // ── Delivery receipt ─────────────────────────────────────────────────
-    s.on(
-      "message:delivered",
-      async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
-        await messageStore.markDelivered(messageId, roomId);
-        this.emit("message:delivered", { messageId, roomId });
-      },
-    );
+    // ── Read receipt ──
+    s.on("message:read", async ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+      if (userId !== currentUserId) {
+        await messageStore.markRoomAsRead(conversationId, Date.now());
+      }
+      this.emit("message:read", { conversationId, userId });
+    });
 
-    // ── Read receipt ─────────────────────────────────────────────────────
-    s.on(
-      "message:read",
-      async ({
-        messageId,
-        roomId,
-        timestamp,
-      }: {
-        messageId: string;
-        roomId: string;
-        timestamp: number;
-      }) => {
-        await messageStore.markRead(messageId, roomId);
-        this.emit("message:read", { messageId, roomId, timestamp });
-      },
-    );
+    // ── Remote delete (everywhere) ──
+    s.on("message:deleted", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
+      await messageStore.deleteOne(messageId);
+      this.emit("message:deleted", { messageId, conversationId });
+    });
 
-    // ── Remote delete ────────────────────────────────────────────────────
-    s.on(
-      "message:deleted",
-      async ({ messageId, roomId }: { messageId: string; roomId: string }) => {
-        await messageStore.deleteOne(messageId);
-        this.emit("message:deleted", { messageId, roomId });
-      },
-    );
+    // ── Delete for me only ──
+    s.on("message:deleted-for-me", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
+      await messageStore.deleteOne(messageId);
+      this.emit("message:deleted-for-me", { messageId, conversationId });
+    });
 
-    // ── Remote edit ──────────────────────────────────────────────────────
-    s.on(
-      "message:edited",
-      async ({
-        messageId,
-        roomId,
-        text,
-      }: {
-        messageId: string;
-        roomId: string;
-        text: string;
-      }) => {
-        await messageStore.editText(messageId, text);
-        this.emit("message:edited", { messageId, roomId, text });
-      },
-    );
+    // ── Remote edit ──
+    s.on("message:edited", async ({ messageId, conversationId, content }: { messageId: string; conversationId: string; content: string }) => {
+      await messageStore.editText(messageId, content);
+      this.emit("message:edited", { messageId, conversationId, content });
+    });
 
-    // ── Typing indicators ────────────────────────────────────────────────
-    s.on(
-      "typing:start",
-      ({ senderId, roomId }: { senderId: string; roomId: string }) => {
-        this.emit("typing:start", { senderId, roomId });
-      },
-    );
+    // ── Typing indicators ──
+    s.on("typing:start", ({ userId, conversationId }: { userId: string; conversationId: string }) => {
+      this.emit("typing:start", { userId, conversationId });
+    });
 
-    s.on(
-      "typing:stop",
-      ({ senderId, roomId }: { senderId: string; roomId: string }) => {
-        this.emit("typing:stop", { senderId, roomId });
-      },
-    );
+    s.on("typing:stop", ({ userId, conversationId }: { userId: string; conversationId: string }) => {
+      this.emit("typing:stop", { userId, conversationId });
+    });
+
+    // ── Presence ──
+    s.on("presence:online", ({ userId, username }: { userId: string; username: string }) => {
+      this.emit("presence:online", { userId, username });
+    });
+
+    s.on("presence:offline", ({ userId, lastSeen }: { userId: string; lastSeen: string }) => {
+      this.emit("presence:offline", { userId, lastSeen });
+    });
+
+    // Auto-join personal room for push notifications
+    s.emit("presence:join-personal");
   }
 
-  // ─── Normalize payload → SQLite row shape ─────────────────────────────────
+  // ─── Normalize payload → SQLite row shape ──
 
   private normalize(payload: any, currentUserId: string): NewMessageRow {
-    const id = payload.senderId ?? payload.messageId;
+    const senderId = payload.senderId ?? payload.sender?.id;
+    const content = payload.content ?? payload.text ?? null;
+    const type = payload.type ?? "TEXT";
+    const mediaUrl = payload.mediaUrl ?? null;
+    const thumbnailUrl = payload.thumbnailUrl ?? null;
+    const createdAt = payload.createdAt ?? payload.timestamp ?? Date.now();
+    const timestamp = typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+
     return {
-      localId: id,
-      id,
-      text: payload.text ?? null,
-      type: payload.type ?? "text",
-      mediaUrl: payload.mediaUrl ?? null,
-      senderId: payload.senderId,
-      receiverId: "John Doe",
-      roomId: "1",
-      status: "delivered",
-      direction: payload.senderId === currentUserId ? "received" : "sent",
-      timestamp: payload.timestamp ?? Date.now(),
+      localId: payload.id ?? `${senderId}-${timestamp}`,
+      id: payload.id ?? `${senderId}-${timestamp}`,
+      content,
+      mediaUrl,
+      thumbnailUrl,
+      type,
+      status: senderId === currentUserId ? "SENT" : "DELIVERED",
+      senderId,
+      receiverId: senderId === currentUserId ? payload.receiverId ?? null : currentUserId,
+      conversationId: payload.conversationId,
+      isRead: senderId !== currentUserId ? false : true,
+      timestamp,
+      editedAt: payload.editedAt ?? null,
+      deletedAt: payload.deletedAt ?? null,
+      deletedBy: payload.deletedBy ?? null,
+      duration: payload.duration ?? null,
+      repliedToId: payload.repliedToId ?? null,
+      forwardedFromId: payload.forwardedFromId ?? null,
     };
   }
 
-  // ─── Typing helpers ───────────────────────────────────────────────────────
-
-  emitTypingStart(roomId: string, senderId: string): void {
-    this.socket?.emit("typing:start", { roomId, senderId });
+  emitTypingStart(conversationId: string, senderId: string): void {
+    this.socket?.emit("message:typing", { conversationId, isTyping: true });
   }
 
-  emitTypingStop(roomId: string, senderId: string): void {
-    this.socket?.emit("typing:stop", { roomId, senderId });
+  emitTypingStop(conversationId: string, senderId: string): void {
+    this.socket?.emit("message:typing", { conversationId, isTyping: false });
   }
 
-  // ─── Pub / Sub ────────────────────────────────────────────────────────────
-
-  /**
-   * Subscribe to a socket event.
-   * Returns an unsubscribe function — always call it in useEffect cleanup.
-   */
   on(event: string, cb: Listener): () => void {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event)!.add(cb);
@@ -246,4 +209,6 @@ export class SocketReceiver {
   }
 }
 
-export const socketReceiver = new SocketReceiver("http://192.168.1.3:3000");
+const SOCKET_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000";
+
+export const socketReceiver = new SocketReceiver(SOCKET_BASE_URL);

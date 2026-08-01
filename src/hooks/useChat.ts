@@ -11,7 +11,7 @@ interface CurrentUser {
 }
 
 interface UseChatParams {
-  roomId: string;
+  roomId?: string;
   conversationId: string;
   currentUser: CurrentUser;
 }
@@ -37,7 +37,7 @@ interface UseChatReturn {
   ) => Promise<void>;
 }
 
-export function useChat({ roomId, conversationId, currentUser }: UseChatParams): UseChatReturn {
+export function useChat({ conversationId, currentUser }: UseChatParams): UseChatReturn {
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isSyncing, setIsSyncing] = useState(true);
   const [isConnected, setConnected] = useState(false);
@@ -47,14 +47,14 @@ export function useChat({ roomId, conversationId, currentUser }: UseChatParams):
   const flatListRef = useRef<FlatList>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const reload = useCallback(() => messageStore.getRecent(roomId, 30).then((rows) => setMessages([...rows])), [roomId]);
+  const reload = useCallback(() => messageStore.getRecent(conversationId, 30).then((rows) => setMessages([...rows])), [conversationId]);
 
   const scrollToEnd = useCallback((animated = true) => {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated }), 80);
   }, []);
 
   useEffect(() => {
-    if (!roomId || !conversationId || !currentUser?.id) return;
+    if (!conversationId || !currentUser?.id) return;
 
     const unsubs: (() => void)[] = [];
 
@@ -75,7 +75,7 @@ export function useChat({ roomId, conversationId, currentUser }: UseChatParams):
         scrollToEnd(false);
       }
 
-      await mediaService.message.markRoomAsRead(roomId);
+      await mediaService.message.markRoomAsRead(conversationId);
 
       socketReceiver.joinRoom(conversationId);
       setConnected(socketReceiver.isConnected);
@@ -85,51 +85,58 @@ export function useChat({ roomId, conversationId, currentUser }: UseChatParams):
         socketReceiver.on("disconnect", () => setConnected(false)),
 
         socketReceiver.on("message:new", async (msg: MessageRow) => {
-          if (msg.roomId !== roomId) return;
+          if (msg.conversationId !== conversationId) return;
           await reload();
           scrollToEnd();
-          await mediaService.message.markRoomAsRead(roomId);
+          await mediaService.message.markRoomAsRead(conversationId);
         }),
 
         socketReceiver.on(
           "message:delivered",
-          async ({ roomId: rid }: { roomId: string }) => {
-            if (rid === roomId) await reload();
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) await reload();
           },
         ),
 
         socketReceiver.on(
           "message:read",
-          async ({ roomId: rid }: { roomId: string }) => {
-            if (rid === roomId) await reload();
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) await reload();
           },
         ),
 
         socketReceiver.on(
           "message:deleted",
-          async ({ roomId: rid }: { roomId: string }) => {
-            if (rid === roomId) await reload();
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) await reload();
+          },
+        ),
+
+        socketReceiver.on(
+          "message:deleted-for-me",
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) await reload();
           },
         ),
 
         socketReceiver.on(
           "message:edited",
-          async ({ roomId: rid }: { roomId: string }) => {
-            if (rid === roomId) await reload();
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) await reload();
           },
         ),
 
         socketReceiver.on(
           "typing:start",
-          ({ senderId }: { senderId: string }) => {
-            if (senderId !== currentUser.id) setTyping(senderId);
+          ({ userId }: { userId: string }) => {
+            if (userId !== currentUser.id) setTyping(userId);
           },
         ),
 
         socketReceiver.on(
           "typing:stop",
-          ({ senderId }: { senderId: string }) => {
-            if (senderId !== currentUser.id) setTyping(null);
+          ({ userId }: { userId: string }) => {
+            if (userId !== currentUser.id) setTyping(null);
           },
         ),
       );
@@ -140,7 +147,7 @@ export function useChat({ roomId, conversationId, currentUser }: UseChatParams):
       unsubs.forEach((fn) => fn());
       if (typingTimer.current) clearTimeout(typingTimer.current);
     };
-  }, [roomId, conversationId, currentUser?.id, currentUser?.token, reload, scrollToEnd]);
+  }, [conversationId, currentUser?.id, currentUser?.token, reload, scrollToEnd]);
 
   const send = async (text: string, receiverId: string) => {
     await mediaService.message.send(text, {
@@ -188,7 +195,7 @@ export function useChat({ roomId, conversationId, currentUser }: UseChatParams):
 
     setIsSyncing(true);
     try {
-      const older = await messageStore.getOlderThan(roomId, oldestTimestamp, 20);
+      const older = await messageStore.getOlderThan(conversationId, oldestTimestamp, 20);
 
       if (older.length > 0) {
         setMessages((prev) => [...older, ...prev]);
