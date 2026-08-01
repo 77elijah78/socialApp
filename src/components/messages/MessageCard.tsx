@@ -1,4 +1,3 @@
-import { images } from "@/constants";
 import { MessageCardProps } from "@/types";
 import theme from "@/constants/theme";
 import {
@@ -13,6 +12,30 @@ import { useState } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+
+function StatusCheckmarks({
+  status,
+  isSent,
+}: {
+  status: string;
+  isSent: boolean;
+}) {
+  if (!isSent) return null;
+
+  const color =
+    status === "READ" ? theme.COLORS.textTimeRead : theme.COLORS.textTimeRead;
+
+  const marks = status === "READ" || status === "DELIVERED" ? 2 : 1;
+
+  return (
+    <View style={{ flexDirection: "row", marginLeft: 4 }}>
+      {Array.from({ length: marks }).map((_, i) => (
+        <Ionicons key={i} name="checkmark-sharp" size={12} color={color} />
+      ))}
+    </View>
+  );
+}
 
 export default function MessageCard({
   type,
@@ -20,6 +43,7 @@ export default function MessageCard({
   time,
   isSent,
   isRead,
+  status,
   uri,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
@@ -117,17 +141,22 @@ export default function MessageCard({
           </View>
         )}
 
-        <Text
-          style={[
-            styles.time,
-            { color: timeColor, alignSelf: isSent ? "flex-end" : "flex-start" },
-          ]}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            alignSelf: isSent ? "flex-end" : "flex-start",
+            marginTop: theme.SPACING.xs,
+          }}
         >
-          {new Date(time).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Text>
+          <Text style={[styles.time, { color: timeColor }]}>
+            {new Date(time).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Text>
+          <StatusCheckmarks status={status} isSent={isSent} />
+        </View>
       </View>
     </View>
   );

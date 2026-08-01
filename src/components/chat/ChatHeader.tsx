@@ -9,6 +9,7 @@ interface ChatHeaderProps {
   receiverName: string;
   avatarUri: string;
   isOnline?: boolean;
+  isTyping?: boolean;
   onBack: () => void;
   onProfilePress?: () => void;
   onMenuPress?: () => void;
@@ -18,6 +19,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   receiverName,
   avatarUri,
   isOnline = true,
+  isTyping = false,
   onBack,
   onProfilePress,
   onMenuPress,
@@ -40,8 +42,8 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         <Text style={styles.userName} numberOfLines={1}>
           {receiverName}
         </Text>
-        <Text style={styles.statusText}>
-          {isOnline ? "Online" : "Last seen recently"}
+        <Text style={[styles.statusText, isTyping && styles.typingText]}>
+          {isTyping ? "Typing..." : isOnline ? "Online" : "Last seen recently"}
         </Text>
       </TouchableOpacity>
 
@@ -114,6 +116,10 @@ const styles = StyleSheet.create({
     fontSize: theme.TYPOGRAPHY.fontSize.lg,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
     color: theme.COLORS.online,
+  },
+  typingText: {
+    color: theme.COLORS.textMuted,
+    fontStyle: "italic",
   },
   menuButton: {
     width: theme.SIZING.buttonHeight,

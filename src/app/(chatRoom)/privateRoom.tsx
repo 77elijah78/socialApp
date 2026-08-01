@@ -86,7 +86,7 @@ export default function PrivateRoom() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
 
-  const { messages, send, flatListRef, onTyping, sendMedia } = useChat({
+  const { messages, send, flatListRef, onTyping, sendMedia, isTyping } = useChat({
     roomId,
     conversationId,
     currentUser: {
@@ -192,6 +192,7 @@ export default function PrivateRoom() {
             sender=""
             isRead={item.isRead}
             isSent={isSent}
+            status={item.status ?? "SENT"}
             type={item.type === "TEXT" ? "text" : item.type === "IMAGE" ? "image/jpeg" : item.type === "VIDEO" ? "video/mp4" : item.type === "AUDIO" ? "audio/mpeg" : "text"}
             uri={item.mediaUrl ?? ""}
           />
@@ -213,9 +214,10 @@ export default function PrivateRoom() {
           }
           isOnline={true}
           onBack={handleBack}
-          onProfilePress={handleProfilePress}
-          onMenuPress={handleMenuPress}
-        />
+           onProfilePress={handleProfilePress}
+           onMenuPress={handleMenuPress}
+           isTyping={isTyping}
+         />
       </View>
 
       {/* UNREAD JUMP BUTTON */}
