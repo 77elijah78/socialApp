@@ -14,6 +14,10 @@ interface UsePostsReturn {
   error: Error | null;
   refresh: () => void;
   hasMore: boolean;
+  like: (postId: string) => Promise<void>;
+  unlike: (postId: string) => Promise<void>;
+  save: (postId: string) => Promise<void>;
+  unsave: (postId: string) => Promise<void>;
 }
 
 function mapPostResponse(post: PostResponse): SocialPost {
@@ -25,8 +29,8 @@ function mapPostResponse(post: PostResponse): SocialPost {
     likeCount: post._count.likes,
     commentCount: post._count.comments,
     shareCount: 0,
-    isLiked: false,
-    isBookmarked: false,
+    isLiked: post.isLiked,
+    isBookmarked: post.isSaved,
   };
 }
 
@@ -83,11 +87,43 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     setHasMore(true);
   }, []);
 
+  const like = useCallback(async (postId: string) => {
+    await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, isLiked: true, likeCount: p.likeCount + 1 } : p
+    ));
+  }, [token]);
+
+  const unlike = useCallback(async (postId: string) => {
+    await api.delete(`/posts/${postId}/like`, token ?? undefined);
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, isLiked: false, likeCount: p.likeCount - 1 } : p
+    ));
+  }, [token]);
+
+  const save = useCallback(async (postId: string) => {
+    await api.post(`/posts/${postId}/save`, {}, token ?? undefined);
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, isBookmarked: true } : p
+    ));
+  }, [token]);
+
+  const unsave = useCallback(async (postId: string) => {
+    await api.delete(`/posts/${postId}/save`, token ?? undefined);
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, isBookmarked: false } : p
+    ));
+  }, [token]);
+
   return {
     posts,
     loading,
     error,
     refresh,
     hasMore,
+    like,
+    unlike,
+    save,
+    unsave,
   };
 }

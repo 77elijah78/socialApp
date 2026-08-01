@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
+import { useAppSelector } from "@/store/hooks";
 
 interface BackendParticipant {
   user: {
@@ -23,6 +24,7 @@ interface BackendConversation {
     id: string;
     content: string;
     mediaUrl: string | null;
+    type: string;
     createdAt: string;
     senderId: string;
   }[];
@@ -52,13 +54,16 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
 
   const receiverId = otherParticipant?.user.id;
 
+  const lastMessageContent = lastMessage?.content || "";
+  const lastMessageType = lastMessage?.mediaUrl ? "media" : "text";
+
   return {
     id: conversation.id,
     name,
     conversationId: conversation.id,
     avatarUrl,
-    lastMessage: lastMessage?.content || "",
-    lastMessageType: lastMessage?.mediaUrl ? "media" : "text",
+    lastMessage: lastMessageContent,
+    lastMessageType,
     lastMessageTimestamp: lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now(),
     unreadCount: 0,
     receiverId,
@@ -69,11 +74,12 @@ export function useRooms() {
   const [rooms, setRooms] = useState<RoomWithReceiver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const token = useRef<string | null>(null);
-  const currentUserId = useRef<string | null>(null);
+
+  const token = useAppSelector((s) => s.auth.token);
+  const currentUserId = useAppSelector((s) => s.auth.user?.id);
 
   useEffect(() => {
-    if (!token.current || !currentUserId.current) {
+    if (!token || !currentUserId) {
       setTimeout(() => setLoading(false), 0);
       return;
     }
@@ -83,12 +89,12 @@ export function useRooms() {
     async function fetchConversations() {
       try {
         const conversations = await api.get<BackendConversation[]>(
-          "/conversations",
-          token.current ?? undefined,
+          "/messages/conversations",
+          token,
         );
 
         if (!cancelled) {
-          const mapped = conversations.map((c) => toRoomRow(c, currentUserId.current!));
+          const mapped = conversations.map((c) => toRoomRow(c, currentUserId));
           setRooms(mapped);
 
           for (const room of mapped) {
@@ -106,17 +112,12 @@ export function useRooms() {
       }
     }
 
-    fetchConversations();
+    void fetchConversations();
 
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const setAuth = useCallback((newToken: string, userId: string) => {
-    token.current = newToken;
-    currentUserId.current = userId;
-  }, []);
+  }, [token, currentUserId]);
 
   const addRoom = useCallback(async (room: RoomRow) => {
     await roomStore.addRoom(room);
@@ -135,6 +136,5 @@ export function useRooms() {
     reload: () => {},
     addRoom,
     deleteRoom,
-    setAuth,
   };
 }
