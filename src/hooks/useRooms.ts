@@ -90,7 +90,7 @@ export function useRooms() {
       try {
         const conversations = await api.get<BackendConversation[]>(
           "/messages/conversations",
-          token,
+          token ?? undefined,
         );
 
         if (!cancelled) {

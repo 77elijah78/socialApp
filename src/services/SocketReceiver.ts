@@ -136,12 +136,14 @@ export class SocketReceiver {
     });
 
     // ── Typing indicators ──
-    s.on("typing:start", ({ userId, conversationId }: { userId: string; conversationId: string }) => {
-      this.emit("typing:start", { userId, conversationId });
-    });
-
-    s.on("typing:stop", ({ userId, conversationId }: { userId: string; conversationId: string }) => {
-      this.emit("typing:stop", { userId, conversationId });
+    // Backend emits a single "message:typing" event with isTyping boolean.
+    // We translate it to internal "typing:start" / "typing:stop" events.
+    s.on("message:typing", ({ userId, conversationId, isTyping }: { userId: string; conversationId: string; isTyping: boolean }) => {
+      if (isTyping) {
+        this.emit("typing:start", { userId, conversationId });
+      } else {
+        this.emit("typing:stop", { userId, conversationId });
+      }
     });
 
     // ── Presence ──
