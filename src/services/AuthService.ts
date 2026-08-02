@@ -1,4 +1,4 @@
-import { LoginResponse } from "@/types";
+import { LoginResponse, RegisterResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
 import { setCredentials } from "../store/slices/authSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -12,20 +12,48 @@ export class AuthService {
     }
   }
 
-  async register(email: string, password: string): Promise<void> {
-    this.validate(email, password);
+  async register(
+    email: string,
+    password: string,
+    username: string,
+    displayName: string | undefined,
+    dispatch: ReturnType<typeof useAppDispatch>,
+  ): Promise<void> {
+    if (!email || !password || !username) {
+      throw new Error("Email, username, and password are required.");
+    }
 
     const response = await fetch(`${this.baseUrl}/register`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, username, displayName }),
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || "Registration failed.");
+    const data: RegisterResponse = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Registration failed.");
+    }
+
+    const { user, accessToken, refreshToken } = data.data;
+
+    dispatch(
+      setCredentials({
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName ?? null,
+          avatarUrl: null,
+        },
+        token: accessToken,
+      }),
+    );
+
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
     }
   }
 

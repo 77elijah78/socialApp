@@ -284,6 +284,22 @@ export interface LoginResponse {
   };
 }
 
+export interface RegisterResponse {
+  success: boolean;
+  message: string;
+  data: {
+    user: {
+      id: string;
+      username: string;
+      email: string;
+      displayName: string | null;
+      createdAt: Date;
+    };
+    accessToken: string;
+    refreshToken: string;
+  };
+}
+
 // ─── UI Props ─────────────────────────────────────────────────────────────────
 
 export interface PrivateMessageCardProps {

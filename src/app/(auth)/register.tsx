@@ -1,12 +1,13 @@
 import PrimaryButton from "@/components/common/PrimaryButton";
 import { icons, images } from "@/constants";
 import theme from "@/constants/theme";
+import { authService } from "@/services/AuthService";
+import { useAppDispatch } from "@/store/hooks";
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
-  Button,
   StyleSheet,
   Image,
   TouchableOpacity,
@@ -16,6 +17,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function RegisterScreen() {
+  const [form, setForm] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+  });
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const dispatch = useAppDispatch();
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -26,10 +35,10 @@ export default function RegisterScreen() {
             justifyContent: "center",
           }}
         >
-          <TouchableOpacity style={styles.icon} onPress={()=>{
-            router.replace("(auth)/login")
+          <TouchableOpacity style={styles.icon} onPress={() => {
+            router.replace("(auth)/login");
           }}>
-          <Image source={icons.leftArrow} />
+            <Image source={icons.leftArrow} />
           </TouchableOpacity>
           <Text style={styles.title}>Social App</Text>
         </View>
@@ -38,12 +47,22 @@ export default function RegisterScreen() {
         <Text style={styles.description}>
           Join the community and start sharing.
         </Text>
+
+        {registerError ? (
+          <View style={{ backgroundColor: "#fee", padding: 12, borderRadius: 8, marginBottom: 12 }}>
+            <Text style={{ color: "#c00", textAlign: "center" }}>{registerError}</Text>
+          </View>
+        ) : null}
+
         <Text style={styles.label}>Full Name</Text>
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
-            placeholder="Jhon Doe"
-            secureTextEntry={true}
+            placeholder="John Doe"
+            value={form.fullName}
+            onChangeText={(value) => {
+              setForm({ ...form, fullName: value });
+            }}
           />
         </View>
         <Text style={styles.label}>Email</Text>
@@ -51,7 +70,12 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="hello@vivisocial.com"
-            secureTextEntry={true}
+            value={form.email}
+            onChangeText={(value) => {
+              setForm({ ...form, email: value });
+            }}
+            keyboardType="email-address"
+            autoCapitalize="none"
           />
         </View>
         <Text style={styles.label}>Password</Text>
@@ -59,14 +83,31 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="*********"
+            value={form.password}
+            onChangeText={(value) => {
+              setForm({ ...form, password: value });
+            }}
             secureTextEntry={true}
           />
         </View>
         <PrimaryButton
           style={styles.button}
           title="Sign Up"
-          onPress={() => {
-            router.replace("(auth)/verify-otp");
+          onPress={async () => {
+            setRegisterError(null);
+            try {
+              const username = form.fullName.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+              await authService.register(
+                form.email.trim(),
+                form.password,
+                username,
+                form.fullName || undefined,
+                dispatch,
+              );
+              router.replace("/(tabs)/home");
+           		} catch (err: any) {
+              setRegisterError(err.message || "Registration failed");
+            }
           }}
         />
         <Text
