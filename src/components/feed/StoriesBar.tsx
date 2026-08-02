@@ -1,95 +1,17 @@
 import React from "react";
-import { FlatList, View, Text, Image, TouchableOpacity } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
 import { StoryItem } from "@/types";
-
-const STORIES: StoryItem[] = [
-  {
-    id: "me",
-    userId: "me",
-    username: "johndoe",
-    displayName: "Your story",
-    avatarUrl:
-      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl: "",
-    mediaType: "image",
-    createdAt: new Date(),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: false,
-  },
-  {
-    id: "1",
-    userId: "u1",
-    username: "sarahchen",
-    displayName: "Sarah",
-    avatarUrl:
-      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl:
-      "https://images.pexels.com/photos/8905350/pexels-photo-8905350.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
-    mediaType: "image",
-    createdAt: new Date(Date.now() - 30 * 60 * 1000),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: false,
-  },
-  {
-    id: "2",
-    userId: "u2",
-    username: "marcuswebb",
-    displayName: "Marcus",
-    avatarUrl:
-      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl:
-      "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
-    mediaType: "image",
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: true,
-  },
-  {
-    id: "3",
-    userId: "u3",
-    username: "leilamoradi",
-    displayName: "Leila",
-    avatarUrl:
-      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl:
-      "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaType: "image",
-    createdAt: new Date(Date.now() - 45 * 60 * 1000),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: false,
-  },
-  {
-    id: "4",
-    userId: "u4",
-    username: "jamesokafor",
-    displayName: "James",
-    avatarUrl:
-      "https://images.pexels.com/photos/2341350/pexels-photo-2341350.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl:
-      "https://images.pexels.com/photos/19841535/pexels-photo-19841535.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
-    mediaType: "image",
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: true,
-  },
-  {
-    id: "5",
-    userId: "u5",
-    username: "anyapetrov",
-    displayName: "Anya",
-    avatarUrl:
-      "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaUrl:
-      "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=200",
-    mediaType: "image",
-    createdAt: new Date(Date.now() - 90 * 60 * 1000),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    isViewed: false,
-  },
-];
+import { useStories } from "@/hooks/useStories";
 
 function StoryRing({
   isViewed,
@@ -172,38 +94,77 @@ function StoryRing({
   );
 }
 
-export default function StoriesBar() {
-  const renderItem = ({ item }: { item: StoryItem }) => {
-    const storySize = theme.SIZING.storyItem;
-    return (
-      <TouchableOpacity
+function StoryItemRow({ item }: { item: StoryItem }) {
+  const storySize = theme.SIZING.storyItem;
+  const isMe = item.userId === "me";
+
+  return (
+    <TouchableOpacity
+      style={{
+        alignItems: "center",
+        width: theme.SIZING.storyItem + 20,
+      }}
+      activeOpacity={theme.OPACITY.semiTransparent}
+    >
+      <StoryRing
+        isViewed={item.isViewed}
+        isMe={isMe}
+        size={storySize}
+        avatarUrl={item.avatarUrl ?? ""}
+      />
+      <Text
         style={{
-          alignItems: "center",
-          width: theme.SIZING.storyItem + 20,
+          fontSize: theme.TYPOGRAPHY.fontSize.xs,
+          color: theme.COLORS.textSecondary,
+          marginTop: theme.SPACING.sm,
+          textAlign: "center",
+          fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
         }}
-        activeOpacity={theme.OPACITY.semiTransparent}
+        numberOfLines={1}
       >
-        <StoryRing
-          isViewed={item.isViewed}
-          isMe={item.userId === "me"}
-          size={storySize}
-          avatarUrl={item.avatarUrl ?? ""}
-        />
-        <Text
-          style={{
-            fontSize: theme.TYPOGRAPHY.fontSize.xs,
-            color: theme.COLORS.textSecondary,
-            marginTop: theme.SPACING.sm,
-            textAlign: "center",
-            fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-          }}
-          numberOfLines={1}
-        >
-          {item.displayName}
-        </Text>
-      </TouchableOpacity>
+        {item.displayName}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+export default function StoriesBar() {
+  const { stories, loading } = useStories();
+
+  if (loading) {
+    return (
+      <View
+        style={{
+          backgroundColor: theme.COLORS.bgWhite,
+          paddingVertical: theme.SPACING.lg,
+          paddingHorizontal: theme.SPACING.lg,
+          marginBottom: theme.SPACING.sm,
+          alignItems: "center",
+        }}
+      >
+        <ActivityIndicator size="small" color={theme.COLORS.primary} />
+      </View>
     );
+  }
+
+  if (stories.length === 0) {
+    return null;
+  }
+
+  const me = {
+    id: "me",
+    userId: "me",
+    username: "you",
+    displayName: "Your story",
+    avatarUrl: "",
+    mediaUrl: "",
+    mediaType: "image" as const,
+    createdAt: new Date(),
+    expiresAt: new Date(),
+    isViewed: false,
   };
+
+  const allStories = [me, ...stories.filter((s) => s.userId !== me.userId)];
 
   return (
     <View
@@ -215,11 +176,11 @@ export default function StoriesBar() {
       }}
     >
       <FlatList
-        data={STORIES}
+        data={allStories}
         horizontal
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-        renderItem={renderItem}
+        renderItem={({ item }) => <StoryItemRow item={item} />}
         contentContainerStyle={{
           gap: 0,
           alignItems: "center",
