@@ -207,6 +207,11 @@ export interface PostResponse {
   _count: PostCounts;
   isLiked: boolean;
   isSaved: boolean;
+  comments?: Comment[];
+}
+
+export interface PostOneResponse extends PostResponse {
+  comments: Comment[];
 }
 
 export interface SocialPost extends PostResponse {
