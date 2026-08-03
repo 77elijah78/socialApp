@@ -49,31 +49,35 @@ function StoryMedia({ story, onLoaded }: StoryMediaProps) {
   };
 
   return (
-    <View style={styles.mediaContainer}>
-      {story.mediaType === "video" ? (
-        <View style={styles.videoPlaceholder}>
-          <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
-          <Image
-            source={{ uri: story.mediaUrl }}
-            style={styles.videoThumbnail}
-            resizeMode="cover"
-            onLoad={handleLoaded}
-          />
-        </View>
-      ) : (
-        <Image
-          source={{ uri: story.mediaUrl }}
-          style={styles.media}
-          resizeMode="contain"
-          onLoad={handleLoaded}
-        />
-      )}
+          <View style={styles.mediaContainer}>
+            {story.mediaUrl ? (
+              story.mediaType === "video" ? (
+                <View style={styles.videoPlaceholder}>
+                  <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
+                  <Image
+                    source={{ uri: story.mediaUrl }}
+                    style={styles.videoThumbnail}
+                    resizeMode="cover"
+                    onLoad={handleLoaded}
+                  />
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: story.mediaUrl }}
+                  style={styles.media}
+                  resizeMode="contain"
+                  onLoad={handleLoaded}
+                />
+              )
+            ) : (
+              <View style={styles.media} />
+            )}
 
-      {!loaded && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={theme.COLORS.white} />
-        </View>
-      )}
+            {!loaded && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color={theme.COLORS.white} />
+              </View>
+            )}
 
       {story.caption ? (
         <View style={styles.captionContainer}>
@@ -145,7 +149,7 @@ export default function StoryViewer({
   }
 
   const markViewed = async (storyId: string) => {
-    if (!token) return;
+    if (!token || storyId === "me") return;
     try {
       await api.post<{ success: boolean }>(
         `/posts/stories/${storyId}/view`,

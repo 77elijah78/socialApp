@@ -22,9 +22,9 @@ function StoryRing({
   avatarUrl,
 }: {
   isViewed: boolean;
-  isMe: boolean;
-  size: number;
-  avatarUrl: string;
+   isMe: boolean;
+   size: number;
+   avatarUrl: string | null;
 }) {
   if (isMe) {
     return (
@@ -56,9 +56,9 @@ function StoryRing({
           padding: theme.BORDER.width.sm,
         }}
       >
-        <Image
-          source={{ uri: avatarUrl }}
-          style={{
+         <Image
+           source={{ uri: avatarUrl ?? "" }}
+           style={{
             width: size - 8,
             height: size - 8,
             borderRadius: (size - 8) / 2,
@@ -84,7 +84,7 @@ function StoryRing({
       }}
     >
       <Image
-        source={{ uri: avatarUrl }}
+        source={{ uri: avatarUrl ?? "" }}
         style={{
           width: size - 8,
           height: size - 8,
@@ -168,7 +168,7 @@ export default function StoriesBar() {
     userId: "me",
     username: "you",
     displayName: "Your story",
-    avatarUrl: "",
+    avatarUrl: null,
     mediaUrl: "",
     mediaType: "image" as const,
     caption: null,

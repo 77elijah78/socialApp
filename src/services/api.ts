@@ -176,17 +176,20 @@ async function _uploadFile(
     throw new Error("No file found in FormData");
   }
 
-  const send = async (tok: string): Promise<any> => {
-    const fileBlob = await _uriToBlob(filePart.uri);
-    const form = new FormData();
-    form.append(filePart.fieldName, fileBlob, filePart.filename);
+  const blob = await _uriToBlob(filePart.uri);
+  const arrayBuffer = await _blobToArrayBuffer(blob);
+  const boundary = "----Boundary_" + Math.random().toString(16).slice(2);
+  const body = _buildMultipartBody(boundary, filePart.fieldName, filePart.filename, filePart.mimeType, arrayBuffer);
+  const contentType = `multipart/form-data; boundary=${boundary}`;
 
+  const send = async (tok: string): Promise<any> => {
     const resp = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${tok}`,
+        "Content-Type": contentType,
       },
-      body: form,
+      body: body as BodyInit,
     });
 
     if (resp.status === 401) {
@@ -222,6 +225,45 @@ async function _uriToBlob(uri: string): Promise<Blob> {
     throw new Error(`Failed to read file: ${response.status}`);
   }
   return response.blob();
+}
+
+function _blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+function _buildMultipartBody(
+  boundary: string,
+  fieldName: string,
+  filename: string,
+  mimeType: string,
+  fileData: ArrayBuffer,
+): Uint8Array {
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = [];
+
+  parts.push(encoder.encode(`--${boundary}\r\n`));
+  parts.push(
+    encoder.encode(
+      `Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\n`,
+    ),
+  );
+  parts.push(encoder.encode(`Content-Type: ${mimeType}\r\n\r\n`));
+  parts.push(new Uint8Array(fileData));
+  parts.push(encoder.encode(`\r\n--${boundary}--\r\n`));
+
+  const totalLength = parts.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of parts) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 function _buildFormData(

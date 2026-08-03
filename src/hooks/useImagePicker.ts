@@ -127,7 +127,7 @@ export async function takePhoto(): Promise<PickedAsset | null> {
   if (!cameraGranted) return null;
 
   const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+     mediaTypes: ImagePicker.MediaTypeOptions.Images,
     allowsEditing: true,
     aspect: [1, 1],
     quality: 0.9,
