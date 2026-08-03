@@ -4,7 +4,7 @@
     "slug": "social",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/icon.png",
+    "icon": "./src/assets/favicon.png",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": ["**/*"],
     "scheme": "yoursocialapp",
@@ -14,7 +14,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/icon.png",
+        "foregroundImage": "./src/assets/splash-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -27,7 +27,7 @@
       "multidex": true
     },
     "web": {
-      "favicon": "./src/assets/icon.png"
+      "favicon": "./src/assets/favicon.png"
     },
     "plugins": [
       "expo-audio",
