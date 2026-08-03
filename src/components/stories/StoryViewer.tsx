@@ -102,24 +102,11 @@ export default function StoryViewer({
   const story = stories[activeIndex];
 
   useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 1 / 30;
-        if (next >= 1) {
-          goToNext();
-          return 0;
-        }
-        return next;
-      });
-    }, 1000);
-    return () => {
+    if (!visible) {
       if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [visible]);
+      return;
+    }
 
-  useEffect(() => {
-    if (!visible) return;
-    if (timerRef.current) clearInterval(timerRef.current);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setProgress(0);
     timerRef.current = setInterval(() => {
@@ -132,6 +119,10 @@ export default function StoryViewer({
         return next;
       });
     }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [activeIndex, visible]);
 
   function goToNext() {
