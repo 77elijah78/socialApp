@@ -171,54 +171,24 @@ async function _uploadFile(
     throw new Error("No authentication token available");
   }
 
-  const parts: Uint8Array[] = [];
-  const boundary = "----Boundary_" + Math.random().toString(16).slice(2);
-
-  const encoder = new TextEncoder();
-  const entries: [string, string][] = [];
-  if (typeof (formData as any).entries === "function") {
-    for (const [name, value] of (formData as any).entries()) {
-      if (typeof value === "string") {
-        entries.push([name, value]);
-      }
-    }
-  }
-
-  for (const [name, value] of entries) {
-    parts.push(encoder.encode(`--${boundary}\r\n`));
-    parts.push(encoder.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`));
-    parts.push(encoder.encode(value));
-    parts.push(encoder.encode(`\r\n`));
-  }
-
   const filePart = _extractFileFromFormData(formData);
-  if (filePart) {
-    parts.push(encoder.encode(`--${boundary}\r\n`));
-    parts.push(
-      encoder.encode(
-        `Content-Disposition: form-data; name="${filePart.fieldName}"; filename="${filePart.filename}"\r\n`,
-      ),
-    );
-    parts.push(encoder.encode(`Content-Type: ${filePart.mimeType}\r\n\r\n`));
-    const arrayBuffer = await _readFileAsArrayBuffer(filePart.uri);
-    parts.push(new Uint8Array(arrayBuffer));
-    parts.push(encoder.encode(`\r\n--${boundary}--\r\n`));
-  } else {
-    parts.push(encoder.encode(`--${boundary}--\r\n`));
+  if (!filePart) {
+    throw new Error("No file found in FormData");
   }
-
-  const body = _concatUint8Arrays(parts);
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${authToken}`,
-    "Content-Type": `multipart/form-data; boundary=${boundary}`,
-  };
 
   const send = async (tok: string): Promise<any> => {
+    const fileBlob = await _uriToBlob(filePart.uri);
+    const form = new FormData();
+    form.append(filePart.fieldName, fileBlob, filePart.filename);
+
     const resp = await fetch(url, {
       method: "POST",
-      headers: { ...headers, Authorization: `Bearer ${tok}` },
-      body: body as BodyInit,
+      headers: {
+        Authorization: `Bearer ${tok}`,
+      },
+      body: form,
     });
+
     if (resp.status === 401) {
       if (isRefreshing) {
         const newToken = await new Promise<string | null>((resolve) => {
@@ -234,14 +204,24 @@ async function _uploadFile(
       if (newToken) return send(newToken);
       throw new Error("Authentication failed");
     }
+
     if (!resp.ok) {
       const error = await resp.json().catch(() => ({}));
       throw new Error(error.message || `Request failed [${resp.status}]`);
     }
+
     return resp.json();
   };
 
   return send(authToken);
+}
+
+async function _uriToBlob(uri: string): Promise<Blob> {
+  const response = await fetch(uri);
+  if (!response.ok) {
+    throw new Error(`Failed to read file: ${response.status}`);
+  }
+  return response.blob();
 }
 
 function _buildFormData(
@@ -293,26 +273,6 @@ function _extractFileFromFormData(formData: FormData): FilePart | null {
     }
   }
   return null;
-}
-
-function _readFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(uri as any);
-  });
-}
-
-function _concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }
 
 export default api;
