@@ -147,89 +147,172 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, token),
   delete: <T>(path: string, token?: string) => request<T>(path, { method: "DELETE" }, token),
    upload: (path: string, formData: FormData, token?: string): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
-    new Promise((resolve, reject) => {
-      const url = `${BASE_URL}${path}`;
-      const authToken = token ?? currentToken;
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", url);
-
-      if (authToken) {
-        xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
-      }
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          console.log(`Upload progress: ${percent}%`);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            reject(new Error("Failed to parse upload response"));
-          }
-        } else if (xhr.status === 401) {
-          if (isRefreshing) {
-            const checkInterval = setInterval(() => {
-              if (!isRefreshing) {
-                clearInterval(checkInterval);
-                const tok = currentToken;
-                if (tok) {
-                  xhr.open("POST", url);
-                  xhr.setRequestHeader("Authorization", `Bearer ${tok}`);
-                  xhr.send(formData);
-                } else {
-                  let errorMsg = "Authentication failed";
-                  try {
-                    const error = JSON.parse(xhr.responseText);
-                    errorMsg = error.message || errorMsg;
-                  } catch {}
-                  clearInterval(checkInterval);
-                  reject(new Error(errorMsg));
-                }
-              }
-            }, 100);
-          } else {
-            isRefreshing = true;
-            refreshAccessToken().then((newToken) => {
-              isRefreshing = false;
-              flushPending(newToken);
-              if (newToken) {
-                xhr.open("POST", url);
-                xhr.setRequestHeader("Authorization", `Bearer ${newToken}`);
-                xhr.send(formData);
-              } else {
-                let errorMsg = "Authentication failed";
-                try {
-                  const error = JSON.parse(xhr.responseText);
-                  errorMsg = error.message || errorMsg;
-                } catch {}
-                reject(new Error(errorMsg));
-              }
-            });
-          }
-        } else {
-          let errorMsg = `Request failed [${xhr.status}]`;
-          try {
-            const error = JSON.parse(xhr.responseText);
-            errorMsg = error.message || errorMsg;
-          } catch {
-            /* use default error message */
-          }
-          reject(new Error(errorMsg));
-        }
-      };
-
-      xhr.onerror = () => {
-        reject(new Error("Network error during upload"));
-      };
-
-      xhr.send(formData);
-    }),
+    _uploadFile(path, formData, token),
+   uploadFile: (
+    path: string,
+    uri: string,
+    mimeType: string,
+    fieldName: string = "file",
+    filename?: string,
+    token?: string,
+  ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
+    _uploadFile(path, _buildFormData(uri, mimeType, fieldName, filename), token),
 };
+
+async function _uploadFile(
+  path: string,
+  formData: FormData,
+  token?: string,
+): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
+  const url = `${BASE_URL}${path}`;
+  let authToken = token ?? currentToken;
+
+  if (!authToken) {
+    throw new Error("No authentication token available");
+  }
+
+  const parts: Uint8Array[] = [];
+  const boundary = "----Boundary_" + Math.random().toString(16).slice(2);
+
+  const encoder = new TextEncoder();
+  const entries: [string, string][] = [];
+  if (typeof (formData as any).entries === "function") {
+    for (const [name, value] of (formData as any).entries()) {
+      if (typeof value === "string") {
+        entries.push([name, value]);
+      }
+    }
+  }
+
+  for (const [name, value] of entries) {
+    parts.push(encoder.encode(`--${boundary}\r\n`));
+    parts.push(encoder.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`));
+    parts.push(encoder.encode(value));
+    parts.push(encoder.encode(`\r\n`));
+  }
+
+  const filePart = _extractFileFromFormData(formData);
+  if (filePart) {
+    parts.push(encoder.encode(`--${boundary}\r\n`));
+    parts.push(
+      encoder.encode(
+        `Content-Disposition: form-data; name="${filePart.fieldName}"; filename="${filePart.filename}"\r\n`,
+      ),
+    );
+    parts.push(encoder.encode(`Content-Type: ${filePart.mimeType}\r\n\r\n`));
+    const arrayBuffer = await _readFileAsArrayBuffer(filePart.uri);
+    parts.push(new Uint8Array(arrayBuffer));
+    parts.push(encoder.encode(`\r\n--${boundary}--\r\n`));
+  } else {
+    parts.push(encoder.encode(`--${boundary}--\r\n`));
+  }
+
+  const body = _concatUint8Arrays(parts);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${authToken}`,
+    "Content-Type": `multipart/form-data; boundary=${boundary}`,
+  };
+
+  const send = async (tok: string): Promise<any> => {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, Authorization: `Bearer ${tok}` },
+      body: body as BodyInit,
+    });
+    if (resp.status === 401) {
+      if (isRefreshing) {
+        const newToken = await new Promise<string | null>((resolve) => {
+          queuePending(resolve);
+        });
+        if (newToken) return send(newToken);
+        throw new Error("Authentication failed");
+      }
+      isRefreshing = true;
+      const newToken = await refreshAccessToken();
+      isRefreshing = false;
+      flushPending(newToken);
+      if (newToken) return send(newToken);
+      throw new Error("Authentication failed");
+    }
+    if (!resp.ok) {
+      const error = await resp.json().catch(() => ({}));
+      throw new Error(error.message || `Request failed [${resp.status}]`);
+    }
+    return resp.json();
+  };
+
+  return send(authToken);
+}
+
+function _buildFormData(
+  uri: string,
+  mimeType: string,
+  fieldName: string,
+  filename?: string,
+): FormData {
+  const name = filename ?? (uri.split("/").pop() ?? "upload");
+  const form = new FormData();
+  form.append(fieldName, {
+    uri,
+    name,
+    type: mimeType,
+  } as any);
+  return form;
+}
+
+interface FilePart {
+  uri: string;
+  fieldName: string;
+  mimeType: string;
+  filename: string;
+}
+
+function _extractFileFromFormData(formData: FormData): FilePart | null {
+  const entries = (formData as any)._parts ?? (formData as any)._entries ?? [];
+  for (const entry of entries) {
+    const value = entry[1];
+    if (typeof value === "object" && value !== null && "uri" in value && "name" in value) {
+      return {
+        uri: (value as any).uri,
+        fieldName: entry[0],
+        mimeType: (value as any).type ?? "application/octet-stream",
+        filename: (value as any).name,
+      };
+    }
+  }
+  if (typeof (formData as any).entries === "function") {
+    for (const [name, value] of (formData as any).entries()) {
+      if (typeof value === "object" && value !== null && "uri" in value && "name" in value) {
+        return {
+          uri: (value as any).uri,
+          fieldName: name,
+          mimeType: (value as any).type ?? "application/octet-stream",
+          filename: (value as any).name,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function _readFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(uri as any);
+  });
+}
+
+function _concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
 
 export default api;

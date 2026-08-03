@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/services/api";
@@ -21,7 +20,6 @@ import {
   showImageSourceActionSheet,
   createUploadFormData,
   getAssetMimeType,
-  getAssetFilename,
   PickedAsset,
 } from "@/hooks/useImagePicker";
 
@@ -73,9 +71,8 @@ export default function CreateStoryModal({
 
     setUploading(true);
     try {
-      const mimeType = getAssetMimeType(selectedImage);
-      const filename = getAssetFilename(selectedImage, "story");
-      const form = createUploadFormData(selectedImage.uri, mimeType);
+       const mimeType = getAssetMimeType(selectedImage);
+       const form = createUploadFormData(selectedImage.uri, mimeType);
       const resp = await api.upload("/media/upload", form, token);
 
       const mediaUrl = resp.data.url;

@@ -69,7 +69,7 @@ export default function CreatePostScreen() {
       if (selectedImages.length > 0) {
         for (const asset of selectedImages) {
           const mimeType = getAssetMimeType(asset);
-          const form = createUploadFormData(asset.uri, mimeType, "images");
+          const form = createUploadFormData(asset.uri, mimeType);
           const resp = await api.upload("/media/upload", form, token);
           imageUrls.push(resp.data.url);
         }

@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { VideoView, useVideoPlayer } from "expo-video";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
@@ -26,11 +25,7 @@ interface StoryViewerProps {
   initialIndex?: number;
 }
 
-function StoryProgress({
-  progress,
-}: {
-  progress: number;
-}) {
+function StoryProgress({ progress }: { progress: number }) {
   return (
     <View style={styles.progressContainer}>
       <View style={styles.progressBarBg}>
@@ -40,23 +35,52 @@ function StoryProgress({
   );
 }
 
-function VideoPlayer({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri);
+interface StoryMediaProps {
+  story: StoryItem;
+  onLoaded: () => void;
+}
 
-  useEffect(() => {
-    player?.play();
-    return () => {
-      player?.pause();
-    };
-  }, [player]);
+function StoryMedia({ story, onLoaded }: StoryMediaProps) {
+  const [loaded, setLoaded] = useState(false);
+
+  const handleLoaded = () => {
+    setLoaded(true);
+    onLoaded();
+  };
 
   return (
-    <VideoView
-      player={player}
-      style={styles.media}
-      contentFit="contain"
-      nativeControls
-    />
+    <View style={styles.mediaContainer}>
+      {story.mediaType === "video" ? (
+        <View style={styles.videoPlaceholder}>
+          <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
+          <Image
+            source={{ uri: story.mediaUrl }}
+            style={styles.videoThumbnail}
+            resizeMode="cover"
+            onLoad={handleLoaded}
+          />
+        </View>
+      ) : (
+        <Image
+          source={{ uri: story.mediaUrl }}
+          style={styles.media}
+          resizeMode="contain"
+          onLoad={handleLoaded}
+        />
+      )}
+
+      {!loaded && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={theme.COLORS.white} />
+        </View>
+      )}
+
+      {story.caption ? (
+        <View style={styles.captionContainer}>
+          <Text style={styles.caption}>{story.caption}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -67,14 +91,14 @@ export default function StoryViewer({
   initialIndex = 0,
 }: StoryViewerProps) {
   const token = useAppSelector((s) => s.auth.token);
-  const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const story = stories[activeIndex];
 
   useEffect(() => {
-    if (!visible) return;
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       setProgress((prev) => {
         const next = prev + 1 / 30;
         if (next >= 1) {
@@ -84,8 +108,26 @@ export default function StoryViewer({
         return next;
       });
     }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [visible]);
 
-    return () => clearInterval(timer);
+  useEffect(() => {
+    if (!visible) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProgress(0);
+    timerRef.current = setInterval(() => {
+      setProgress((prev) => {
+        const next = prev + 1 / 30;
+        if (next >= 1) {
+          goToNext();
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
   }, [activeIndex, visible]);
 
   function goToNext() {
@@ -102,7 +144,7 @@ export default function StoryViewer({
     }
   }
 
-  const markViewed = async (storyId: string, mediaUrl: string) => {
+  const markViewed = async (storyId: string) => {
     if (!token) return;
     try {
       await api.post<{ success: boolean }>(
@@ -115,17 +157,17 @@ export default function StoryViewer({
     }
   };
 
-  const story = stories[activeIndex];
-
-  const handlePress = () => {
-    markViewed(story.id, story.mediaUrl);
-  };
+  useEffect(() => {
+    if (story && visible) {
+      markViewed(story.id);
+    }
+  }, [story, visible]);
 
   if (!story) {
     return null;
   }
 
-  const isMine = story.userId === currentUserId || story.userId === "me";
+  const displayName = story.displayName ?? story.username ?? "Unknown";
 
   return (
     <Modal
@@ -133,10 +175,13 @@ export default function StoryViewer({
       transparent
       animationType="fade"
       statusBarTranslucent
+      hardwareAccelerated
     >
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.container}>
-          <StoryProgress progress={progress} />
+          <View style={styles.progressWrapper}>
+            <StoryProgress progress={progress} />
+          </View>
 
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -145,12 +190,12 @@ export default function StoryViewer({
                   <Image source={{ uri: story.avatarUrl }} style={styles.avatar} />
                 ) : (
                   <Text style={styles.avatarText}>
-                    {story.username?.[0]?.toUpperCase() ?? "?"}
+                    {displayName[0]?.toUpperCase() ?? "?"}
                   </Text>
                 )}
               </View>
               <View>
-                <Text style={styles.username}>{story.displayName}</Text>
+                <Text style={styles.username}>{displayName}</Text>
                 <Text style={styles.timestamp}>
                   {new Date(story.createdAt).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -164,37 +209,14 @@ export default function StoryViewer({
             </TouchableOpacity>
           </View>
 
-          <TouchableWithoutFeedback onPress={handlePress}>
-            <View style={styles.mediaContainer}>
-              {story.mediaType === "video" ? (
-                <VideoPlayer uri={story.mediaUrl} />
-              ) : (
-                <Image
-                  source={{ uri: story.mediaUrl }}
-                  style={styles.media}
-                  resizeMode="contain"
-                  onLoad={() => setLoaded(true)}
-                />
-              )}
-
-              {!loaded && (
-                <View style={styles.loadingOverlay}>
-                  <ActivityIndicator size="large" color={theme.COLORS.white} />
-                </View>
-              )}
-
-              {story.caption ? (
-                <View style={styles.captionContainer}>
-                  <Text style={styles.caption}>{story.caption}</Text>
-                </View>
-              ) : null}
-            </View>
+          <TouchableWithoutFeedback>
+            <StoryMedia story={story} onLoaded={() => {}} />
           </TouchableWithoutFeedback>
 
           <View style={styles.footer}>
             <View style={styles.viewersContainer}>
               <Text style={styles.viewersText}>
-                {story.isViewed ? "You and" : ""} {story.viewsCount} {story.viewsCount === 1 ? "view" : "views"}
+                {story.isViewed ? "You and " : ""}{story.viewsCount ?? 0} {story.viewsCount === 1 ? "view" : "views"}
               </Text>
             </View>
           </View>
@@ -220,12 +242,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "transparent",
   },
-  progressContainer: {
-    flexDirection: "row",
-    gap: 4,
+  progressWrapper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 2,
     paddingTop: 4,
     paddingBottom: 8,
+    zIndex: 10,
+  },
+  progressContainer: {
+    flexDirection: "row",
+    gap: 4,
   },
   progressBarBg: {
     flex: 1,
@@ -245,11 +274,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
+    marginBottom: 10,
   },
   headerLeft: {
     flexDirection: "row",
@@ -293,7 +318,20 @@ const styles = StyleSheet.create({
   },
   media: {
     width: width,
-    height: height,
+    height: height - 120,
+  },
+  videoPlaceholder: {
+    width: width,
+    height: height - 120,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.8)",
+  },
+  videoThumbnail: {
+    position: "absolute",
+    width: width,
+    height: height - 120,
+    opacity: 0.5,
   },
   loadingOverlay: {
     position: "absolute",
@@ -339,13 +377,13 @@ const styles = StyleSheet.create({
     top: 80,
     left: 0,
     width: "50%",
-    height: height - 160,
+    height: height - 200,
   },
   rightHalf: {
     position: "absolute",
     top: 80,
     right: 0,
     width: "50%",
-    height: height - 160,
+    height: height - 200,
   },
 });
