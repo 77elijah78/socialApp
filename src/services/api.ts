@@ -187,8 +187,7 @@ async function _uploadFile(
     return await _sendXHR(url, form, authToken);
   } catch (err) {
     const msg = (err as Error).message;
-    if (msg.includes("401") && !isRefreshing) {
-      isRefreshing = true;
+    if (msg.includes("401") && !isRefreshing) {      isRefreshing = true;
       const newToken = await refreshAccessToken();
       isRefreshing = false;
       flushPending(newToken);
@@ -226,12 +225,12 @@ function _sendXHR(
           reject(new Error("Failed to parse upload response"));
         }
       } else {
-        let msg = `Request failed [${xhr.status}]`;
+        let errorMsg = `Request failed [${xhr.status}]`;
         try {
           const error = JSON.parse(xhr.responseText);
-          msg = error.message || msg;
+          errorMsg = `${errorMsg}: ${error.message || "Unknown error"}`;
         } catch {}
-        reject(new Error(msg));
+        reject(new Error(errorMsg));
       }
     };
 
