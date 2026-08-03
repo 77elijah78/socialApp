@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { PostResponse, PaginatedResponse, SocialPost } from "@/types";
@@ -11,8 +11,10 @@ interface UsePostsOptions {
 interface UsePostsReturn {
   posts: SocialPost[];
   loading: boolean;
+  refreshing: boolean;
   error: Error | null;
-  refresh: () => void;
+  refresh: () => Promise<void>;
+  loadMore: () => void;
   hasMore: boolean;
   like: (postId: string) => Promise<void>;
   unlike: (postId: string) => Promise<void>;
@@ -40,9 +42,15 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
 
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(initialPage);
+  const postsRef = useRef<SocialPost[]>([]);
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
 
   useEffect(() => {
     if (!token) {
@@ -61,7 +69,11 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
 
         if (!cancelled) {
           const mapped = data.data.map(mapPostResponse);
-          setPosts((prev) => (page === 1 ? mapped : [...prev, ...mapped]));
+          if (page === 1) {
+            setPosts(mapped);
+          } else {
+            setPosts((prev) => [...prev, ...mapped]);
+          }
           setHasMore(data.page * data.pageSize < data.total);
         }
       } catch (err) {
@@ -82,10 +94,34 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     };
   }, [token, page, limit]);
 
-  const refresh = useCallback(() => {
-    setPage(1);
-    setHasMore(true);
-  }, []);
+  const refresh = useCallback(async () => {
+    if (!token) return;
+    setRefreshing(true);
+    try {
+      const data = await api.get<PaginatedResponse<PostResponse>>(
+        `/posts/feed?page=1&limit=${limit}`,
+        token ?? undefined,
+      );
+
+      const mapped = data.data.map(mapPostResponse);
+      const existingIds = new Set(postsRef.current.map((p) => p.id));
+      const newPosts = mapped.filter((p) => !existingIds.has(p.id));
+
+      if (newPosts.length > 0) {
+        setPosts((prev) => [...newPosts, ...prev]);
+      }
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [token, limit]);
+
+  const loadMore = useCallback(() => {
+    if (!loading && hasMore) {
+      setPage((prev) => prev + 1);
+    }
+  }, [loading, hasMore]);
 
   const like = useCallback(async (postId: string) => {
     await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
@@ -118,8 +154,10 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
   return {
     posts,
     loading,
+    refreshing,
     error,
     refresh,
+    loadMore,
     hasMore,
     like,
     unlike,

@@ -10,7 +10,7 @@ import theme from '@/constants/theme';
 import { usePosts } from '@/hooks/usePosts';
 
 export default function FeedScreen() {
-  const { posts, loading, refresh, like, unlike, save, unsave } = usePosts({ limit: 20 });
+  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore } = usePosts({ limit: 20 });
 
   const onRefresh = useCallback(() => {
     refresh();
@@ -90,9 +90,11 @@ export default function FeedScreen() {
             <View style={{ height: theme.SPACING.xxxxl }} />
           )
         }
+        onEndReached={hasMore ? loadMore : undefined}
+        onEndReachedThreshold={0.5}
         refreshControl={
           <RefreshControl
-            refreshing={loading && posts.length === 0}
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={theme.COLORS.primary}
             colors={[theme.COLORS.primary]}
