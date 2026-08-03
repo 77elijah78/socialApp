@@ -146,12 +146,50 @@ export const api = {
   patch: <T>(path: string, body: unknown, token?: string) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, token),
   delete: <T>(path: string, token?: string) => request<T>(path, { method: "DELETE" }, token),
-  upload: (path: string, formData: FormData, token?: string) =>
-    request<{ success: boolean; data: MediaUploadResponse; message?: string }>(
-      path,
-      { method: "POST", body: formData },
-      token,
-    ),
+  upload: (path: string, formData: FormData, token?: string): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
+    new Promise((resolve, reject) => {
+      const url = `${BASE_URL}${path}`;
+      const authToken = token ?? currentToken;
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+
+      if (authToken) {
+        xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+      }
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          console.log(`Upload progress: ${percent}%`);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error("Failed to parse upload response"));
+          }
+        } else {
+          let errorMsg = `Request failed [${xhr.status}]`;
+          try {
+            const error = JSON.parse(xhr.responseText);
+            errorMsg = error.message || errorMsg;
+          } catch {
+            /* use default error message */
+          }
+          reject(new Error(errorMsg));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Network error during upload"));
+      };
+
+      xhr.send(formData);
+    }),
 };
 
 export default api;

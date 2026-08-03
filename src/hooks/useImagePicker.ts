@@ -29,6 +29,34 @@ function getMimeType(uri: string, fallback: string = "image/jpeg"): string {
   return mimeMap[ext] ?? fallback;
 }
 
+export function createUploadFormData(
+  uri: string,
+  mimeType: string,
+  fieldName: string = "file",
+): FormData {
+  const filename = uri.split("/").pop() || "upload";
+  const form = new FormData();
+  form.append(fieldName, {
+    uri: uri,
+    name: filename,
+    type: mimeType,
+  } as any);
+  return form;
+}
+
+export function getAssetMimeType(asset: PickedAsset): string {
+  if (asset.mimeType) return asset.mimeType;
+  if (asset.type === "video") return "video/mp4";
+  return getMimeType(asset.uri);
+}
+
+export function getAssetFilename(asset: PickedAsset, fallback: string = "upload"): string {
+  if (asset.fileName) return asset.fileName;
+  const match = /\.(\w+)$/.exec(asset.uri);
+  const ext = match ? match[1] : "jpg";
+  return `${fallback}.${ext}`;
+}
+
 async function ensurePermission(
   requestFn: () => Promise<ImagePicker.PermissionResponse>,
   title: string,
@@ -40,24 +68,6 @@ async function ensurePermission(
     return false;
   }
   return true;
-}
-
-async function uriToBlob(uri: string, mimeType: string): Promise<Blob> {
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  return blob.slice(0, blob.size, mimeType);
-}
-
-async function createFormData(uri: string, fieldName: string = "file"): Promise<FormData> {
-  const filename = uri.split("/").pop() || "photo.jpg";
-  const mimeType = getMimeType(uri);
-
-  const blob = await uriToBlob(uri, mimeType);
-
-  const form = new FormData();
-  form.append(fieldName, blob, filename);
-
-  return form;
 }
 
 export async function pickFromLibrary(
@@ -98,6 +108,7 @@ export async function pickFromLibrary(
     height: a.height,
     fileName: a.fileName,
     type: a.type,
+    mimeType: a.mimeType,
   }));
 
   if (options?.allowsMultiple) {
@@ -132,6 +143,7 @@ export async function takePhoto(): Promise<PickedAsset | null> {
     height: a.height,
     fileName: a.fileName,
     type: a.type,
+    mimeType: a.mimeType,
   };
 }
 
@@ -144,5 +156,3 @@ export function showImageSourceActionSheet(
     { text: "Cancel", style: "cancel" },
   ]);
 }
-
-export { createFormData };
