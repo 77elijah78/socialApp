@@ -176,94 +176,70 @@ async function _uploadFile(
     throw new Error("No file found in FormData");
   }
 
-  const blob = await _uriToBlob(filePart.uri);
-  const arrayBuffer = await _blobToArrayBuffer(blob);
-  const boundary = "----Boundary_" + Math.random().toString(16).slice(2);
-  const body = _buildMultipartBody(boundary, filePart.fieldName, filePart.filename, filePart.mimeType, arrayBuffer);
-  const contentType = `multipart/form-data; boundary=${boundary}`;
+  const form = new FormData();
+  form.append(filePart.fieldName, {
+    uri: filePart.uri,
+    name: filePart.filename,
+    type: filePart.mimeType,
+  } as any);
 
-  const send = async (tok: string): Promise<any> => {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tok}`,
-        "Content-Type": contentType,
-      },
-      body: body as BodyInit,
-    });
-
-    if (resp.status === 401) {
-      if (isRefreshing) {
-        const newToken = await new Promise<string | null>((resolve) => {
-          queuePending(resolve);
-        });
-        if (newToken) return send(newToken);
-        throw new Error("Authentication failed");
-      }
+  try {
+    return await _sendXHR(url, form, authToken);
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("401") && !isRefreshing) {
       isRefreshing = true;
       const newToken = await refreshAccessToken();
       isRefreshing = false;
       flushPending(newToken);
-      if (newToken) return send(newToken);
-      throw new Error("Authentication failed");
+      if (newToken) {
+        return _sendXHR(url, form, newToken);
+      }
     }
-
-    if (!resp.ok) {
-      const error = await resp.json().catch(() => ({}));
-      throw new Error(error.message || `Request failed [${resp.status}]`);
-    }
-
-    return resp.json();
-  };
-
-  return send(authToken);
-}
-
-async function _uriToBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  if (!response.ok) {
-    throw new Error(`Failed to read file: ${response.status}`);
+    throw err;
   }
-  return response.blob();
 }
 
-function _blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+function _sendXHR(
+  url: string,
+  formData: FormData,
+  authToken: string,
+): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(blob);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.timeout = 60000;
+    xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const pct = Math.round((event.loaded / event.total) * 100);
+        console.log(`Upload progress: ${pct}%`);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Failed to parse upload response"));
+        }
+      } else {
+        let msg = `Request failed [${xhr.status}]`;
+        try {
+          const error = JSON.parse(xhr.responseText);
+          msg = error.message || msg;
+        } catch {}
+        reject(new Error(msg));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+
+    xhr.send(formData);
   });
-}
-
-function _buildMultipartBody(
-  boundary: string,
-  fieldName: string,
-  filename: string,
-  mimeType: string,
-  fileData: ArrayBuffer,
-): Uint8Array {
-  const encoder = new TextEncoder();
-  const parts: Uint8Array[] = [];
-
-  parts.push(encoder.encode(`--${boundary}\r\n`));
-  parts.push(
-    encoder.encode(
-      `Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\n`,
-    ),
-  );
-  parts.push(encoder.encode(`Content-Type: ${mimeType}\r\n\r\n`));
-  parts.push(new Uint8Array(fileData));
-  parts.push(encoder.encode(`\r\n--${boundary}--\r\n`));
-
-  const totalLength = parts.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of parts) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }
 
 function _buildFormData(
