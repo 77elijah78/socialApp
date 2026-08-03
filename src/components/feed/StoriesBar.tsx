@@ -13,6 +13,7 @@ import theme from "@/constants/theme";
 import { StoryItem } from "@/types";
 import { useStories } from "@/hooks/useStories";
 import CreateStoryModal from "@/components/stories/CreateStoryModal";
+import StoryViewer from "@/components/stories/StoryViewer";
 
 function StoryRing({
   isViewed,
@@ -139,6 +140,8 @@ function StoryItemRow({
 export default function StoriesBar() {
   const { stories, loading, refetch } = useStories();
   const [showCreateStory, setShowCreateStory] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
 
   if (loading) {
     return (
@@ -168,6 +171,7 @@ export default function StoriesBar() {
     avatarUrl: "",
     mediaUrl: "",
     mediaType: "image" as const,
+    caption: null,
     createdAt: new Date(),
     expiresAt: new Date(),
     isViewed: false,
@@ -190,22 +194,32 @@ export default function StoriesBar() {
         horizontal
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-         renderItem={({ item }) => (
-           <StoryItemRow
-             item={item}
-             onStoryPress={(story) => {
-               if (story.userId === "me") {
-                 setShowCreateStory(true);
-               }
-             }}
-           />
-         )}
-       />
+        renderItem={({ item, index }) => (
+          <StoryItemRow
+            item={item}
+            onStoryPress={(story) => {
+              if (story.userId === "me") {
+                setShowCreateStory(true);
+              } else {
+                const realIndex = allStories.findIndex((s) => s.id === story.id);
+                setViewerInitialIndex(Math.max(realIndex, 0));
+                setViewerVisible(true);
+              }
+            }}
+          />
+        )}
+        />
       </View>
       <CreateStoryModal
         visible={showCreateStory}
         onClose={() => setShowCreateStory(false)}
         onStoryCreated={refetch}
+      />
+      <StoryViewer
+        visible={viewerVisible}
+        onClose={() => setViewerVisible(false)}
+        stories={allStories}
+        initialIndex={viewerInitialIndex}
       />
     </>
   );

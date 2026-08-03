@@ -1,4 +1,4 @@
-import { Alert, Platform } from "react-native";
+import { Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 
 export type MediaType = "image" | "video";
@@ -9,6 +9,24 @@ export interface PickedAsset {
   height: number;
   fileName?: string | null;
   type?: string | null;
+  mimeType?: string;
+}
+
+function getMimeType(uri: string, fallback: string = "image/jpeg"): string {
+  const match = /\.(\w+)$/.exec(uri);
+  const ext = match ? match[1].toLowerCase() : "jpg";
+  const mimeMap: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    avi: "video/x-msvideo",
+    webm: "video/webm",
+  };
+  return mimeMap[ext] ?? fallback;
 }
 
 async function ensurePermission(
@@ -24,17 +42,20 @@ async function ensurePermission(
   return true;
 }
 
+async function uriToBlob(uri: string, mimeType: string): Promise<Blob> {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  return blob.slice(0, blob.size, mimeType);
+}
+
 async function createFormData(uri: string, fieldName: string = "file"): Promise<FormData> {
   const filename = uri.split("/").pop() || "photo.jpg";
-  const match = /\.(\w+)$/.exec(filename);
-  const ext = match ? match[1] : "jpg";
+  const mimeType = getMimeType(uri);
+
+  const blob = await uriToBlob(uri, mimeType);
 
   const form = new FormData();
-  form.append(fieldName, {
-    uri: Platform.OS === "ios" ? uri.replace("file://", "") : uri,
-    name: filename,
-    type: `image/${ext === "png" ? "png" : "jpeg"}`,
-  } as any);
+  form.append(fieldName, blob, filename);
 
   return form;
 }

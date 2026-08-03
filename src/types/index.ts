@@ -234,9 +234,11 @@ export interface StoryItem {
   avatarUrl: string | null;
   mediaUrl: string;
   mediaType: "image" | "video";
+  caption: string | null;
   createdAt: Date;
   expiresAt: Date;
   isViewed: boolean;
+  viewsCount?: number;
 }
 
 // ─── Messages ─�───────────────────────────────────────────────────────────────

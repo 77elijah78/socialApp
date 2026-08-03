@@ -29,9 +29,11 @@ function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem 
     avatarUrl: story.user.avatarUrl,
     mediaUrl: story.mediaUrl,
     mediaType: story.mediaType as "image" | "video",
+    caption: story.caption,
     createdAt: new Date(story.createdAt),
     expiresAt: new Date(story.expiresAt),
     isViewed: story.views.some((v) => v.viewerId === currentUserId),
+    viewsCount: story.views.length,
   };
 }
 
