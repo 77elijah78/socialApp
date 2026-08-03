@@ -1,7 +1,8 @@
-import React, { useCallback } from 'react';
-import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import PostCard from '@/components/feed/PostCard';
+import React, { useCallback } from "react";
+import { View, Text, FlatList, RefreshControl, Pressable } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import PostCard from "@/components/feed/PostCard";
 import StoriesBar from '@/components/feed/StoriesBar';
 import { SocialPost } from '@/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +22,9 @@ export default function FeedScreen() {
         post={item}
         onLike={(postId, liked) => {
           if (liked) like(postId); else unlike(postId);
+        }}
+        onComment={(postId) => {
+          router.push(`/posts/${postId}/comments`);
         }}
         onBookmark={(postId, bookmarked) => {
           if (bookmarked) save(postId); else unsave(postId);
