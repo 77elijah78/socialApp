@@ -62,6 +62,12 @@ export default function FeedScreen() {
           <Pressable style={styles.headerIconBtn}>
             <Ionicons name="notifications-outline" size={22} color={theme.COLORS.textPrimary} />
           </Pressable>
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => router.push("/posts/create")}
+          >
+            <Ionicons name="add-circle-outline" size={24} color={theme.COLORS.primary} />
+          </Pressable>
         </View>
       </View>
 
