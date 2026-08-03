@@ -5,6 +5,7 @@ import {
   Image,
   TouchableOpacity,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import theme from '@/constants/theme';
@@ -41,6 +42,7 @@ export default function PostCard({
   const [bookmarked, setBookmarked] = useState(post.isBookmarked ?? false);
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [likeScale] = useState(new Animated.Value(1));
+  const [imageLoading, setImageLoading] = useState(false);
 
   const handleLike = () => {
     const next = !liked;
@@ -134,7 +136,15 @@ export default function PostCard({
               source={{ uri: post.imageUrl }}
               style={styles.postImage}
               resizeMode="cover"
+              onLoadStart={() => setImageLoading(true)}
+              onLoad={() => setImageLoading(false)}
+              onError={() => setImageLoading(false)}
             />
+            {imageLoading && (
+              <View style={styles.imageLoadingOverlay}>
+                <ActivityIndicator size="small" color={theme.COLORS.primary} />
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       ) : null}
@@ -296,6 +306,15 @@ const styles = {
   postImage: {
     width: '100%',
     height: theme.SIZING.postImage,
+  } as const,
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   } as const,
   divider: {
     height: theme.BORDER.width.xs,

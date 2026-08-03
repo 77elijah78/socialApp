@@ -13,6 +13,7 @@
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/splash-icon.png",
         "backgroundColor": "#ffffff"
