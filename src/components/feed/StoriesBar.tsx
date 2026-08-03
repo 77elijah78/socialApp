@@ -159,10 +159,6 @@ export default function StoriesBar() {
     );
   }
 
-  if (stories.length === 0) {
-    return null;
-  }
-
   const me = {
     id: "me",
     userId: "me",
