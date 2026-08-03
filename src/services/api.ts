@@ -146,7 +146,7 @@ export const api = {
   patch: <T>(path: string, body: unknown, token?: string) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, token),
   delete: <T>(path: string, token?: string) => request<T>(path, { method: "DELETE" }, token),
-  upload: (path: string, formData: FormData, token?: string): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
+   upload: (path: string, formData: FormData, token?: string): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
     new Promise((resolve, reject) => {
       const url = `${BASE_URL}${path}`;
       const authToken = token ?? currentToken;
@@ -171,6 +171,46 @@ export const api = {
             resolve(JSON.parse(xhr.responseText));
           } catch {
             reject(new Error("Failed to parse upload response"));
+          }
+        } else if (xhr.status === 401) {
+          if (isRefreshing) {
+            const checkInterval = setInterval(() => {
+              if (!isRefreshing) {
+                clearInterval(checkInterval);
+                const tok = currentToken;
+                if (tok) {
+                  xhr.open("POST", url);
+                  xhr.setRequestHeader("Authorization", `Bearer ${tok}`);
+                  xhr.send(formData);
+                } else {
+                  let errorMsg = "Authentication failed";
+                  try {
+                    const error = JSON.parse(xhr.responseText);
+                    errorMsg = error.message || errorMsg;
+                  } catch {}
+                  clearInterval(checkInterval);
+                  reject(new Error(errorMsg));
+                }
+              }
+            }, 100);
+          } else {
+            isRefreshing = true;
+            refreshAccessToken().then((newToken) => {
+              isRefreshing = false;
+              flushPending(newToken);
+              if (newToken) {
+                xhr.open("POST", url);
+                xhr.setRequestHeader("Authorization", `Bearer ${newToken}`);
+                xhr.send(formData);
+              } else {
+                let errorMsg = "Authentication failed";
+                try {
+                  const error = JSON.parse(xhr.responseText);
+                  errorMsg = error.message || errorMsg;
+                } catch {}
+                reject(new Error(errorMsg));
+              }
+            });
           }
         } else {
           let errorMsg = `Request failed [${xhr.status}]`;
