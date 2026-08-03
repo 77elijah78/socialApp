@@ -9,7 +9,6 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -19,7 +18,8 @@ import theme from "@/constants/theme";
 import {
   pickFromLibrary,
   takePhoto,
-  createFormData,
+  createUploadFormData,
+  getAssetMimeType,
   PickedAsset,
 } from "@/hooks/useImagePicker";
 
@@ -68,7 +68,8 @@ export default function CreatePostScreen() {
 
       if (selectedImages.length > 0) {
         for (const asset of selectedImages) {
-          const form = await createFormData(asset.uri, "images");
+          const mimeType = getAssetMimeType(asset);
+          const form = createUploadFormData(asset.uri, mimeType, "images");
           const resp = await api.upload("/media/upload", form, token);
           imageUrls.push(resp.data.url);
         }
