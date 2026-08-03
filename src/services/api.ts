@@ -6,10 +6,14 @@ async function request<T>(
   token?: string | null,
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(options.headers as Record<string, string> ?? {}),
   };
+
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -28,6 +32,17 @@ async function request<T>(
   return response.json();
 }
 
+export interface MediaUploadResponse {
+  url: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+  category: string;
+  mimeType: string;
+  size: number;
+  filename: string;
+}
+
 export const api = {
   get: <T>(path: string, token?: string) => request<T>(path, { method: "GET" }, token),
   post: <T>(path: string, body: unknown, token?: string) =>
@@ -35,4 +50,12 @@ export const api = {
   patch: <T>(path: string, body: unknown, token?: string) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, token),
   delete: <T>(path: string, token?: string) => request<T>(path, { method: "DELETE" }, token),
+  upload: (path: string, formData: FormData, token?: string) =>
+    request<{ success: boolean; data: MediaUploadResponse; message?: string }>(
+      path,
+      { method: "POST", body: formData },
+      token,
+    ),
 };
+
+export default api;
