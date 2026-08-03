@@ -9,18 +9,23 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import theme from "@/constants/theme";
 import { useAppSelector } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
+import api, { setTokens } from "@/services/api";
 
-function PersistGate({ children }: { children: React.ReactNode }) {
+  function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const unsub = persistor.subscribe(() => {
       if (persistor.getState().bootstrapped) {
+        const state = store.getState();
+        setTokens(state.auth.token, state.auth.refreshToken);
         setReady(true);
         unsub();
       }
     });
     if (persistor.getState().bootstrapped) {
+      const state = store.getState();
+      setTokens(state.auth.token, state.auth.refreshToken);
       setTimeout(() => setReady(true), 0);
     }
     return unsub;
