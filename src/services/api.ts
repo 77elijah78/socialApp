@@ -187,7 +187,8 @@ async function _uploadFile(
     return await _sendXHR(url, form, authToken);
   } catch (err) {
     const msg = (err as Error).message;
-    if (msg.includes("401") && !isRefreshing) {      isRefreshing = true;
+    if (msg.includes("401") && !isRefreshing) {
+      isRefreshing = true;
       const newToken = await refreshAccessToken();
       isRefreshing = false;
       flushPending(newToken);
