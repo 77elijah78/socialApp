@@ -1,6 +1,7 @@
 import { LoginResponse, RegisterResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
 import { setCredentials } from "../store/slices/authSlice";
+import api, { setTokens } from "@/services/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
@@ -49,8 +50,11 @@ export class AuthService {
           avatarUrl: null,
         },
         token: accessToken,
+        refreshToken,
       }),
     );
+
+    setTokens(accessToken, refreshToken);
 
     if (refreshToken) {
       await AsyncStorage.setItem("refreshToken", refreshToken);
@@ -86,8 +90,11 @@ export class AuthService {
           avatarUrl: user.avatarUrl ?? null,
         },
         token: accessToken,
+        refreshToken,
       }),
     );
+
+    setTokens(accessToken, refreshToken);
 
     if (refreshToken) {
       await AsyncStorage.setItem("refreshToken", refreshToken);
@@ -106,6 +113,7 @@ export class AuthService {
       }).catch(() => {});
       await AsyncStorage.removeItem("refreshToken");
     }
+    setTokens(null, null);
   }
 }
 

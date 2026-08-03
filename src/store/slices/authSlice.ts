@@ -11,6 +11,7 @@ interface User {
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   hasCompletedOnboarding: boolean;
 }
@@ -18,6 +19,7 @@ interface AuthState {
 const initialState: AuthState = {
   user: null,
   token: null,
+  refreshToken: null,
   isAuthenticated: false,
   hasCompletedOnboarding: false,
 };
@@ -26,14 +28,23 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    setCredentials(state, action: PayloadAction<{ user: User; token: string }>) {
+    setCredentials(
+      state,
+      action: PayloadAction<{ user: User; token: string; refreshToken?: string }>
+    ) {
       state.user = action.payload.user;
       state.token = action.payload.token;
+      state.refreshToken = action.payload.refreshToken ?? state.refreshToken;
       state.isAuthenticated = true;
+    },
+    setTokens(state, action: PayloadAction<{ token: string; refreshToken: string }>) {
+      state.token = action.payload.token;
+      state.refreshToken = action.payload.refreshToken;
     },
     logout(state) {
       state.user = null;
       state.token = null;
+      state.refreshToken = null;
       state.isAuthenticated = false;
     },
     completeOnboarding(state) {
@@ -47,5 +58,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { setCredentials, logout, completeOnboarding, updateUser } = authSlice.actions;
+export const { setCredentials, setTokens, logout, completeOnboarding, updateUser } = authSlice.actions;
 export default authSlice.reducer;
