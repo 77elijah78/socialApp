@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
 import { StoryItem } from "@/types";
 import { useStories } from "@/hooks/useStories";
+import CreateStoryModal from "@/components/stories/CreateStoryModal";
 
 function StoryRing({
   isViewed,
@@ -62,8 +63,8 @@ function StoryRing({
             borderRadius: (size - 8) / 2,
             backgroundColor: theme.COLORS.white,
           }}
-        />
-      </View>
+       />
+       </View>
     );
   }
 
@@ -94,7 +95,13 @@ function StoryRing({
   );
 }
 
-function StoryItemRow({ item }: { item: StoryItem }) {
+function StoryItemRow({
+  item,
+  onStoryPress,
+}: {
+  item: StoryItem;
+  onStoryPress?: (item: StoryItem) => void;
+}) {
   const storySize = theme.SIZING.storyItem;
   const isMe = item.userId === "me";
 
@@ -105,6 +112,7 @@ function StoryItemRow({ item }: { item: StoryItem }) {
         width: theme.SIZING.storyItem + 20,
       }}
       activeOpacity={theme.OPACITY.semiTransparent}
+      onPress={() => onStoryPress?.(item)}
     >
       <StoryRing
         isViewed={item.isViewed}
@@ -129,7 +137,8 @@ function StoryItemRow({ item }: { item: StoryItem }) {
 }
 
 export default function StoriesBar() {
-  const { stories, loading } = useStories();
+  const { stories, loading, refetch } = useStories();
+  const [showCreateStory, setShowCreateStory] = useState(false);
 
   if (loading) {
     return (
@@ -167,25 +176,37 @@ export default function StoriesBar() {
   const allStories = [me, ...stories.filter((s) => s.userId !== me.userId)];
 
   return (
-    <View
-      style={{
-        backgroundColor: theme.COLORS.bgWhite,
-        paddingVertical: theme.SPACING.lg,
-        paddingHorizontal: theme.SPACING.lg,
-        marginBottom: theme.SPACING.sm,
-      }}
-    >
-      <FlatList
+    <>
+      <View
+        style={{
+          backgroundColor: theme.COLORS.bgWhite,
+          paddingVertical: theme.SPACING.lg,
+          paddingHorizontal: theme.SPACING.lg,
+          marginBottom: theme.SPACING.sm,
+        }}
+      >
+        <FlatList
         data={allStories}
         horizontal
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <StoryItemRow item={item} />}
-        contentContainerStyle={{
-          gap: 0,
-          alignItems: "center",
-        }}
+         renderItem={({ item }) => (
+           <StoryItemRow
+             item={item}
+             onStoryPress={(story) => {
+               if (story.userId === "me") {
+                 setShowCreateStory(true);
+               }
+             }}
+           />
+         )}
+       />
+      </View>
+      <CreateStoryModal
+        visible={showCreateStory}
+        onClose={() => setShowCreateStory(false)}
+        onStoryCreated={refetch}
       />
-    </View>
+    </>
   );
 }
