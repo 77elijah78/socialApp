@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { api } from "@/services/api";
+import { api, getAccessToken } from "@/services/api";
 import { StoryItem } from "@/types";
 import theme from "@/constants/theme";
 
@@ -98,8 +98,34 @@ export default function StoryViewer({
   useEffect(() => {
     if (!story || story.id === "me") return;
 
-    markViewed(story.id);
-    onStoryViewed?.(story.id, true);
+    let cancelled = false;
+
+    const doMarkViewed = async () => {
+      try {
+        const token = getAccessToken();
+        if (!token) {
+          console.warn("No token available, skipping mark viewed");
+          return;
+        }
+        await api.post<{ success: boolean; data?: { viewed: boolean } }>(
+          `/posts/stories/${story.id}/view`,
+          {},
+          token,
+        );
+        if (!cancelled) {
+          onStoryViewed?.(story.id, true);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("Failed to mark story as viewed:", err?.message ?? err);
+      }
+    };
+
+    doMarkViewed();
+
+    return () => {
+      cancelled = true;
+    };
   }, [story, activeIndex]);
 
   // Progress timer
@@ -147,21 +173,6 @@ export default function StoryViewer({
       onClose?.();
     }
   }
-
-  const markViewed = useCallback(
-    async (storyId: string) => {
-      if (storyId === "me") return;
-      try {
-        await api.post<{ success: boolean }>(
-          `/posts/stories/${storyId}/view`,
-          {},
-        );
-      } catch (err) {
-        console.error("Failed to mark story as viewed:", err);
-      }
-    },
-    [],
-  );
 
   if (!story) {
     return null;

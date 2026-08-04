@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 const BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.4:3000"}/api/v1`;
 
 let currentToken: string | null = null;
@@ -44,6 +46,17 @@ function flushPending(token: string | null) {
 
 async function refreshAccessToken(): Promise<string | null> {
   if (!currentRefreshToken) {
+    try {
+      const stored = await AsyncStorage.getItem("refreshToken");
+      if (stored) {
+        currentRefreshToken = stored;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!currentRefreshToken) {
+    console.warn("[api.ts] refreshAccessToken: no refresh token available");
     return null;
   }
   try {
@@ -52,7 +65,11 @@ async function refreshAccessToken(): Promise<string | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: currentRefreshToken }),
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const errBody = await resp.json().catch(() => ({}));
+      console.warn("[api.ts] refreshAccessToken: refresh failed", resp.status, errBody.message);
+      return null;
+    }
     const data = await resp.json();
     const newToken = data.data?.accessToken ?? data.accessToken;
     if (newToken) {
@@ -60,11 +77,19 @@ async function refreshAccessToken(): Promise<string | null> {
       if (data.data?.refreshToken) {
         currentRefreshToken = data.data.refreshToken;
       }
-      onTokenRefresh?.(newToken, data.data?.refreshToken);
+      if (onTokenRefresh) {
+        try {
+          onTokenRefresh(newToken, data.data?.refreshToken);
+        } catch (cbErr) {
+          console.warn("[api.ts] onTokenRefresh callback threw:", cbErr);
+        }
+      }
       return newToken;
     }
+    console.warn("[api.ts] refreshAccessToken: no accessToken in response");
     return null;
-  } catch {
+  } catch (err) {
+    console.warn("[api.ts] refreshAccessToken: network error", err);
     return null;
   }
 }
@@ -96,7 +121,22 @@ async function request<T>(
     headers,
   });
 
+  // Handle 429 rate limiting with retry
+  if (response.status === 429) {
+    console.log("[api.ts] 429 rate limited for", path, "- retrying after 1s");
+    const retryAfter = response.headers.get("Retry-After");
+    const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 3000)));
+    const retry = await fetch(url, { ...options, headers });
+    if (!retry.ok) {
+      const error = await retry.json().catch(() => ({}));
+      throw new Error(error.message || `Request failed [${retry.status}]`);
+    }
+    return retry.json();
+  }
+
   if (response.status === 401) {
+    console.log("[api.ts] 401 received for", path, "- attempting refresh (isRefreshing:", isRefreshing, ")");
     if (isRefreshing) {
       const newToken = await new Promise<string | null>((resolve) => {
         queuePending(resolve);
@@ -117,24 +157,30 @@ async function request<T>(
     }
 
     isRefreshing = true;
-    const newToken = await refreshAccessToken();
-    isRefreshing = false;
-    flushPending(newToken);
+    try {
+      const newToken = await refreshAccessToken();
+      isRefreshing = false;
+      flushPending(newToken);
 
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`;
-      const retry = await fetch(url, {
-        ...options,
-        headers,
-      });
-      if (!retry.ok) {
-        const error = await retry.json().catch(() => ({}));
-        throw new Error(error.message || `Request failed [${retry.status}]`);
+      if (newToken) {
+        headers.Authorization = `Bearer ${newToken}`;
+        const retry = await fetch(url, {
+          ...options,
+          headers,
+        });
+        if (!retry.ok) {
+          const error = await retry.json().catch(() => ({}));
+          throw new Error(error.message || `Request failed [${retry.status}]`);
+        }
+        return retry.json();
       }
-      return retry.json();
-    }
 
-    throw new Error("Authentication failed");
+      throw new Error("Authentication failed");
+    } catch (err) {
+      isRefreshing = false;
+      flushPending(null);
+      throw err;
+    }
   }
 
   if (!response.ok) {

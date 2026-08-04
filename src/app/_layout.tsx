@@ -13,24 +13,50 @@ import { useAppSelector } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
 import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    const initTokens = async () => {
+      const state = store.getState();
+      let refreshToken = state.auth.refreshToken;
+
+      if (!refreshToken) {
+        try {
+          const stored = await AsyncStorage.getItem("refreshToken");
+          if (stored) {
+            refreshToken = stored;
+            store.dispatch(
+              setReduxTokens({
+                token: state.auth.token ?? "",
+                refreshToken: stored,
+              }),
+            );
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setApiTokens(state.auth.token, refreshToken);
+      setReady(true);
+    };
+
     const unsub = persistor.subscribe(() => {
       if (persistor.getState().bootstrapped) {
-        const state = store.getState();
-        setApiTokens(state.auth.token, state.auth.refreshToken);
-        setReady(true);
+        initTokens();
         unsub();
       }
     });
+
     if (persistor.getState().bootstrapped) {
-      const state = store.getState();
-      setApiTokens(state.auth.token, state.auth.refreshToken);
-      setTimeout(() => setReady(true), 0);
+      initTokens();
+    } else {
+      setTimeout(() => setReady(true), 2000);
     }
+
     return unsub;
   }, []);
 
@@ -67,14 +93,18 @@ export default function RootLayout() {
     runMigrations();
 
     setTokenRefreshCallback((token, refreshToken) => {
-      const state = store.getState().auth;
-      store.dispatch(
-        setReduxTokens({
-          token: token,
-          refreshToken: refreshToken ?? state.refreshToken ?? "",
-        }),
-      );
-      setApiTokens(token, refreshToken ?? null);
+      try {
+        const state = store.getState().auth;
+        store.dispatch(
+          setReduxTokens({
+            token: token,
+            refreshToken: refreshToken ?? state.refreshToken ?? "",
+          }),
+        );
+        setApiTokens(token, refreshToken ?? null);
+      } catch (err: any) {
+        console.warn("[layout] onTokenRefresh callback error:", err?.message ?? err);
+      }
     });
   }, []);
 
