@@ -42,6 +42,7 @@ export function useStories() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
 
   const [stories, setStories] = useState<StoryItem[]>([]);
+  const [groupedStories, setGroupedStories] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -60,6 +61,24 @@ export function useStories() {
       const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
 
       setStories(mapped);
+
+      // Group by user — keep latest story per user (for ring display)
+      const latestByUser = new Map<string, StoryItem>();
+      for (const s of mapped) {
+        const existing = latestByUser.get(s.userId);
+        if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
+          latestByUser.set(s.userId, s);
+        }
+      }
+
+      // Sort: "me" first, then by createdAt desc
+      const grouped = Array.from(latestByUser.values()).sort((a, b) => {
+        if (a.userId === "me") return -1;
+        if (b.userId === "me") return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      setGroupedStories(grouped);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -86,6 +105,23 @@ export function useStories() {
         if (!cancelled) {
           const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
           setStories(mapped);
+
+          // Group by user — keep latest story per user
+          const latestByUser = new Map<string, StoryItem>();
+          for (const s of mapped) {
+            const existing = latestByUser.get(s.userId);
+            if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
+              latestByUser.set(s.userId, s);
+            }
+          }
+
+          const grouped = Array.from(latestByUser.values()).sort((a, b) => {
+            if (a.userId === "me") return -1;
+            if (b.userId === "me") return 1;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          });
+
+          setGroupedStories(grouped);
           setError(null);
         }
       } catch (err) {
@@ -106,5 +142,34 @@ export function useStories() {
     };
   }, [token, currentUserId]);
 
-  return { stories, loading, error, refetch: fetchStories };
+  // Update a story's viewed status (for "me" user's own stories)
+  const updateStoryViewed = useCallback((storyId: string, isViewed: boolean) => {
+    setStories((prev) =>
+      prev.map((s) => (s.id === storyId ? { ...s, isViewed } : s))
+    );
+    setGroupedStories((prev) =>
+      prev.map((s) => {
+        if (s.userId === stories.find((st) => st.id === storyId)?.userId) {
+          return { ...s, isViewed };
+        }
+        return s;
+      })
+    );
+  }, [stories]);
+
+  // Count stories per user (for badge display)
+  const storyCounts: Record<string, number> = {};
+  for (const s of stories) {
+    storyCounts[s.userId] = (storyCounts[s.userId] ?? 0) + 1;
+  }
+
+  return {
+    stories,
+    groupedStories,
+    storyCounts,
+    loading,
+    error,
+    refetch: fetchStories,
+    updateStoryViewed,
+  };
 }

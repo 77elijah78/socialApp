@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Image,
@@ -23,6 +23,8 @@ interface StoryViewerProps {
   onClose: () => void;
   stories: StoryItem[];
   initialIndex?: number;
+  allStories?: StoryItem[];
+  onStoryViewed?: (storyId: string, isViewed: boolean) => void;
 }
 
 function StoryProgress({ progress }: { progress: number }) {
@@ -49,35 +51,35 @@ function StoryMedia({ story, onLoaded }: StoryMediaProps) {
   };
 
   return (
-          <View style={styles.mediaContainer}>
-            {story.mediaUrl ? (
-              story.mediaType === "video" ? (
-                <View style={styles.videoPlaceholder}>
-                  <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
-                  <Image
-                    source={{ uri: story.mediaUrl }}
-                    style={styles.videoThumbnail}
-                    resizeMode="cover"
-                    onLoad={handleLoaded}
-                  />
-                </View>
-              ) : (
-                <Image
-                  source={{ uri: story.mediaUrl }}
-                  style={styles.media}
-                  resizeMode="contain"
-                  onLoad={handleLoaded}
-                />
-              )
-            ) : (
-              <View style={styles.media} />
-            )}
+    <View style={styles.mediaContainer}>
+      {story.mediaUrl ? (
+        story.mediaType === "video" ? (
+          <View style={styles.videoPlaceholder}>
+            <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
+            <Image
+              source={{ uri: story.mediaUrl }}
+              style={styles.videoThumbnail}
+              resizeMode="cover"
+              onLoad={handleLoaded}
+            />
+          </View>
+        ) : (
+          <Image
+            source={{ uri: story.mediaUrl }}
+            style={styles.media}
+            resizeMode="contain"
+            onLoad={handleLoaded}
+          />
+        )
+      ) : (
+        <View style={styles.media} />
+      )}
 
-            {!loaded && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={theme.COLORS.white} />
-              </View>
-            )}
+      {!loaded && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={theme.COLORS.white} />
+        </View>
+      )}
 
       {story.caption ? (
         <View style={styles.captionContainer}>
@@ -93,21 +95,40 @@ export default function StoryViewer({
   onClose,
   stories,
   initialIndex = 0,
+  allStories,
+  onStoryViewed,
 }: StoryViewerProps) {
   const token = useAppSelector((s) => s.auth.token);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const story = stories[activeIndex];
+  const storyList = stories.length > 0 ? stories : (allStories ?? []);
+  const story = storyList[activeIndex];
 
+  // Reset index when viewer opens
   useEffect(() => {
-    if (!visible) {
+    if (visible) {
+      setProgress(0);
+    }
+  }, [visible]);
+
+  // Auto-mark story as viewed immediately when it becomes active
+  useEffect(() => {
+    if (!story || !visible || story.id === "me") return;
+
+    // Mark as viewed immediately (not on timer)
+    markViewed(story.id);
+    onStoryViewed?.(story.id, true);
+  }, [story, visible, activeIndex]);
+
+  // Progress timer
+  useEffect(() => {
+    if (!visible || !story || story.id === "me") {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setProgress(0);
     timerRef.current = setInterval(() => {
       setProgress((prev) => {
@@ -123,10 +144,11 @@ export default function StoryViewer({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeIndex, visible]);
+  }, [activeIndex, visible, story]);
 
   function goToNext() {
-    if (activeIndex < stories.length - 1) {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (activeIndex < storyList.length - 1) {
       setActiveIndex((prev) => prev + 1);
     } else {
       onClose();
@@ -134,29 +156,29 @@ export default function StoryViewer({
   }
 
   function goToPrev() {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (activeIndex > 0) {
       setActiveIndex((prev) => prev - 1);
+    } else {
+      onClose();
     }
   }
 
-  const markViewed = async (storyId: string) => {
-    if (!token || storyId === "me") return;
-    try {
-      await api.post<{ success: boolean }>(
-        `/posts/stories/${storyId}/view`,
-        {},
-        token,
-      );
-    } catch (err) {
-      console.error("Failed to mark story as viewed:", err);
-    }
-  };
-
-  useEffect(() => {
-    if (story && visible) {
-      markViewed(story.id);
-    }
-  }, [story, visible]);
+  const markViewed = useCallback(
+    async (storyId: string) => {
+      if (!token || storyId === "me") return;
+      try {
+        await api.post<{ success: boolean }>(
+          `/posts/stories/${storyId}/view`,
+          {},
+          token,
+        );
+      } catch (err) {
+        console.error("Failed to mark story as viewed:", err);
+      }
+    },
+    [token],
+  );
 
   if (!story) {
     return null;
