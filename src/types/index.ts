@@ -300,6 +300,7 @@ export interface RegisterResponse {
       username: string;
       email: string;
       displayName: string | null;
+      avatarUrl: string | null;
       createdAt: Date;
     };
     accessToken: string;

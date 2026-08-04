@@ -47,7 +47,7 @@ export class AuthService {
           username: user.username,
           email: user.email,
           displayName: user.displayName ?? null,
-          avatarUrl: null,
+          avatarUrl: user.avatarUrl ?? null,
         },
         token: accessToken,
         refreshToken,
