@@ -21,7 +21,8 @@ interface CommentItemProps {
 }
 
 function CommentItem({ comment, isOwn }: CommentItemProps) {
-  const authorName = comment.author?.username ?? comment.author?.displayName ?? "Unknown";
+  const authorName =
+    comment.author?.username ?? comment.author?.displayName ?? "Unknown";
   const createdAt = new Date(comment.createdAt);
 
   return (
@@ -44,19 +45,38 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
           justifyContent: "center",
         }}
       >
-        <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.sm, fontWeight: "600" }}>
+        <Text
+          style={{ fontSize: theme.TYPOGRAPHY.fontSize.sm, fontWeight: "600" }}
+        >
           {authorName?.[0]?.toUpperCase() ?? "?"}
         </Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontWeight: "600", fontSize: theme.TYPOGRAPHY.fontSize.sm }}>
+        <Text
+          style={{ fontWeight: "600", fontSize: theme.TYPOGRAPHY.fontSize.sm }}
+        >
           {authorName}
         </Text>
-        <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.lg, color: theme.COLORS.textPrimary, marginTop: 2 }}>
+        <Text
+          style={{
+            fontSize: theme.TYPOGRAPHY.fontSize.lg,
+            color: theme.COLORS.textPrimary,
+            marginTop: 2,
+          }}
+        >
           {comment.content}
         </Text>
-        <Text style={{ fontSize: theme.TYPOGRAPHY.fontSize.xs, color: theme.COLORS.textMuted, marginTop: 2 }}>
-          {createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        <Text
+          style={{
+            fontSize: theme.TYPOGRAPHY.fontSize.xs,
+            color: theme.COLORS.textMuted,
+            marginTop: 2,
+          }}
+        >
+          {createdAt.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
         </Text>
       </View>
     </View>
@@ -119,11 +139,7 @@ export default function CommentsScreen() {
       const resp = await api.post<{
         success: boolean;
         data: Comment;
-      }>(
-        `/posts/${postId}/comments`,
-        { content: input.trim() },
-        token,
-      );
+      }>(`/posts/${postId}/comments`, { content: input.trim() }, token);
 
       setComments((prev) => [...prev, resp.data]);
       setInput("");
@@ -141,18 +157,21 @@ export default function CommentsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backBtn}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.COLORS.textPrimary} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons
+            name="arrow-back"
+            size={24}
+            color={theme.COLORS.textPrimary}
+          />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Comments</Text>
         <View style={{ width: 40 }} />
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
           <ActivityIndicator size="large" color={theme.COLORS.primary} />
         </View>
       ) : (
@@ -244,4 +263,3 @@ const styles = StyleSheet.create({
     backgroundColor: theme.COLORS.textMutedGray,
   },
 });
-
