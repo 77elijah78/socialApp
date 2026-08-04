@@ -104,12 +104,10 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
       );
 
       const mapped = data.data.map(mapPostResponse);
-      const existingIds = new Set(postsRef.current.map((p) => p.id));
-      const newPosts = mapped.filter((p) => !existingIds.has(p.id));
-
-      if (newPosts.length > 0) {
-        setPosts((prev) => [...newPosts, ...prev]);
-      }
+      setPosts(mapped);
+      setPage(1);
+      setHasMore(data.page * data.pageSize < data.total);
+      postsRef.current = mapped;
     } catch (err) {
       console.error("Refresh failed:", err);
     } finally {

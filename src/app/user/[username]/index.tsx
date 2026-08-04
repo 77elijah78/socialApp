@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { api } from '@/services/api';
 import { useAppSelector } from '@/store/hooks';
 import theme from '@/constants/theme';
-import { PostResponse, SocialPost } from '@/types';
+import { PostResponse, SocialPost, Conversation } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = theme.SPACING.sm;
@@ -68,8 +68,9 @@ export default function UserProfileScreen() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'posts' | 'likes'>('posts');
+  const [messaging, setMessaging] = useState(false);
 
   useEffect(() => {
     if (!username) return;
@@ -136,6 +137,33 @@ export default function UserProfileScreen() {
       /* ignore */
     }
   };
+
+  const handleMessagePress = useCallback(async () => {
+    if (!token || !profile || messaging) return;
+    setMessaging(true);
+    try {
+      const resp = await api.post<{ success: boolean; data: Conversation }>(
+        '/messages/conversations',
+        { userId: profile.id },
+        token,
+      );
+      const conv = resp.data;
+      router.push({
+        pathname: '/(chatRoom)/privateRoom',
+        params: {
+          conversationId: conv.id,
+          roomId: conv.id,
+          receiverName: profile.displayName ?? profile.username,
+          receiverAvatar: profile.avatarUrl ?? '',
+          receiverId: profile.id,
+        },
+      });
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to start conversation');
+    } finally {
+      setMessaging(false);
+    }
+  }, [token, profile, messaging]);
 
   const renderGridItem = ({ item }: { item: SocialPost }) => {
     const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';
@@ -248,22 +276,42 @@ export default function UserProfileScreen() {
               <Text style={styles.primaryButtonText}>Edit Profile</Text>
             </Pressable>
           ) : (
-            <Pressable
-              style={[
-                styles.primaryButton,
-                profile.isFollowing && styles.secondaryButton,
-              ]}
-              onPress={handleFollow}
-            >
-              <Text
-                style={[
-                  styles.primaryButtonText,
-                  profile.isFollowing && styles.secondaryButtonText,
-                ]}
-              >
-                {profile.isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            </Pressable>
+            <>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    styles.followButton,
+                    profile.isFollowing && styles.secondaryButton,
+                  ]}
+                  onPress={handleFollow}
+                >
+                  <Text
+                    style={[
+                      styles.primaryButtonText,
+                      styles.followButtonText,
+                      profile.isFollowing && styles.secondaryButtonText,
+                    ]}
+                  >
+                    {profile.isFollowing ? 'Following' : 'Follow'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.primaryButton, styles.messageButton]}
+                  onPress={handleMessagePress}
+                  disabled={messaging}
+                >
+                  {messaging ? (
+                    <ActivityIndicator size="small" color={theme.COLORS.white} />
+                  ) : (
+                    <Ionicons name="mail-outline" size={20} color={theme.COLORS.textOnPrimary} />
+                  )}
+                  <Text style={[styles.primaryButtonText, styles.messageButtonText]}>
+                    Message
+                  </Text>
+                </Pressable>
+              </View>
+            </>
           )}
         </View>
 
@@ -473,6 +521,27 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: theme.COLORS.textPrimary,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: theme.SPACING.md,
+    width: '100%',
+  },
+  followButton: {
+    flex: 1,
+  },
+  followButtonText: {
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  messageButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.SPACING.xs,
+  },
+  messageButtonText: {
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   tabBar: {
     flexDirection: 'row',

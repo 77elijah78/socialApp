@@ -76,10 +76,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
     if (!token) return;
     setLoading(true);
     try {
-      const resp = await api.get<{
+       const resp = await api.get<{
         success: boolean;
-        data: { comments: Comment[]; post: PostOneResponse };
-      }>(`/posts/${pid}/comments?page=1&limit=50`, token);
+        data: PostOneResponse;
+      }>(`/posts/${pid}`, token);
       setComments(resp.data.comments ?? []);
     } catch (err) {
       console.error("Failed to load comments:", err);

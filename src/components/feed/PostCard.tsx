@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -43,6 +43,12 @@ export default function PostCard({
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [likeScale] = useState(new Animated.Value(1));
   const [imageLoading, setImageLoading] = useState(false);
+
+  useEffect(() => {
+    setLiked(post.isLiked ?? false);
+    setLikeCount(post.likeCount);
+    setBookmarked(post.isBookmarked ?? false);
+  }, [post.id, post.isLiked, post.likeCount, post.isBookmarked]);
 
   const handleLike = () => {
     const next = !liked;
