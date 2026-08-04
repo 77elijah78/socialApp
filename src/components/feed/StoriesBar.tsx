@@ -140,22 +140,19 @@ export default function StoriesBar() {
   }, [token, uploading, refetch]);
 
   const handleStoryPress = (story: StoryItem) => {
-    if (story.userId === "me") {
-      if (storyCounts["me"] > 0) {
-        // Open viewer at the user's stories
-        const meIndex = groupedStories.findIndex((s) => s.userId === "me" || s.userId === currentUserId);
-        if (meIndex >= 0) {
-          setViewerInitialIndex(meIndex);
+    if (story.id === "me") {
+      if (meStoryCount > 0) {
+        const meStory = stories.find((s) => s.userId === currentUserId);
+        if (meStory) {
+          setViewerInitialIndex(stories.indexOf(meStory));
           setViewerVisible(true);
-        } else {
-          handleCreateStory();
         }
       } else {
         handleCreateStory();
       }
     } else {
-      const realIndex = groupedStories.findIndex((s) => s.id === story.id);
-      setViewerInitialIndex(Math.max(realIndex, 0));
+      const storyIndex = stories.indexOf(story);
+      setViewerInitialIndex(storyIndex >= 0 ? storyIndex : 0);
       setViewerVisible(true);
     }
   };
@@ -232,7 +229,6 @@ export default function StoriesBar() {
         visible={viewerVisible}
         onClose={() => setViewerVisible(false)}
         stories={stories}
-        allStories={stories}
         initialIndex={viewerInitialIndex}
         onStoryViewed={updateStoryViewed}
       />

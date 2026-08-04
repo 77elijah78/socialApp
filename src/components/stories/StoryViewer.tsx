@@ -23,7 +23,6 @@ interface StoryViewerProps {
   onClose: () => void;
   stories: StoryItem[];
   initialIndex?: number;
-  allStories?: StoryItem[];
   onStoryViewed?: (storyId: string, isViewed: boolean) => void;
 }
 
@@ -95,7 +94,6 @@ export default function StoryViewer({
   onClose,
   stories,
   initialIndex = 0,
-  allStories,
   onStoryViewed,
 }: StoryViewerProps) {
   const token = useAppSelector((s) => s.auth.token);
@@ -103,7 +101,7 @@ export default function StoryViewer({
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const storyList = stories.length > 0 ? stories : (allStories ?? []);
+  const storyList = stories;
   const story = storyList[activeIndex];
 
   // Reset index when viewer opens

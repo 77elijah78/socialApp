@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
@@ -20,6 +20,8 @@ interface BackendStory {
   views: { viewerId: string }[];
 }
 
+const STORIES_ENDPOINT = "/posts/stories" as const;
+
 function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem {
   return {
     id: story.id,
@@ -37,131 +39,98 @@ function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem 
   };
 }
 
+function computeGrouped(stories: StoryItem[]): StoryItem[] {
+  const latestByUser = new Map<string, StoryItem>();
+  for (const s of stories) {
+    const existing = latestByUser.get(s.userId);
+    if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
+      latestByUser.set(s.userId, s);
+    }
+  }
+
+  return Array.from(latestByUser.values()).sort((a, b) => {
+    if (a.userId === "me") return -1;
+    if (b.userId === "me") return 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
 export function useStories() {
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
 
   const [stories, setStories] = useState<StoryItem[]>([]);
-  const [groupedStories, setGroupedStories] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchStories = useCallback(async () => {
+  useEffect(() => {
     if (!token) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    try {
-      const response = await api.get<{
-        success: boolean;
-        data: BackendStory[];
-      }>("/posts/stories", token);
 
-      const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
-
-      setStories(mapped);
-
-      // Group by user — keep latest story per user (for ring display)
-      const latestByUser = new Map<string, StoryItem>();
-      for (const s of mapped) {
-        const existing = latestByUser.get(s.userId);
-        if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
-          latestByUser.set(s.userId, s);
-        }
-      }
-
-      // Sort: "me" first, then by createdAt desc
-      const grouped = Array.from(latestByUser.values()).sort((a, b) => {
-        if (a.userId === "me") return -1;
-        if (b.userId === "me") return 1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-
-      setGroupedStories(grouped);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setLoading(false);
-    }
-  }, [token, currentUserId]);
-
-  useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      if (!token) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-      if (!cancelled) setLoading(true);
-      try {
-        const response = await api.get<{
-          success: boolean;
-          data: BackendStory[];
-        }>("/posts/stories", token);
-
+    api
+      .get<{ success: boolean; data: BackendStory[] }>(STORIES_ENDPOINT, token)
+      .then((response) => {
         if (!cancelled) {
           const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
           setStories(mapped);
-
-          // Group by user — keep latest story per user
-          const latestByUser = new Map<string, StoryItem>();
-          for (const s of mapped) {
-            const existing = latestByUser.get(s.userId);
-            if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
-              latestByUser.set(s.userId, s);
-            }
-          }
-
-          const grouped = Array.from(latestByUser.values()).sort((a, b) => {
-            if (a.userId === "me") return -1;
-            if (b.userId === "me") return 1;
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          });
-
-          setGroupedStories(grouped);
           setError(null);
         }
-      } catch (err) {
+      })
+      .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error(String(err)));
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    load();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token, currentUserId]);
 
-  // Update a story's viewed status (for "me" user's own stories)
-  const updateStoryViewed = useCallback((storyId: string, isViewed: boolean) => {
-    setStories((prev) =>
-      prev.map((s) => (s.id === storyId ? { ...s, isViewed } : s))
-    );
-    setGroupedStories((prev) =>
-      prev.map((s) => {
-        if (s.userId === stories.find((st) => st.id === storyId)?.userId) {
-          return { ...s, isViewed };
-        }
-        return s;
-      })
-    );
+  // Derived: one ring per user (latest story), sorted with "me" first
+  const groupedStories = useMemo(() => computeGrouped(stories), [stories]);
+
+  // Derived: story count per user (for badge display)
+  const storyCounts: Record<string, number> = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of stories) {
+      counts[s.userId] = (counts[s.userId] ?? 0) + 1;
+    }
+    return counts;
   }, [stories]);
 
-  // Count stories per user (for badge display)
-  const storyCounts: Record<string, number> = {};
-  for (const s of stories) {
-    storyCounts[s.userId] = (storyCounts[s.userId] ?? 0) + 1;
-  }
+  // When any story from a user is viewed, mark ALL that user's stories as viewed
+  const updateStoryViewed = useCallback((storyId: string, isViewed: boolean) => {
+    setStories((prev) => {
+      const target = prev.find((s) => s.id === storyId);
+      if (!target) return prev;
+
+      const userId = target.userId;
+
+      return prev.map((s) =>
+        s.userId === userId ? { ...s, isViewed } : s
+      );
+    });
+  }, []);
+
+  const refetch = useCallback(() => {
+    if (!token) return Promise.resolve();
+    return api
+      .get<{ success: boolean; data: BackendStory[] }>(STORIES_ENDPOINT, token)
+      .then((response) => {
+        const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
+        setStories(mapped);
+        return mapped;
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      });
+  }, [token, currentUserId]);
 
   return {
     stories,
@@ -169,7 +138,7 @@ export function useStories() {
     storyCounts,
     loading,
     error,
-    refetch: fetchStories,
+    refetch,
     updateStoryViewed,
   };
 }
