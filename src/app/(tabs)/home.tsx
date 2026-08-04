@@ -1,9 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import { View, Text, FlatList, RefreshControl, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import PostCard from "@/components/feed/PostCard";
 import StoriesBar from '@/components/feed/StoriesBar';
+import { CommentBottomSheet } from '@/components/posts/CommentBottomSheet';
+import type { CommentBottomSheetRef } from '@/components/posts/CommentBottomSheet';
 import { SocialPost } from '@/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import theme from '@/constants/theme';
@@ -11,6 +13,7 @@ import { usePosts } from '@/hooks/usePosts';
 
 export default function FeedScreen() {
   const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore } = usePosts({ limit: 20 });
+  const commentSheetRef = useRef<CommentBottomSheetRef>(null);
 
   const onRefresh = useCallback(() => {
     refresh();
@@ -24,14 +27,14 @@ export default function FeedScreen() {
           if (liked) like(postId); else unlike(postId);
         }}
         onComment={(postId) => {
-          router.push(`/posts/${postId}/comments`);
+          commentSheetRef.current?.open(postId);
         }}
         onBookmark={(postId, bookmarked) => {
           if (bookmarked) save(postId); else unsave(postId);
         }}
       />
     );
-  }, [like, unlike, save, unsave]);
+  }, [like, unlike, save, unsave, commentSheetRef]);
 
   return (
     <SafeAreaView
@@ -102,6 +105,7 @@ export default function FeedScreen() {
         }
         renderItem={renderItem}
       />
+      <CommentBottomSheet ref={commentSheetRef} />
     </SafeAreaView>
   );
 }

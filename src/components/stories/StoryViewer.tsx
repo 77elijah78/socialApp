@@ -4,7 +4,6 @@ import {
   Image,
   Text,
   TouchableOpacity,
-  Modal,
   StyleSheet,
   Dimensions,
   TouchableWithoutFeedback,
@@ -12,18 +11,13 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/services/api";
-import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
 import theme from "@/constants/theme";
 
 const { width, height } = Dimensions.get("window");
 
-interface StoryViewerProps {
-  visible: boolean;
-  onClose: () => void;
-  stories: StoryItem[];
-  initialIndex?: number;
-  onStoryViewed?: (storyId: string, isViewed: boolean) => void;
+interface StoryMediaProps {
+  story: StoryItem;
 }
 
 function StoryProgress({ progress }: { progress: number }) {
@@ -36,18 +30,10 @@ function StoryProgress({ progress }: { progress: number }) {
   );
 }
 
-interface StoryMediaProps {
-  story: StoryItem;
-  onLoaded: () => void;
-}
-
-function StoryMedia({ story, onLoaded }: StoryMediaProps) {
+function StoryMedia({ story }: StoryMediaProps) {
   const [loaded, setLoaded] = useState(false);
 
-  const handleLoaded = () => {
-    setLoaded(true);
-    onLoaded();
-  };
+  const handleLoaded = () => setLoaded(true);
 
   return (
     <View style={styles.mediaContainer}>
@@ -90,39 +76,35 @@ function StoryMedia({ story, onLoaded }: StoryMediaProps) {
 }
 
 export default function StoryViewer({
-  visible,
-  onClose,
   stories,
   initialIndex = 0,
+  onIndexChange,
   onStoryViewed,
-}: StoryViewerProps) {
-  const token = useAppSelector((s) => s.auth.token);
+  onClose,
+}: {
+  stories: StoryItem[];
+  initialIndex?: number;
+  onIndexChange?: (index: number) => void;
+  onStoryViewed?: (storyId: string, isViewed: boolean) => void;
+  onClose?: () => void;
+}) {
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const storyList = stories;
-  const story = storyList[activeIndex];
-
-  // Reset index when viewer opens
-  useEffect(() => {
-    if (visible) {
-      setProgress(0);
-    }
-  }, [visible]);
+  const story = stories[activeIndex];
 
   // Auto-mark story as viewed immediately when it becomes active
   useEffect(() => {
-    if (!story || !visible || story.id === "me") return;
+    if (!story || story.id === "me") return;
 
-    // Mark as viewed immediately (not on timer)
     markViewed(story.id);
     onStoryViewed?.(story.id, true);
-  }, [story, visible, activeIndex]);
+  }, [story, activeIndex]);
 
   // Progress timer
   useEffect(() => {
-    if (!visible || !story || story.id === "me") {
+    if (!story || story.id === "me") {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
@@ -142,40 +124,43 @@ export default function StoryViewer({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeIndex, visible, story]);
+  }, [activeIndex, story]);
 
   function goToNext() {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (activeIndex < storyList.length - 1) {
-      setActiveIndex((prev) => prev + 1);
+    if (activeIndex < stories.length - 1) {
+      const newIndex = activeIndex + 1;
+      setActiveIndex(newIndex);
+      onIndexChange?.(newIndex);
     } else {
-      onClose();
+      onClose?.();
     }
   }
 
   function goToPrev() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (activeIndex > 0) {
-      setActiveIndex((prev) => prev - 1);
+      const newIndex = activeIndex - 1;
+      setActiveIndex(newIndex);
+      onIndexChange?.(newIndex);
     } else {
-      onClose();
+      onClose?.();
     }
   }
 
   const markViewed = useCallback(
     async (storyId: string) => {
-      if (!token || storyId === "me") return;
+      if (storyId === "me") return;
       try {
         await api.post<{ success: boolean }>(
           `/posts/stories/${storyId}/view`,
           {},
-          token,
         );
       } catch (err) {
         console.error("Failed to mark story as viewed:", err);
       }
     },
-    [token],
+    [],
   );
 
   if (!story) {
@@ -185,85 +170,79 @@ export default function StoryViewer({
   const displayName = story.displayName ?? story.username ?? "Unknown";
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      hardwareAccelerated
-    >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.container}>
-          <View style={styles.progressWrapper}>
-            <StoryProgress progress={progress} />
-          </View>
+    <View style={styles.fullScreen}>
+      <View style={styles.statusBar} />
+      <View style={styles.progressWrapper}>
+        <StoryProgress progress={progress} />
+      </View>
 
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={styles.avatarPlaceholder}>
-                {story.avatarUrl ? (
-                  <Image source={{ uri: story.avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <Text style={styles.avatarText}>
-                    {displayName[0]?.toUpperCase() ?? "?"}
-                  </Text>
-                )}
-              </View>
-              <View>
-                <Text style={styles.username}>{displayName}</Text>
-                <Text style={styles.timestamp}>
-                  {new Date(story.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={28} color={theme.COLORS.white} />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableWithoutFeedback>
-            <StoryMedia story={story} onLoaded={() => {}} />
-          </TouchableWithoutFeedback>
-
-          <View style={styles.footer}>
-            <View style={styles.viewersContainer}>
-              <Text style={styles.viewersText}>
-                {story.isViewed ? "You and " : ""}{story.viewsCount ?? 0} {story.viewsCount === 1 ? "view" : "views"}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <View style={styles.avatarPlaceholder}>
+            {story.avatarUrl ? (
+              <Image source={{ uri: story.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <Text style={styles.avatarText}>
+                {displayName[0]?.toUpperCase() ?? "?"}
               </Text>
-            </View>
+            )}
           </View>
-
-          <TouchableOpacity
-            style={styles.leftHalf}
-            onPress={goToPrev}
-            activeOpacity={1}
-          />
-          <TouchableOpacity
-            style={styles.rightHalf}
-            onPress={goToNext}
-            activeOpacity={1}
-          />
+          <View>
+            <Text style={styles.username}>{displayName}</Text>
+            <Text style={styles.timestamp}>
+              {new Date(story.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </Text>
+          </View>
         </View>
+        <TouchableOpacity onPress={onClose}>
+          <Ionicons name="close" size={28} color={theme.COLORS.white} />
+        </TouchableOpacity>
+      </View>
+
+      <TouchableWithoutFeedback>
+        <StoryMedia story={story} />
       </TouchableWithoutFeedback>
-    </Modal>
+
+      <View style={styles.footer}>
+        <View style={styles.viewersContainer}>
+          <Text style={styles.viewersText}>
+            {story.isViewed ? "You and " : ""}
+            {story.viewsCount ?? 0} {story.viewsCount === 1 ? "view" : "views"}
+          </Text>
+        </View>
+      </View>
+
+      <TouchableOpacity
+        style={styles.leftHalf}
+        onPress={goToPrev}
+        activeOpacity={1}
+      />
+      <TouchableOpacity
+        style={styles.rightHalf}
+        onPress={goToNext}
+        activeOpacity={1}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  fullScreen: {
     flex: 1,
-    backgroundColor: "transparent",
+    backgroundColor: "rgba(0,0,0,0.95)",
+  },
+  statusBar: {
+    height: 40,
   },
   progressWrapper: {
     position: "absolute",
-    top: 0,
+    top: 44,
     left: 0,
     right: 0,
     paddingHorizontal: 2,
-    paddingTop: 4,
     paddingBottom: 8,
     zIndex: 10,
   },
@@ -371,7 +350,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: "absolute",
-    bottom: 0,
+    bottom: 60,
     left: 0,
     right: 0,
     padding: theme.SPACING.md,

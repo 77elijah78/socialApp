@@ -10,10 +10,10 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import theme from "@/constants/theme";
 import { StoryItem } from "@/types";
 import { useStories } from "@/hooks/useStories";
-import StoryViewer from "@/components/stories/StoryViewer";
 import {
   showImageSourceActionSheet,
   pickFromLibrary,
@@ -33,6 +33,7 @@ function StoryRing({
   isMe,
   size,
   avatarUrl,
+  storyMediaUrl,
   hasStory,
   storyCount,
 }: {
@@ -40,24 +41,71 @@ function StoryRing({
   isMe: boolean;
   size: number;
   avatarUrl: string | null;
+  storyMediaUrl?: string;
   hasStory: boolean;
   storyCount?: number;
 }) {
   if (isMe) {
+    const innerSize = hasStory ? size - 8 : size - 4;
+    const innerRadius = innerSize / 2;
     return (
-      <View style={[styles.ring, { width: size, height: size, borderRadius: size / 2 }]}>
-        {hasStory && avatarUrl ? (
+      <View
+        style={[
+          styles.ring,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            borderStyle: "dashed",
+            borderColor: theme.COLORS.borderGray,
+          },
+        ]}
+      >
+        {hasStory && storyMediaUrl ? (
           <>
             <Image
-              source={{ uri: avatarUrl }}
-              style={[styles.avatar, { width: size - 6, height: size - 6, borderRadius: (size - 6) / 2 }]}
+              source={{ uri: storyMediaUrl }}
+              style={[
+                styles.meStoryMedia,
+                { width: size - 4, height: size - 4, borderRadius: (size - 4) / 2 },
+              ]}
+              resizeMode="cover"
             />
-            <View style={[styles.storyCountBadge, { bottom: -2, right: -2 }]}>
-              <Text style={styles.storyCountText}>{storyCount ?? 0}</Text>
+            <View
+              style={[
+                styles.avatarOverlay,
+                { width: innerSize, height: innerSize, borderRadius: innerRadius },
+              ]}
+            >
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={[styles.avatar, { width: innerSize - 4, height: innerSize - 4, borderRadius: (innerSize - 4) / 2 }]}
+                />
+              ) : (
+                <Ionicons name="person" size={28} color={theme.COLORS.textPrimary} />
+              )}
             </View>
+            {storyCount && storyCount > 1 ? (
+              <View style={[styles.storyCountBadge, { bottom: -2, right: -2 }]}>
+                <Text style={styles.storyCountText}>{storyCount}</Text>
+              </View>
+            ) : null}
           </>
         ) : (
-          <Ionicons name="add" size={32} color={theme.COLORS.primary} />
+          <>
+            {avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={[styles.avatar, { width: innerSize, height: innerSize, borderRadius: innerRadius }]}
+              />
+            ) : (
+              <Ionicons name="person" size={32} color={theme.COLORS.primary} />
+            )}
+            <View style={styles.plusBadge}>
+              <Ionicons name="add-circle" size={22} color={theme.COLORS.primary} />
+            </View>
+          </>
         )}
       </View>
     );
@@ -67,7 +115,9 @@ function StoryRing({
 
   if (isViewed) {
     return (
-      <View style={[styles.ringViewed, { width: size, height: size, borderRadius: size / 2, padding: 2 }]}>
+      <View
+        style={[styles.ringViewed, { width: size, height: size, borderRadius: size / 2, padding: 2 }]}
+      >
         <Image
           source={{ uri: avatarUrl ?? "" }}
           style={[styles.avatar, { width: size - 8, height: size - 8, borderRadius: (size - 8) / 2 }]}
@@ -97,8 +147,6 @@ export default function StoriesBar() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentAvatarUrl = useAppSelector((s) => s.auth.user?.avatarUrl);
 
-  const [viewerVisible, setViewerVisible] = useState(false);
-  const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
 
   const handleCreateStory = useCallback(() => {
@@ -144,20 +192,21 @@ export default function StoriesBar() {
       if (meStoryCount > 0) {
         const meStory = stories.find((s) => s.userId === currentUserId);
         if (meStory) {
-          setViewerInitialIndex(stories.indexOf(meStory));
-          setViewerVisible(true);
+          const index = stories.indexOf(meStory);
+          router.push({ pathname: "/stories/viewer", params: { index: String(index) } });
         }
       } else {
         handleCreateStory();
       }
     } else {
       const storyIndex = stories.indexOf(story);
-      setViewerInitialIndex(storyIndex >= 0 ? storyIndex : 0);
-      setViewerVisible(true);
+      router.push({
+        pathname: "/stories/viewer",
+        params: { index: String(storyIndex >= 0 ? storyIndex : 0) },
+      });
     }
   };
 
-  // Build the display list: "me" item + grouped stories
   const meStoryCount = storyCounts[currentUserId ?? "me"] ?? 0;
   const meLatestStory = stories.find((s) => s.userId === currentUserId);
 
@@ -179,60 +228,56 @@ export default function StoriesBar() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { paddingVertical: theme.SPACING.lg, paddingHorizontal: theme.SPACING.lg }]}>
+      <View
+        style={[
+          styles.container,
+          { paddingVertical: theme.SPACING.lg, paddingHorizontal: theme.SPACING.lg },
+        ]}
+      >
         <ActivityIndicator size="small" color={theme.COLORS.primary} />
       </View>
     );
   }
 
   return (
-    <>
-      <View style={styles.container}>
-        <FlatList
-          data={displayItems}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            const isMe = item.userId === currentUserId || item.id === "me";
-            const storyCount = isMe ? meStoryCount : (storyCounts[item.userId] ?? 0);
-            return (
-              <TouchableOpacity
-                style={styles.itemRow}
-                activeOpacity={theme.OPACITY.semiTransparent}
-                onPress={() => handleStoryPress(item)}
-                disabled={isMe && uploading}
-              >
-                <StoryRing
-                  isViewed={isMe ? false : item.isViewed}
-                  isMe={isMe}
-                  size={STORY_SIZE}
-                  avatarUrl={item.avatarUrl}
-                  hasStory={isMe ? meStoryCount > 0 : true}
-                  storyCount={storyCount > 1 ? storyCount : undefined}
-                />
-                <Text style={styles.itemLabel} numberOfLines={1}>
-                  {item.displayName}
-                </Text>
-                {isMe && uploading && (
-                  <View style={styles.uploadingOverlay}>
-                    <ActivityIndicator size="small" color={theme.COLORS.white} />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          }}
-        />
-      </View>
-
-      <StoryViewer
-        visible={viewerVisible}
-        onClose={() => setViewerVisible(false)}
-        stories={stories}
-        initialIndex={viewerInitialIndex}
-        onStoryViewed={updateStoryViewed}
+    <View style={styles.container}>
+      <FlatList
+        data={displayItems}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          const isMe = item.userId === currentUserId || item.id === "me";
+          const storyCount = isMe ? meStoryCount : storyCounts[item.userId] ?? 0;
+          return (
+            <TouchableOpacity
+              style={styles.itemRow}
+              activeOpacity={theme.OPACITY.semiTransparent}
+              onPress={() => handleStoryPress(item)}
+              disabled={isMe && uploading}
+            >
+              <StoryRing
+                isViewed={isMe ? false : item.isViewed}
+                isMe={isMe}
+                size={STORY_SIZE}
+                avatarUrl={item.avatarUrl}
+                storyMediaUrl={isMe ? meLatestStory?.mediaUrl : undefined}
+                hasStory={isMe ? meStoryCount > 0 : true}
+                storyCount={storyCount > 1 ? storyCount : undefined}
+              />
+              <Text style={styles.itemLabel} numberOfLines={1}>
+                {item.displayName}
+              </Text>
+              {isMe && uploading && (
+                <View style={styles.uploadingOverlay}>
+                  <ActivityIndicator size="small" color={theme.COLORS.white} />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        }}
       />
-    </>
+    </View>
   );
 }
 
@@ -257,7 +302,6 @@ const styles = StyleSheet.create({
   },
   ring: {
     borderWidth: theme.BORDER.width.sm,
-    borderColor: theme.COLORS.borderGray,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.bgInput,
@@ -272,6 +316,28 @@ const styles = StyleSheet.create({
   },
   avatar: {
     backgroundColor: theme.COLORS.white,
+  },
+  meStoryMedia: {
+    opacity: 0.6,
+  },
+  avatarOverlay: {
+    position: "absolute",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.COLORS.bgLight,
+  },
+  plusBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.COLORS.primary,
+    borderRadius: theme.BORDER_RADIUS.full,
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
   storyCountBadge: {
     position: "absolute",

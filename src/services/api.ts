@@ -2,12 +2,17 @@ const BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.4:3000"
 
 let currentToken: string | null = null;
 let currentRefreshToken: string | null = null;
+let onTokenRefresh: ((token: string, refreshToken?: string) => void) | null = null;
 
 export function setTokens(token: string | null, refreshToken: string | null) {
   currentToken = token;
   if (refreshToken) {
     currentRefreshToken = refreshToken;
   }
+}
+
+export function setTokenRefreshCallback(cb: typeof onTokenRefresh) {
+  onTokenRefresh = cb;
 }
 
 export function getAccessToken(): string | null {
@@ -55,6 +60,7 @@ async function refreshAccessToken(): Promise<string | null> {
       if (data.data?.refreshToken) {
         currentRefreshToken = data.data.refreshToken;
       }
+      onTokenRefresh?.(newToken, data.data?.refreshToken);
       return newToken;
     }
     return null;
@@ -187,17 +193,29 @@ async function _uploadFile(
     return await _sendXHR(url, form, authToken);
   } catch (err) {
     const msg = (err as Error).message;
-    if (msg.includes("401") && !isRefreshing) {
-      isRefreshing = true;
-      const newToken = await refreshAccessToken();
-      isRefreshing = false;
-      flushPending(newToken);
+    if (msg.includes("401")) {
+      const newToken = await _getRefreshedToken();
       if (newToken) {
         return _sendXHR(url, form, newToken);
       }
     }
     throw err;
   }
+}
+
+async function _getRefreshedToken(): Promise<string | null> {
+  if (isRefreshing) {
+    const newToken = await new Promise<string | null>((resolve) => {
+      queuePending(resolve);
+    });
+    return newToken;
+  }
+
+  isRefreshing = true;
+  const newToken = await refreshAccessToken();
+  isRefreshing = false;
+  flushPending(newToken);
+  return newToken;
 }
 
 function _sendXHR(

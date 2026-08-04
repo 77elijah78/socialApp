@@ -6,10 +6,13 @@ import { Provider } from "react-redux";
 import { store, persistor } from "@/store/index";
 import { ActivityIndicator, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
 import { useAppSelector } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
-import api, { setTokens } from "@/services/api";
+import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
+import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -18,14 +21,14 @@ import api, { setTokens } from "@/services/api";
     const unsub = persistor.subscribe(() => {
       if (persistor.getState().bootstrapped) {
         const state = store.getState();
-        setTokens(state.auth.token, state.auth.refreshToken);
+        setApiTokens(state.auth.token, state.auth.refreshToken);
         setReady(true);
         unsub();
       }
     });
     if (persistor.getState().bootstrapped) {
       const state = store.getState();
-      setTokens(state.auth.token, state.auth.refreshToken);
+      setApiTokens(state.auth.token, state.auth.refreshToken);
       setTimeout(() => setReady(true), 0);
     }
     return unsub;
@@ -62,6 +65,17 @@ function SocketProvider() {
 export default function RootLayout() {
   useEffect(() => {
     runMigrations();
+
+    setTokenRefreshCallback((token, refreshToken) => {
+      const state = store.getState().auth;
+      store.dispatch(
+        setReduxTokens({
+          token: token,
+          refreshToken: refreshToken ?? state.refreshToken ?? "",
+        }),
+      );
+      setApiTokens(token, refreshToken ?? null);
+    });
   }, []);
 
   return (
@@ -69,22 +83,34 @@ export default function RootLayout() {
       <Provider store={store}>
         <PersistGate>
           <PaperProvider>
-            <SocketProvider />
-            <Stack
-              screenOptions={{
-                contentStyle: {
-                  backgroundColor: theme.COLORS.bgLight,
-                  borderColor: theme.COLORS.bgLight,
-                },
-              }}
-            >
-              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="(chatRoom)"
-                options={{ headerShown: false }}
-              />
-            </Stack>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <BottomSheetModalProvider>
+                <SocketProvider />
+                <Stack
+                  screenOptions={{
+                    contentStyle: {
+                      backgroundColor: theme.COLORS.bgLight,
+                      borderColor: theme.COLORS.bgLight,
+                    },
+                  }}
+                >
+                  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="(chatRoom)"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="stories/viewer"
+                    options={{
+                      headerShown: false,
+                      presentation: "modal",
+                      animation: "fade",
+                    }}
+                  />
+                </Stack>
+              </BottomSheetModalProvider>
+            </GestureHandlerRootView>
           </PaperProvider>
         </PersistGate>
       </Provider>
