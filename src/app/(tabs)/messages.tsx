@@ -6,15 +6,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
 import theme from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 export default function Messages() {
   const { rooms, loading, reload } = useRooms();
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
 
   useFocusEffect(
     useCallback(() => {
-      void reload();
-    }, [reload])
+      void reloadRef.current();
+    }, [])
   );
 
   return (

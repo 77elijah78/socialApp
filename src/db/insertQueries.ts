@@ -30,9 +30,9 @@ export class MessageInsertQueries {
       .insert(messages)
       .values(message)
       .onConflictDoUpdate({
-        target: messages.id,
+        target: messages.localId,
         set: {
-          localId: message.localId,
+          id: message.id,
           content: message.content,
           mediaUrl: message.mediaUrl,
           thumbnailUrl: message.thumbnailUrl,
@@ -59,9 +59,9 @@ export class MessageInsertQueries {
       .insert(messages)
       .values(batch)
       .onConflictDoUpdate({
-        target: messages.id,
+        target: messages.localId,
         set: {
-          localId: messages.localId,
+          id: messages.id,
           content: messages.content,
           status: messages.status,
           mediaUrl: messages.mediaUrl,

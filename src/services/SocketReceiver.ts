@@ -76,7 +76,7 @@ export class SocketReceiver {
 
     // ── New message via WebSocket ──
     s.on("message:new", async (payload: any) => {
-      const message = this.normalize(payload, currentUserId);
+      const message = await this.normalize(payload, currentUserId);
       await messageStore.saveReceived(message);
       this.emit("message:new", message);
     });
@@ -98,7 +98,7 @@ export class SocketReceiver {
         };
         await roomStore.addRoom(room);
       }
-      const message = this.normalize(payload, currentUserId);
+      const message = await this.normalize(payload, currentUserId);
       await messageStore.saveReceived(message);
       this.emit("message:notification", message);
     });
@@ -161,7 +161,7 @@ export class SocketReceiver {
 
   // ─── Normalize payload → SQLite row shape ──
 
-  private normalize(payload: any, currentUserId: string): NewMessageRow {
+  private async normalize(payload: any, currentUserId: string): Promise<NewMessageRow> {
     const senderId = payload.senderId ?? payload.sender?.id;
     const content = payload.content ?? payload.text ?? null;
     const type = payload.type ?? "TEXT";
@@ -169,10 +169,17 @@ export class SocketReceiver {
     const thumbnailUrl = payload.thumbnailUrl ?? null;
     const createdAt = payload.createdAt ?? payload.timestamp ?? Date.now();
     const timestamp = typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+    const serverId = payload.id;
+
+    let localId = serverId ?? `${senderId}-${timestamp}`;
+    if (serverId) {
+      const existing = await messageStore.getById(serverId);
+      if (existing) localId = existing.localId;
+    }
 
     return {
-      localId: payload.id ?? `${senderId}-${timestamp}`,
-      id: payload.id ?? `${senderId}-${timestamp}`,
+      localId,
+      id: serverId ?? localId,
       content,
       mediaUrl,
       thumbnailUrl,
