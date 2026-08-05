@@ -154,7 +154,7 @@ export default function PrivateRoom() {
         speed: 120,
         bounciness: 0,
       }).start();
-      flatListRef.current?.scrollToEnd({ animated: true });
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       Animated.spring(keyboardHeight, {
@@ -169,7 +169,7 @@ export default function PrivateRoom() {
       showSub.remove();
       hideSub.remove();
     };
-  }, [keyboardHeight]);
+  }, []);
 
   const renderMessage = useCallback(
     ({ item, index }: { item: any; index: number }) => {
@@ -233,67 +233,68 @@ export default function PrivateRoom() {
         </TouchableOpacity>
       )}
 
-      {/* MESSAGES + INPUT */}
+      {/* MESSAGES */}
+      <FlatList
+        ref={flatListRef}
+        style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
+        keyExtractor={(item) => item.localId}
+        keyboardShouldPersistTaps="handled"
+        data={messages}
+        contentContainerStyle={{
+          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 80,
+        }}
+        renderItem={renderMessage}
+        showsVerticalScrollIndicator={false}
+      />
+
+      {/* INPUT — moves up with keyboard */}
       <Animated.View
         style={[
-          styles.contentArea,
+          styles.inputContainer,
           {
             transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }],
           },
         ]}
       >
-        <FlatList
-          ref={flatListRef}
-          style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
-          keyExtractor={(item) => item.localId}
-          keyboardShouldPersistTaps="handled"
-          data={messages}
-          contentContainerStyle={{ paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl }}
-          renderItem={renderMessage}
-          showsVerticalScrollIndicator={false}
-        />
+        <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
+          <Image source={icons.add} style={styles.iconSmall} />
+        </TouchableOpacity>
 
-        <View style={styles.inputContainer}>
-          <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
-            <Image source={icons.add} style={styles.iconSmall} />
-          </TouchableOpacity>
-
-          <View style={styles.textInputWrapper}>
-            <TextInput
-              ref={textInputRef}
-              placeholder="Message..."
-              placeholderTextColor={theme.COLORS.textMuted}
-              style={styles.textInput}
-              multiline
-              value={inputText}
-              onChangeText={(t) => {
-                setRecord(t.length === 0);
-                setInputText(t);
-                onTyping();
-              }}
-            />
-          </View>
-
-          {record ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.sendButton,
-                (pressed || status.isRecording) && styles.micButtonActive,
-              ]}
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
-            >
-              <Image
-                source={status.isRecording ? icons.micactive : icons.mic}
-                style={styles.iconSmall}
-              />
-            </Pressable>
-          ) : (
-            <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-              <Image source={icons.send} style={styles.iconSmall} />
-            </TouchableOpacity>
-          )}
+        <View style={styles.textInputWrapper}>
+          <TextInput
+            ref={textInputRef}
+            placeholder="Message..."
+            placeholderTextColor={theme.COLORS.textMuted}
+            style={styles.textInput}
+            multiline
+            value={inputText}
+            onChangeText={(t) => {
+              setRecord(t.length === 0);
+              setInputText(t);
+              onTyping();
+            }}
+          />
         </View>
+
+        {record ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.sendButton,
+              (pressed || status.isRecording) && styles.micButtonActive,
+            ]}
+            onPressIn={startRecording}
+            onPressOut={stopRecording}
+          >
+            <Image
+              source={status.isRecording ? icons.micactive : icons.mic}
+              style={styles.iconSmall}
+            />
+          </Pressable>
+        ) : (
+          <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
+            <Image source={icons.send} style={styles.iconSmall} />
+          </TouchableOpacity>
+        )}
       </Animated.View>
 
       <MediaPickerModal
