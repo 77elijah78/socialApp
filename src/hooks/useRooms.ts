@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
@@ -77,47 +77,49 @@ export function useRooms() {
 
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
+  const cancelledRef = useRef(false);
 
-  useEffect(() => {
+  const fetchConversations = useCallback(async () => {
     if (!token || !currentUserId) {
-      setTimeout(() => setLoading(false), 0);
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
+    cancelledRef.current = false;
+    setLoading(true);
 
-    async function fetchConversations() {
-      try {
-        const conversations = await api.get<BackendConversation[]>(
-          "/messages/conversations",
-          token ?? undefined,
-        );
+    try {
+      const conversations = await api.get<BackendConversation[]>(
+        "/messages/conversations",
+        token ?? undefined,
+      );
 
-        if (!cancelled) {
-          const mapped = conversations.map((c) => toRoomRow(c, currentUserId));
-          setRooms(mapped);
+      if (!cancelledRef.current) {
+        const mapped = conversations.map((c) => toRoomRow(c, currentUserId));
+        setRooms(mapped);
 
-          for (const room of mapped) {
-            await roomStore.upsertRoom(room);
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
+        for (const room of mapped) {
+          await roomStore.upsertRoom(room);
         }
       }
+    } catch (err) {
+      if (!cancelledRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    } finally {
+      if (!cancelledRef.current) {
+        setLoading(false);
+      }
     }
+  }, [token, currentUserId]);
 
+  useEffect(() => {
     void fetchConversations();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [token, currentUserId]);
+  }, [fetchConversations]);
 
   const addRoom = useCallback(async (room: RoomRow) => {
     await roomStore.addRoom(room);
@@ -133,7 +135,7 @@ export function useRooms() {
     rooms,
     loading,
     error,
-    reload: () => {},
+    reload: fetchConversations,
     addRoom,
     deleteRoom,
   };

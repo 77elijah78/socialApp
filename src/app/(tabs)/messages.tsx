@@ -3,11 +3,19 @@ import { useRooms } from "@/hooks/useRooms";
 import { router } from "expo-router";
 import { View, Text, FlatList, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "expo-router";
 import theme from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
+import { useCallback } from "react";
 
 export default function Messages() {
-  const { rooms, loading } = useRooms();
+  const { rooms, loading, reload } = useRooms();
+
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload])
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.COLORS.bgLight }}>
