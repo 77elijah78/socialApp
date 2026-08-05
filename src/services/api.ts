@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.4:3000"}/api/v1`;
+const BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000"}/api/v1`;
 
 let currentToken: string | null = null;
 let currentRefreshToken: string | null = null;
