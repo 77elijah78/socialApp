@@ -1,23 +1,25 @@
 import PrivateMessageCard from "@/components/messages/PrivateMessageCard";
 import { useRooms } from "@/hooks/useRooms";
 import { router } from "expo-router";
-import { View, Text, FlatList, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, FlatList, Pressable, ActivityIndicator, AppState } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
 import theme from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export default function Messages() {
   const { rooms, loading, reload } = useRooms();
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
 
-  useFocusEffect(
-    useCallback(() => {
-      void reloadRef.current();
-    }, [])
-  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "active") {
+        void reloadRef.current();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.COLORS.bgLight }}>

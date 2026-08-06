@@ -77,7 +77,9 @@ export class SocketReceiver {
     // ── New message via WebSocket ──
     s.on("message:new", async (payload: any) => {
       const message = await this.normalize(payload, currentUserId);
-      await messageStore.saveReceived(message);
+      if (message.senderId !== currentUserId) {
+        await messageStore.saveReceived(message);
+      }
       this.emit("message:new", message);
     });
 
