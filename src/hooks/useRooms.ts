@@ -3,6 +3,7 @@ import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
 import { useAppSelector } from "@/store/hooks";
+import { socketReceiver } from "@/services/SocketReceiver";
 
 interface BackendParticipant {
   user: {
@@ -116,8 +117,15 @@ export function useRooms() {
   useEffect(() => {
     void fetchConversations();
 
+    const unsub = socketReceiver.on("message:notification", () => {
+      if (!cancelledRef.current) {
+        void fetchConversations();
+      }
+    });
+
     return () => {
       cancelledRef.current = true;
+      unsub();
     };
   }, [fetchConversations]);
 

@@ -83,7 +83,8 @@ export class SocketReceiver {
 
     // ── Push notification when not in the chat room ──
     s.on("message:notification", async (payload: any) => {
-      if (!roomStore.findRoom(payload.conversationId)) {
+      const existing = await roomStore.findRoom(payload.conversationId);
+      if (!existing || existing.length === 0) {
         const localId = uid();
         const room = {
           id: localId,
@@ -218,6 +219,6 @@ export class SocketReceiver {
   }
 }
 
-const SOCKET_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000";
+const SOCKET_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000";
 
 export const socketReceiver = new SocketReceiver(SOCKET_BASE_URL);
