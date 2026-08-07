@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 15,
     height: theme.SIZING.privateMessageCard,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
   },
   avatar: {
     width: theme.SIZING.avatarXl,

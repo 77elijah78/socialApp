@@ -60,17 +60,17 @@ export default function MessageCard({
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
     borderBottomRightRadius: theme.BORDER_RADIUS.sm,
-    borderBottomLeftRadius: theme.BORDER_RADIUS.xxxl,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xxxl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xxxl,
+    borderBottomLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    borderTopLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    borderTopRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
   };
 
   const receivedBubble = {
     backgroundColor: theme.COLORS.bgWhite,
     borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
-    borderBottomRightRadius: theme.BORDER_RADIUS.xxxl,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xxxl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xxxl,
+    borderBottomRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    borderTopLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    borderTopRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
   };
 
   const textColor = isSent ? theme.COLORS.textWhite : theme.COLORS.textPrimary;

@@ -249,9 +249,9 @@ export default function PrivateRoom() {
     };
   }, [keyboardHeight]);
 
-  const inputTranslateY = keyboardHeight.interpolate({
+  const inputBottom = keyboardHeight.interpolate({
     inputRange: [0, 400],
-    outputRange: [0, -400],
+    outputRange: [16, 420 + 16],
     extrapolate: "clamp",
   });
 
@@ -360,7 +360,7 @@ export default function PrivateRoom() {
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
-          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 60,
+          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 80,
           paddingTop: theme.SPACING.md,
         }}
         renderItem={renderItem}
@@ -382,12 +382,12 @@ export default function PrivateRoom() {
         onMomentumScrollBegin={dismissKeyboard}
       />
 
-      {/* INPUT - animated to float above keyboard */}
+      {/* FLOATING INPUT */}
       <Animated.View
         style={[
-          styles.inputWrapper,
+          styles.floatingInputWrapper,
           {
-            transform: [{ translateY: inputTranslateY }],
+            bottom: inputBottom,
           },
         ]}
       >
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.COLORS.bgLight,
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.xs,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
   },
   messageSeparator: {
     height: theme.SPACING.xs,
@@ -518,11 +518,13 @@ const styles = StyleSheet.create({
     color: theme.COLORS.textMuted,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
-  inputWrapper: {
+  floatingInputWrapper: {
+    position: "absolute",
+    left: theme.LAYOUT.contentPadding,
+    right: theme.LAYOUT.contentPadding,
     backgroundColor: theme.COLORS.bgWhite,
-    borderTopWidth: 1,
-    borderTopColor: theme.COLORS.primaryGhostBorder,
-    ...theme.SHADOWS.sm,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    ...theme.SHADOWS.lg,
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
     flexDirection: "row",
@@ -531,7 +533,7 @@ const styles = StyleSheet.create({
   attachButton: {
     width: theme.SIZING.bottomBar,
     height: theme.SIZING.bottomBar,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxxl,
     backgroundColor: theme.COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
@@ -540,7 +542,7 @@ const styles = StyleSheet.create({
   textInputWrapper: {
     flex: 1,
     backgroundColor: theme.COLORS.bgInput,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
     paddingHorizontal: theme.SPACING.lg,
     paddingVertical: theme.SPACING.sm,
     borderWidth: 1,

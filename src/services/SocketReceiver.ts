@@ -105,6 +105,18 @@ export class SocketReceiver {
 
     // ── Push notification when not in the chat room ──
     s.on("message:notification", async (payload: any) => {
+      const messageId = payload.id;
+      if (messageId && this.processedMessageIds.has(messageId)) {
+        return;
+      }
+      if (messageId) {
+        this.processedMessageIds.add(messageId);
+        if (this.processedMessageIds.size > 1000) {
+          const first = this.processedMessageIds.values().next().value;
+          if (first) this.processedMessageIds.delete(first);
+        }
+      }
+
       const existing = await roomStore.findRoom(payload.conversationId);
       if (!existing || existing.length === 0) {
         const localId = uid();
