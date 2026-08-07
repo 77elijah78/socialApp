@@ -61,13 +61,13 @@ export class MessageInsertQueries {
       .onConflictDoUpdate({
         target: messages.localId,
         set: {
-          id: messages.id,
-          content: messages.content,
-          status: messages.status,
-          mediaUrl: messages.mediaUrl,
-          thumbnailUrl: messages.thumbnailUrl,
-          type: messages.type,
-          timestamp: messages.timestamp,
+          id: sql`excluded.id`,
+          content: sql`excluded.content`,
+          status: sql`excluded.status`,
+          mediaUrl: sql`excluded.media_url`,
+          thumbnailUrl: sql`excluded.thumbnail_url`,
+          type: sql`excluded.type`,
+          timestamp: sql`excluded.timestamp`,
         },
       })
       .returning();

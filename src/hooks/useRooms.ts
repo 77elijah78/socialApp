@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
+import { MessageRow } from "@/db/schema";
 import { useAppSelector } from "@/store/hooks";
 import { socketReceiver } from "@/services/SocketReceiver";
 
@@ -28,11 +29,14 @@ interface BackendConversation {
     type: string;
     createdAt: string;
     senderId: string;
+    status: string;
+    isRead: boolean;
   }[];
 }
 
 interface RoomWithReceiver extends RoomRow {
   receiverId?: string;
+  lastMessageStatus?: string;
 }
 
 function toRoomRow(conversation: BackendConversation, currentUserId?: string): RoomWithReceiver {
@@ -56,7 +60,14 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
   const receiverId = otherParticipant?.user.id;
 
   const lastMessageContent = lastMessage?.content || "";
-  const lastMessageType = lastMessage?.mediaUrl ? "media" : "text";
+  const lastMessageType = lastMessage?.mediaUrl ? "media" : lastMessage?.type?.toLowerCase() || "text";
+  const lastMessageStatus = lastMessage?.status || "DELIVERED";
+  const lastMessageTimestamp = lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now();
+  
+  // Calculate unread count - messages sent by others that are not READ
+  const unreadCount = conversation.messages?.filter(
+    (m) => m.senderId !== currentUserId && m.status !== "READ"
+  ).length || 0;
 
   return {
     id: conversation.id,
@@ -65,9 +76,10 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
     avatarUrl,
     lastMessage: lastMessageContent,
     lastMessageType,
-    lastMessageTimestamp: lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now(),
-    unreadCount: 0,
+    lastMessageTimestamp,
+    unreadCount,
     receiverId,
+    lastMessageStatus,
   };
 }
 
@@ -90,13 +102,13 @@ export function useRooms() {
     setLoading(true);
 
     try {
-      const conversations = await api.get<BackendConversation[]>(
+      const response = await api.get<{ success: boolean; data: BackendConversation[] }>(
         "/messages/conversations",
         token ?? undefined,
       );
 
       if (!cancelledRef.current) {
-        const mapped = conversations.map((c) => toRoomRow(c, currentUserId));
+        const mapped = response.data.map((c) => toRoomRow(c, currentUserId));
         setRooms(mapped);
 
         for (const room of mapped) {
@@ -117,15 +129,75 @@ export function useRooms() {
   useEffect(() => {
     void fetchConversations();
 
-    const unsub = socketReceiver.on("message:notification", () => {
+    const unsub = socketReceiver.on("message:notification", async (msg: MessageRow) => {
+      if (!cancelledRef.current) {
+        // Update room from notification in-place
+        setRooms((prev) => {
+          const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
+          const lastMessageContent = msg.content ?? "";
+          const lastMessageType = msg.type === "TEXT" ? "text" : "media";
+
+          if (existingIdx >= 0) {
+            const updated = [...prev];
+            updated[existingIdx] = {
+              ...updated[existingIdx],
+              lastMessage: lastMessageContent,
+              lastMessageType,
+              lastMessageTimestamp: msg.timestamp,
+              unreadCount: updated[existingIdx].unreadCount + 1,
+            };
+            // Move to top
+            const [moved] = updated.splice(existingIdx, 1);
+            return [moved, ...updated];
+          } else {
+            // Room not in list yet - full reload needed
+            void fetchConversations();
+            return prev;
+          }
+        });
+      }
+    });
+
+    const unsubDelete = socketReceiver.on("conversation:deleted", () => {
       if (!cancelledRef.current) {
         void fetchConversations();
+      }
+    });
+
+    const unsubNewMessage = socketReceiver.on("message:new", async (msg: MessageRow) => {
+      if (!cancelledRef.current) {
+        // Update the specific room in-place without full reload
+        setRooms((prev) => {
+          const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
+          const lastMessageContent = msg.content ?? "";
+          const lastMessageType = msg.type === "TEXT" ? "text" : "media";
+
+          if (existingIdx >= 0) {
+            const updated = [...prev];
+            updated[existingIdx] = {
+              ...updated[existingIdx],
+              lastMessage: lastMessageContent,
+              lastMessageType,
+              lastMessageTimestamp: msg.timestamp,
+              unreadCount: updated[existingIdx].unreadCount + 1,
+            };
+            // Move to top
+            const [moved] = updated.splice(existingIdx, 1);
+            return [moved, ...updated];
+          } else {
+            // Room not in list yet - full reload needed
+            void fetchConversations();
+            return prev;
+          }
+        });
       }
     });
 
     return () => {
       cancelledRef.current = true;
       unsub();
+      unsubDelete();
+      unsubNewMessage();
     };
   }, [fetchConversations]);
 

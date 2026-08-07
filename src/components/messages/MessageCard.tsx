@@ -8,7 +8,7 @@ import {
   Image,
   TouchableOpacity,
 } from "react-native";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import { router } from "expo-router";
@@ -50,6 +50,12 @@ export default function MessageCard({
   const maxContentWidth = width * 0.7;
   const maxContentHeight = width * 0.55;
   const [aspectRatio, setAspectRatio] = useState(1);
+
+  const safeTime = useMemo(() => {
+    if (time == null) return null;
+    const d = new Date(time);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }, [time]);
 
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
@@ -149,12 +155,16 @@ export default function MessageCard({
             marginTop: theme.SPACING.xs,
           }}
         >
-          <Text style={[styles.time, { color: timeColor }]}>
-            {new Date(time).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Text>
+          {safeTime ? (
+            <Text style={[styles.time, { color: timeColor }]}>
+              {safeTime.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </Text>
+          ) : (
+            <Text style={[styles.time, { color: timeColor }]} />
+          )}
           <StatusCheckmarks status={status} isSent={isSent} />
         </View>
       </View>

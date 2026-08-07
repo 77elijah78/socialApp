@@ -17,6 +17,7 @@ export class SocketReceiver {
   private listeners: Map<string, Set<Listener>> = new Map();
   private readonly baseUrl: string;
   private currentUserId: string = "";
+  private processedMessageIds: Set<string> = new Set();
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -44,6 +45,7 @@ export class SocketReceiver {
     this.socket?.disconnect();
     this.socket = null;
     this.listeners.clear();
+    this.processedMessageIds.clear();
   }
 
   joinRoom(conversationId: string): void {
@@ -52,6 +54,10 @@ export class SocketReceiver {
 
   leaveRoom(conversationId: string): void {
     this.socket?.emit("conversation:leave", conversationId);
+  }
+
+  emitConversationDelete(conversationId: string): void {
+    this.socket?.emit("conversation:delete", { conversationId });
   }
 
   get isConnected(): boolean {
@@ -76,6 +82,20 @@ export class SocketReceiver {
 
     // ── New message via WebSocket ──
     s.on("message:new", async (payload: any) => {
+      // Deduplicate: ignore if we've already processed this message ID
+      const messageId = payload.id;
+      if (messageId && this.processedMessageIds.has(messageId)) {
+        return;
+      }
+      if (messageId) {
+        this.processedMessageIds.add(messageId);
+        // Limit the set size to prevent memory leaks
+        if (this.processedMessageIds.size > 1000) {
+          const first = this.processedMessageIds.values().next().value;
+          if (first) this.processedMessageIds.delete(first);
+        }
+      }
+
       const message = await this.normalize(payload, currentUserId);
       if (message.senderId !== currentUserId) {
         await messageStore.saveReceived(message);
@@ -156,6 +176,10 @@ export class SocketReceiver {
 
     s.on("presence:offline", ({ userId, lastSeen }: { userId: string; lastSeen: string }) => {
       this.emit("presence:offline", { userId, lastSeen });
+    });
+
+    s.on("conversation:deleted", ({ conversationId }: { conversationId: string }) => {
+      this.emit("conversation:deleted", { conversationId });
     });
 
     // Auto-join personal room for push notifications

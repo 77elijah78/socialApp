@@ -104,6 +104,7 @@ export interface ConversationParticipant {
   userId: string;
   joinedAt: Date;
   lastReadAt: Date | null;
+  deletedAt: Date | null;
   conversation?: Conversation;
   user?: User;
 }
@@ -319,10 +320,14 @@ export interface PrivateMessageCardProps {
   isBookmarked?: boolean;
   onPress?: () => void;
   onBookmarkPress?: () => void;
+  onLongPress?: () => void;
   avatar: ImageSourcePropType;
   type: string;
   duration?: string;
   newMessages?: boolean;
+  unreadCount?: number;
+  status?: string;
+  lastMessageStatus?: string;
 }
 
 export interface MessageCardProps {

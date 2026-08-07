@@ -208,4 +208,11 @@ export class MessageService extends BaseUploader {
   async markDelivered(messageId: string, conversationId: string) {
     return messageStore.markDelivered(messageId, conversationId);
   }
+
+  async deleteConversation(conversationId: string) {
+    await api.delete(
+      `/messages/conversations/${encodeURIComponent(conversationId)}`,
+      this.authToken ?? undefined,
+    );
+  }
 }

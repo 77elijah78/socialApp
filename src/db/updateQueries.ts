@@ -7,7 +7,7 @@ type StatusValue = "SENDING" | "SENT" | "DELIVERED" | "READ";
 export class MessageUpdateQueries {
   async patch(
     localId: string,
-    patch: Partial<Omit<MessageRow, "localId">>
+    patch: Partial<Omit<MessageRow, "localId">> & { localId?: string }
   ): Promise<MessageRow | null> {
     const [row] = await db
       .update(messages)
@@ -24,6 +24,7 @@ export class MessageUpdateQueries {
   ): Promise<MessageRow | null> {
     return this.patch(localId, {
       id:        serverId,
+      localId:   serverId,
       status:    "SENT",
       ...(serverTimestamp && { timestamp: serverTimestamp }),
     });

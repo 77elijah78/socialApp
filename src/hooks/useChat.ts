@@ -4,6 +4,7 @@ import { messageStore } from "../db/MessageStore";
 import { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
 import { mediaService } from "../services/MediaService";
+import { router } from "expo-router";
 
 interface CurrentUser {
   id: string;
@@ -123,6 +124,16 @@ export function useChat({ conversationId, currentUser }: UseChatParams): UseChat
           "message:edited",
           async ({ conversationId: cid }: { conversationId: string }) => {
             if (cid === conversationId) await reload();
+          },
+        ),
+
+        socketReceiver.on(
+          "conversation:deleted",
+          async ({ conversationId: cid }: { conversationId: string }) => {
+            if (cid === conversationId) {
+              await reload();
+              router.back();
+            }
           },
         ),
 

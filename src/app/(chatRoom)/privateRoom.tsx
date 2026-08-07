@@ -11,10 +11,12 @@ import {
   Pressable,
   Alert,
   Keyboard,
+  Platform,
   Animated,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import ChatHeader from "@/components/chat/ChatHeader";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
@@ -28,6 +30,33 @@ import {
 } from "expo-audio";
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
+import { mediaService } from "@/services/MediaService";
+
+function getMessageType(type: string): string {
+  switch (type) {
+    case "TEXT":
+      return "text";
+    case "IMAGE":
+      return "image/jpeg";
+    case "VIDEO":
+      return "video/mp4";
+    case "AUDIO":
+      return "audio/mpeg";
+    default:
+      return "text";
+  }
+}
+
+function formatTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type MessageItem =
+  | { kind: "date"; id: string; date: string }
+  | { kind: "message"; id: string; data: any; index: number };
 
 export default function PrivateRoom() {
   const { roomId, receiverName, receiverAvatar, conversationId, receiverId } =
@@ -43,8 +72,9 @@ export default function PrivateRoom() {
   const [visible, setVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
-  const [keyboardHeight] = useState(new Animated.Value(0));
   const textInputRef = useRef<TextInput>(null);
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+  const screenHeight = Dimensions.get("window").height;
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -86,7 +116,16 @@ export default function PrivateRoom() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
 
-  const { messages, send, flatListRef, onTyping, sendMedia, isTyping } = useChat({
+  const {
+    messages,
+    send,
+    flatListRef,
+    onTyping,
+    sendMedia,
+    isTyping,
+    isSyncing,
+    loadMore,
+  } = useChat({
     roomId,
     conversationId,
     currentUser: {
@@ -108,8 +147,27 @@ export default function PrivateRoom() {
   }, []);
 
   const handleMenuPress = useCallback(() => {
-    // TODO: show menu
-  }, []);
+    Alert.alert(
+      "Conversation options",
+      "What would you like to do?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete conversation",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await mediaService.message.deleteConversation(conversationId);
+              router.back();
+            } catch (err) {
+              Alert.alert("Error", "Could not delete conversation");
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [conversationId, router]);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
@@ -120,16 +178,28 @@ export default function PrivateRoom() {
 
     try {
       await send(text, receiverId);
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 120);
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 300);
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, send, receiverId]);
+  }, [inputText, sending, send, receiverId, flatListRef]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
       sendMedia(files[0].type, files[0].uri, receiverId);
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 120);
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 300);
     },
-    [conversationId, receiverId, sendMedia],
+    [conversationId, receiverId, sendMedia, flatListRef],
   );
 
   const scrollToFirstUnread = useCallback(() => {
@@ -142,26 +212,34 @@ export default function PrivateRoom() {
     }
   }, [firstUnreadIndex]);
 
-  useEffect(() => {
-    flatListRef.current?.scrollToEnd({ animated: false });
+  const handleInputChange = useCallback((t: string) => {
+    setRecord(t.length === 0);
+    setInputText(t);
+    onTyping();
+  }, [onTyping]);
+
+  const dismissKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+    textInputRef.current?.blur();
   }, []);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
-      Animated.spring(keyboardHeight, {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      Animated.timing(keyboardHeight, {
         toValue: e.endCoordinates.height,
+        duration: e.duration ?? 250,
         useNativeDriver: true,
-        speed: 120,
-        bounciness: 0,
       }).start();
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
-      Animated.spring(keyboardHeight, {
+
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      Animated.timing(keyboardHeight, {
         toValue: 0,
+        duration: e.duration ?? 250,
         useNativeDriver: true,
-        speed: 120,
-        bounciness: 0,
       }).start();
     });
 
@@ -169,13 +247,52 @@ export default function PrivateRoom() {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [keyboardHeight]);
 
-  const renderMessage = useCallback(
-    ({ item, index }: { item: any; index: number }) => {
-      const isSent = item.senderId === currentUserId;
+  const inputTranslateY = keyboardHeight.interpolate({
+    inputRange: [0, 400],
+    outputRange: [0, -400],
+    extrapolate: "clamp",
+  });
+
+  // Flatten messages + date headers into one list
+  const flatData = useMemo(() => {
+    const items: MessageItem[] = [];
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    let lastDate = "";
+
+    messages.forEach((m, idx) => {
+      const ts = new Date(m.timestamp).toDateString();
+      let label = ts;
+      if (ts === today) label = "Today";
+      else if (ts === yesterday) label = "Yesterday";
+
+      if (label !== lastDate) {
+        items.push({ kind: "date", id: `date-${label}-${idx}`, date: label });
+        lastDate = label;
+      }
+
+      items.push({ kind: "message", id: m.localId ?? m.id ?? `msg-${idx}`, data: m, index: idx });
+    });
+
+    return items;
+  }, [messages]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: MessageItem }) => {
+      if (item.kind === "date") {
+        return (
+          <View style={styles.dateHeader}>
+            <Text style={styles.dateHeaderText}>{item.date}</Text>
+          </View>
+        );
+      }
+
+      const m = item.data;
+      const isSent = m.senderId === currentUserId;
       const showUnreadDivider =
-        index === firstUnreadIndex && firstUnreadIndex > 0;
+        item.index === firstUnreadIndex && firstUnreadIndex > 0;
 
       return (
         <View>
@@ -187,14 +304,14 @@ export default function PrivateRoom() {
             </View>
           )}
           <MessageCard
-            message={item.content}
-            time={item.timestamp}
+            message={m.content}
+            time={m.timestamp}
             sender=""
-            isRead={item.isRead}
+            isRead={m.isRead}
             isSent={isSent}
-            status={item.status ?? "SENT"}
-            type={item.type === "TEXT" ? "text" : item.type === "IMAGE" ? "image/jpeg" : item.type === "VIDEO" ? "video/mp4" : item.type === "AUDIO" ? "audio/mpeg" : "text"}
-            uri={item.mediaUrl ?? ""}
+            status={m.status ?? "SENT"}
+            type={getMessageType(m.type)}
+            uri={m.mediaUrl ?? ""}
           />
         </View>
       );
@@ -202,8 +319,10 @@ export default function PrivateRoom() {
     [firstUnreadIndex, currentUserId],
   );
 
+  const keyExtractor = useCallback((item: MessageItem) => item.id, []);
+
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right", "bottom"]}>
+    <View style={{ flex: 1 }}>
       {/* HEADER */}
       <View style={styles.headerWrapper}>
         <ChatHeader
@@ -214,10 +333,10 @@ export default function PrivateRoom() {
           }
           isOnline={true}
           onBack={handleBack}
-           onProfilePress={handleProfilePress}
-           onMenuPress={handleMenuPress}
-           isTyping={isTyping}
-         />
+          onProfilePress={handleProfilePress}
+          onMenuPress={handleMenuPress}
+          isTyping={isTyping}
+        />
       </View>
 
       {/* UNREAD JUMP BUTTON */}
@@ -236,23 +355,39 @@ export default function PrivateRoom() {
       {/* MESSAGES */}
       <FlatList
         ref={flatListRef}
-        style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
-        keyExtractor={(item) => item.localId}
+        style={{ flex: 1 }}
+        data={flatData}
+        keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
-        data={messages}
         contentContainerStyle={{
-          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 80,
+          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 60,
+          paddingTop: theme.SPACING.md,
         }}
-        renderItem={renderMessage}
+        renderItem={renderItem}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={!isSyncing && messages.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No messages yet</Text>
+          </View>
+        ) : null}
+        ListFooterComponent={
+          isSyncing ? (
+            <View style={styles.loadingMore}>
+              <Text style={styles.loadingMoreText}>Loading...</Text>
+            </View>
+          ) : null
+        }
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        onScrollBeginDrag={dismissKeyboard}
+        onMomentumScrollBegin={dismissKeyboard}
       />
 
-      {/* INPUT — moves up with keyboard */}
+      {/* INPUT - animated to float above keyboard */}
       <Animated.View
         style={[
-          styles.inputContainer,
+          styles.inputWrapper,
           {
-            transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }],
+            transform: [{ translateY: inputTranslateY }],
           },
         ]}
       >
@@ -268,11 +403,10 @@ export default function PrivateRoom() {
             style={styles.textInput}
             multiline
             value={inputText}
-            onChangeText={(t) => {
-              setRecord(t.length === 0);
-              setInputText(t);
-              onTyping();
-            }}
+            onChangeText={handleInputChange}
+            maxLength={5000}
+            returnKeyType="default"
+            blurOnSubmit={false}
           />
         </View>
 
@@ -291,7 +425,7 @@ export default function PrivateRoom() {
             />
           </Pressable>
         ) : (
-          <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
+          <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
             <Image source={icons.send} style={styles.iconSmall} />
           </TouchableOpacity>
         )}
@@ -302,7 +436,7 @@ export default function PrivateRoom() {
         onClose={() => setVisible(false)}
         onSend={handleSendFiles}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -349,22 +483,50 @@ const styles = StyleSheet.create({
     fontSize: theme.TYPOGRAPHY.fontSize.xl6,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
+  dateHeader: {
+    alignItems: "center",
+    paddingVertical: theme.SPACING.xs,
+    marginVertical: theme.SPACING.xs,
+  },
+  dateHeaderText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.textMuted,
+    backgroundColor: theme.COLORS.bgLight,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.xs,
+    borderRadius: theme.BORDER_RADIUS.xxxxl,
+  },
+  messageSeparator: {
+    height: theme.SPACING.xs,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: theme.SPACING.xxxxl,
+  },
+  emptyStateText: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+  },
+  loadingMore: {
+    paddingVertical: theme.SPACING.md,
+    alignItems: "center",
+  },
+  loadingMoreText: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+  },
   inputWrapper: {
     backgroundColor: theme.COLORS.bgWhite,
     borderTopWidth: 1,
     borderTopColor: theme.COLORS.primaryGhostBorder,
     ...theme.SHADOWS.sm,
-  },
-  contentArea: {
-    flex: 1,
-  },
-  inputContainer: {
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.md,
-    backgroundColor: theme.COLORS.bgWhite,
-    gap: theme.SPACING.sm,
   },
   attachButton: {
     width: theme.SIZING.bottomBar,
@@ -373,7 +535,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: theme.SPACING.xs,
+    marginRight: theme.SPACING.sm,
   },
   textInputWrapper: {
     flex: 1,
@@ -384,13 +546,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.COLORS.primaryGhostBorder,
     minHeight: theme.SIZING.bottomBar,
+    justifyContent: "center",
   },
   textInput: {
     fontSize: theme.TYPOGRAPHY.fontSize.xxl,
     color: theme.COLORS.textPrimary,
-    maxHeight: 100,
+    maxHeight: 120,
     lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
     paddingVertical: 0,
+    textAlignVertical: "center",
   },
   sendButton: {
     width: theme.SIZING.sendButton,
@@ -400,7 +564,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: theme.COLORS.primary,
     ...theme.SHADOWS.primary,
-    marginBottom: theme.SPACING.xs,
+    marginLeft: theme.SPACING.sm,
   },
   iconSmall: {
     width: theme.SIZING.iconSm,
