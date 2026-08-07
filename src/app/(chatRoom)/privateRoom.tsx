@@ -341,20 +341,22 @@ export default function PrivateRoom() {
   return (
     <View style={{ flex: 1 }}>
       {/* HEADER */}
-      <View style={styles.headerWrapper}>
-        <ChatHeader
-          receiverName={receiverName as string}
-          avatarUri={
-            (receiverAvatar as string) ||
-            "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
-          }
-          isOnline={true}
-          onBack={handleBack}
-          onProfilePress={handleProfilePress}
-          onMenuPress={handleMenuPress}
-          isTyping={isTyping}
-        />
-      </View>
+      <SafeAreaView edges={["top"]}>
+        <View style={styles.headerWrapper}>
+          <ChatHeader
+            receiverName={receiverName as string}
+            avatarUri={
+              (receiverAvatar as string) ||
+              "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
+            }
+            isOnline={true}
+            onBack={handleBack}
+            onProfilePress={handleProfilePress}
+            onMenuPress={handleMenuPress}
+            isTyping={isTyping}
+          />
+        </View>
+      </SafeAreaView>
 
       {/* UNREAD JUMP BUTTON */}
       {showJumpToUnread && firstUnreadIndex > 0 && (
@@ -544,7 +546,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: theme.LAYOUT.contentPadding,
     right: theme.LAYOUT.contentPadding,
-    bottom: 0,
+    bottom: 8,
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
     ...theme.SHADOWS.lg,
