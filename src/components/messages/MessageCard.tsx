@@ -7,12 +7,15 @@ import {
   useWindowDimensions,
   Image,
   TouchableOpacity,
+  Alert,
+  Linking,
 } from "react-native";
 import { useState, useMemo } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system";
 
 function StatusCheckmarks({
   status,
@@ -45,6 +48,8 @@ export default function MessageCard({
   isRead,
   status,
   uri,
+  onLongPress,
+  repliedTo,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
   const maxContentWidth = width * 0.7;
@@ -56,6 +61,17 @@ export default function MessageCard({
     const d = new Date(time);
     return Number.isNaN(d.getTime()) ? null : d;
   }, [time]);
+
+  const handleDownload = async () => {
+    try {
+      Alert.alert("Download", "Open media in browser to download?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open", onPress: () => Linking.openURL(uri) },
+      ]);
+    } catch (err) {
+      Alert.alert("Error", "Could not open media");
+    }
+  };
 
   const sentBubble = {
     backgroundColor: theme.COLORS.primary,
@@ -86,88 +102,116 @@ export default function MessageCard({
         isSent ? styles.sentContainer : styles.receivedContainer,
       ]}
     >
-      <View
-        style={[
-          styles.bubble,
-          isSent ? sentBubble : receivedBubble,
-          type === "text" && styles.textBubblePadding,
-        ]}
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={onLongPress}
+        delayLongPress={200}
       >
-        {type === "text" && (
-          <Text style={[styles.text, { color: textColor }]}>{message}</Text>
-        )}
-
-        {type === "image/jpeg" && (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() =>
-              router.push({
-                pathname: "/(chatRoom)/imageViewer",
-                params: { uri },
-              })
-            }
-          >
-            <View
-              style={[
-                styles.imageWrapper,
-                {
-                  width: maxContentWidth,
-                  alignSelf: isSent ? "flex-end" : "flex-start",
-                },
-              ]}
-            >
-              <Image
-                source={{ uri }}
-                style={[styles.thumbnail, { aspectRatio }]}
-                resizeMode="contain"
-                onLoad={(e) =>
-                  setAspectRatio(
-                    e.nativeEvent.source.width / e.nativeEvent.source.height,
-                  )
-                }
-              />
-            </View>
-          </TouchableOpacity>
-        )}
-
-        {type === "video/mp4" && (
-          <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-            <VideoPlayer
-              style={{}}
-              uri={uri}
-              thumbnail=""
-              borderRadius={theme.BORDER_RADIUS.lg}
-            />
-          </View>
-        )}
-
-        {type === "audio/mpeg" && (
-          <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-            <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
-          </View>
-        )}
-
         <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            alignSelf: isSent ? "flex-end" : "flex-start",
-            marginTop: theme.SPACING.xs,
-          }}
+          style={[
+            styles.bubble,
+            isSent ? sentBubble : receivedBubble,
+            type === "text" && styles.textBubblePadding,
+          ]}
         >
-          {safeTime ? (
-            <Text style={[styles.time, { color: timeColor }]}>
-              {safeTime.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </Text>
-          ) : (
-            <Text style={[styles.time, { color: timeColor }]} />
+          {repliedTo && (
+            <View style={styles.repliedPreview}>
+              <Text style={styles.repliedName}>
+                {repliedTo.sender?.username ?? "Message"}
+              </Text>
+              <Text style={styles.repliedText} numberOfLines={1}>
+                {repliedTo.content ?? "Media"}
+              </Text>
+            </View>
           )}
-          <StatusCheckmarks status={status} isSent={isSent} />
+
+          {type === "text" && (
+            <Text style={[styles.text, { color: textColor }]}>{message}</Text>
+          )}
+
+          {type === "image/jpeg" && (
+            <View>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(chatRoom)/imageViewer",
+                    params: { uri },
+                  })
+                }
+              >
+                <View
+                  style={[
+                    styles.imageWrapper,
+                    {
+                      width: maxContentWidth,
+                      alignSelf: isSent ? "flex-end" : "flex-start",
+                    },
+                  ]}
+                >
+                  <Image
+                    source={{ uri }}
+                    style={[styles.thumbnail, { aspectRatio }]}
+                    resizeMode="contain"
+                    onLoad={(e) =>
+                      setAspectRatio(
+                        e.nativeEvent.source.width / e.nativeEvent.source.height,
+                      )
+                    }
+                  />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
+                <Ionicons name="download-outline" size={18} color={theme.COLORS.textWhite} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {type === "video/mp4" && (
+            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
+              <VideoPlayer
+                style={{}}
+                uri={uri}
+                thumbnail=""
+                borderRadius={theme.BORDER_RADIUS.lg}
+              />
+              <TouchableOpacity style={styles.downloadButtonOverlay} onPress={handleDownload}>
+                <Ionicons name="download-outline" size={22} color={theme.COLORS.textWhite} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {type === "audio/mpeg" && (
+            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
+              <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
+              <TouchableOpacity style={styles.downloadButtonOverlay} onPress={handleDownload}>
+                <Ionicons name="download-outline" size={22} color={theme.COLORS.textWhite} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              alignSelf: isSent ? "flex-end" : "flex-start",
+              marginTop: theme.SPACING.xs,
+            }}
+          >
+            {safeTime ? (
+              <Text style={[styles.time, { color: timeColor }]}>
+                {safeTime.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </Text>
+            ) : (
+              <Text style={[styles.time, { color: timeColor }]} />
+            )}
+            <StatusCheckmarks status={status} isSent={isSent} />
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -215,10 +259,46 @@ const styles = StyleSheet.create({
   mediaWrapper: {
     borderRadius: theme.BORDER_RADIUS.xxxl,
     overflow: "hidden",
+    position: "relative",
   },
   time: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     marginTop: theme.SPACING.xs,
     marginHorizontal: theme.SPACING.sm,
+  },
+  repliedPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: theme.SPACING.sm,
+    paddingLeft: theme.SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.COLORS.primaryGhostBorder,
+  },
+  repliedName: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.textPrimary,
+    marginRight: theme.SPACING.sm,
+  },
+  repliedText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.textMuted,
+    flex: 1,
+  },
+  downloadButton: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: theme.BORDER_RADIUS.full,
+    padding: 6,
+  },
+  downloadButtonOverlay: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: theme.BORDER_RADIUS.full,
+    padding: 8,
   },
 });

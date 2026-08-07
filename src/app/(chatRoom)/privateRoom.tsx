@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import ChatHeader from "@/components/chat/ChatHeader";
+import { Ionicons } from "@expo/vector-icons";
 import MessageCard from "@/components/messages/MessageCard";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
@@ -72,6 +73,7 @@ export default function PrivateRoom() {
   const [visible, setVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<any>(null);
   const textInputRef = useRef<TextInput>(null);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
   const screenHeight = Dimensions.get("window").height;
@@ -125,6 +127,7 @@ export default function PrivateRoom() {
     isTyping,
     isSyncing,
     loadMore,
+    replyMsg,
   } = useChat({
     roomId,
     conversationId,
@@ -169,6 +172,46 @@ export default function PrivateRoom() {
     );
   }, [conversationId, router]);
 
+  const handleMessageAction = useCallback((message: any) => {
+    const isOwn = message.senderId === currentUserId;
+    Alert.alert(
+      "Message options",
+      "Choose an action",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reply",
+          onPress: () => setReplyingTo(message),
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (isOwn) {
+                const deleteFor = Alert.alert(
+                  "Delete message",
+                  "Delete for everyone or only for you?",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "For me", onPress: () => mediaService.message.delete(message.id) },
+                    { text: "For everyone", style: "destructive", onPress: () => mediaService.message.delete(message.id, "everyone") },
+                  ],
+                  { cancelable: true }
+                );
+              } else {
+                Alert.alert("Cannot delete", "You can only delete your own messages");
+              }
+            } catch (err) {
+              Alert.alert("Error", "Could not delete message");
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [currentUserId]);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || sending) return;
@@ -177,7 +220,12 @@ export default function PrivateRoom() {
     setSending(true);
 
     try {
-      await send(text, receiverId);
+      if (replyingTo) {
+        await replyMsg(text, replyingTo.id, receiverId);
+        setReplyingTo(null);
+      } else {
+        await send(text, receiverId);
+      }
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 120);
@@ -187,7 +235,7 @@ export default function PrivateRoom() {
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, send, receiverId, flatListRef]);
+  }, [inputText, sending, send, replyMsg, receiverId, flatListRef, replyingTo]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
@@ -329,6 +377,8 @@ export default function PrivateRoom() {
             status={m.status ?? "SENT"}
             type={getMessageType(m.type)}
             uri={m.mediaUrl ?? ""}
+            onLongPress={() => handleMessageAction(m)}
+            repliedTo={m.repliedTo}
           />
         </View>
       );
@@ -415,44 +465,63 @@ export default function PrivateRoom() {
           },
         ]}
       >
-        <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
-          <Image source={icons.add} style={styles.iconSmall} />
-        </TouchableOpacity>
-
-        <View style={styles.textInputWrapper}>
-          <TextInput
-            ref={textInputRef}
-            placeholder="Message..."
-            placeholderTextColor={theme.COLORS.textMuted}
-            style={styles.textInput}
-            multiline
-            value={inputText}
-            onChangeText={handleInputChange}
-            maxLength={5000}
-            returnKeyType="default"
-            blurOnSubmit={false}
-          />
-        </View>
-
-        {record ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.sendButton,
-              (pressed || status.isRecording) && styles.micButtonActive,
-            ]}
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
-          >
-            <Image
-              source={status.isRecording ? icons.micactive : icons.mic}
-              style={styles.iconSmall}
-            />
-          </Pressable>
-        ) : (
-          <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
-            <Image source={icons.send} style={styles.iconSmall} />
-          </TouchableOpacity>
+        {replyingTo && (
+          <View style={styles.replyPreview}>
+            <View style={styles.replyPreviewLine} />
+            <View style={styles.replyPreviewContent}>
+              <Text style={styles.replyPreviewName}>
+                {replyingTo.senderId === currentUserId ? "You" : replyingTo.sender?.username ?? "Message"}
+              </Text>
+              <Text style={styles.replyPreviewText} numberOfLines={1}>
+                {replyingTo.content ?? (replyingTo.type === "IMAGE" ? "Photo" : replyingTo.type === "VIDEO" ? "Video" : replyingTo.type === "AUDIO" ? "Voice message" : "Message")}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyPreviewClose}>
+              <Ionicons name="close" size={18} color={theme.COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
         )}
+
+        <View style={styles.inputRow}>
+          <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
+            <Image source={icons.add} style={styles.iconSmall} />
+          </TouchableOpacity>
+
+          <View style={styles.textInputWrapper}>
+            <TextInput
+              ref={textInputRef}
+              placeholder={replyingTo ? "Reply..." : "Message..."}
+              placeholderTextColor={theme.COLORS.textMuted}
+              style={styles.textInput}
+              multiline
+              value={inputText}
+              onChangeText={handleInputChange}
+              maxLength={5000}
+              returnKeyType="default"
+              blurOnSubmit={false}
+            />
+          </View>
+
+          {record ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.sendButton,
+                (pressed || status.isRecording) && styles.micButtonActive,
+              ]}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+            >
+              <Image
+                source={status.isRecording ? icons.micactive : icons.mic}
+                style={styles.iconSmall}
+              />
+            </Pressable>
+          ) : (
+            <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
+              <Image source={icons.send} style={styles.iconSmall} />
+            </TouchableOpacity>
+          )}
+        </View>
       </Animated.View>
 
       <MediaPickerModal
@@ -552,9 +621,46 @@ const styles = StyleSheet.create({
     ...theme.SHADOWS.lg,
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
+    flexDirection: "column",
+    zIndex: 20,
+  },
+  replyPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: theme.SPACING.sm,
+    paddingLeft: theme.SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.COLORS.primary,
+    backgroundColor: theme.COLORS.bgLight,
+    borderRadius: theme.BORDER_RADIUS.md,
+    paddingVertical: theme.SPACING.xs,
+  },
+  replyPreviewLine: {
+    width: 3,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primary,
+    marginRight: theme.SPACING.sm,
+    alignSelf: "stretch",
+  },
+  replyPreviewContent: {
+    flex: 1,
+  },
+  replyPreviewName: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: theme.COLORS.textPrimary,
+  },
+  replyPreviewText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.textMuted,
+  },
+  replyPreviewClose: {
+    padding: theme.SPACING.xs,
+    marginLeft: theme.SPACING.sm,
+  },
+  inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    zIndex: 20,
   },
   attachButton: {
     width: theme.SIZING.bottomBar,

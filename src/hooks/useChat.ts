@@ -23,6 +23,7 @@ interface UseChatReturn {
   retry: (localId: string, receiverId: string) => Promise<void>;
   deleteMsg: (messageId: string) => Promise<void>;
   editMsg: (messageId: string, newText: string) => Promise<void>;
+  replyMsg: (text: string, repliedToId: string, receiverId: string) => Promise<void>;
   loadMore: () => Promise<void>;
   onTyping: () => void;
   isTyping: boolean;
@@ -198,6 +199,16 @@ export function useChat({ conversationId, currentUser }: UseChatParams): UseChat
     await reload();
   };
 
+  const replyMsg = async (text: string, repliedToId: string, receiverId: string) => {
+    await mediaService.message.replyMessage(text, {
+      senderId: currentUser.id,
+      receiverId,
+      conversationId,
+    }, repliedToId);
+    await reload();
+    scrollToEnd();
+  };
+
   const loadMore = async () => {
     if (!hasMore || isSyncing || messages.length === 0) return;
 
@@ -237,6 +248,7 @@ export function useChat({ conversationId, currentUser }: UseChatParams): UseChat
     retry,
     deleteMsg,
     editMsg,
+    replyMsg,
     loadMore,
     onTyping,
     isTyping: !!typingUserId,

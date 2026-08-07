@@ -338,8 +338,19 @@ export interface MessageCardProps {
   isSent: boolean;
   status: string;
   onPress?: () => void;
+  onLongPress?: () => void;
   type: string;
   uri: string;
+  repliedTo?: {
+    id: string;
+    content: string;
+    senderId: string;
+    type: string;
+    sender?: {
+      username: string;
+      avatarUrl: string;
+    };
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -186,10 +186,10 @@ export class MessageService extends BaseUploader {
     return messageStore.saveMany(incoming);
   }
 
-  async delete(messageId: string) {
+  async delete(messageId: string, deleteFor: 'me' | 'everyone' = 'me') {
     await messageStore.deleteOne(messageId);
     await api.delete(
-      `/messages/${encodeURIComponent(messageId)}`,
+      `/messages/${encodeURIComponent(messageId)}?deleteFor=${deleteFor}`,
       this.authToken ?? undefined,
     );
   }
@@ -217,5 +217,51 @@ export class MessageService extends BaseUploader {
       `/messages/conversations/${encodeURIComponent(conversationId)}`,
       this.authToken ?? undefined,
     );
+  }
+
+  async replyMessage(text: string, meta: SendMeta, repliedToId: string) {
+    this.validate(text);
+
+    const localId = uid();
+
+    const optimistic: NewMessageRow = {
+      localId,
+      id: localId,
+      content: text.trim(),
+      mediaUrl: null,
+      thumbnailUrl: null,
+      type: "TEXT",
+      status: "SENDING",
+      senderId: meta.senderId,
+      receiverId: meta.receiverId,
+      conversationId: meta.conversationId,
+      isRead: false,
+      timestamp: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      duration: null,
+      repliedToId,
+      forwardedFromId: null,
+    };
+
+    await messageStore.save(optimistic);
+
+    try {
+      const resp = await api.post<{ data: { id: string; createdAt: string } }>(
+        `/messages/conversations/${encodeURIComponent(meta.conversationId)}/reply`,
+        { content: text.trim(), repliedToId, receiverId: meta.receiverId },
+        this.authToken ?? undefined,
+      );
+
+      const serverId = resp.data.id;
+      const serverTimestamp = new Date(resp.data.createdAt).getTime();
+
+      return messageStore.confirm(localId, serverId, serverTimestamp);
+    } catch (err) {
+      console.log(err);
+      await messageStore.markFailed(localId);
+      throw err;
+    }
   }
 }
