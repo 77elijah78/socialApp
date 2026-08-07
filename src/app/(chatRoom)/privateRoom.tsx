@@ -544,6 +544,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: theme.LAYOUT.contentPadding,
     right: theme.LAYOUT.contentPadding,
+    bottom: 0,
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
     ...theme.SHADOWS.lg,
@@ -551,6 +552,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.SPACING.sm,
     flexDirection: "row",
     alignItems: "flex-end",
+    zIndex: 20,
   },
   attachButton: {
     width: theme.SIZING.bottomBar,
