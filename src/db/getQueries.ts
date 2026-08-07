@@ -18,7 +18,16 @@ export class MessageGetQueries {
       .where(eq(messages.conversationId, roomId))
       .orderBy(desc(messages.timestamp))
       .limit(limit);
-    return rows.reverse();
+    const seen = new Set<string>();
+    const unique: MessageRow[] = [];
+    for (const row of rows) {
+      const key = row.localId ?? row.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(row);
+      }
+    }
+    return unique.reverse();
   }
 
   async getOlderThan(

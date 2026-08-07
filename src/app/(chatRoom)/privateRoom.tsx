@@ -218,6 +218,23 @@ export default function PrivateRoom() {
     onTyping();
   }, [onTyping]);
 
+  const [showJumpToUnread, setShowJumpToUnread] = useState(true);
+
+  useEffect(() => {
+    if (firstUnreadIndex <= 0) {
+      setShowJumpToUnread(false);
+    }
+  }, [firstUnreadIndex]);
+
+  const handleScroll = useCallback((event: any) => {
+    if (!showJumpToUnread) return;
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const isNearBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 120;
+    if (isNearBottom && firstUnreadIndex > 0) {
+      setShowJumpToUnread(false);
+    }
+  }, [showJumpToUnread, firstUnreadIndex]);
+
   const dismissKeyboard = useCallback(() => {
     Keyboard.dismiss();
     textInputRef.current?.blur();
@@ -249,9 +266,9 @@ export default function PrivateRoom() {
     };
   }, [keyboardHeight]);
 
-  const inputBottom = keyboardHeight.interpolate({
+  const inputTranslateY = keyboardHeight.interpolate({
     inputRange: [0, 400],
-    outputRange: [16, 420 + 16],
+    outputRange: [0, -420],
     extrapolate: "clamp",
   });
 
@@ -340,10 +357,13 @@ export default function PrivateRoom() {
       </View>
 
       {/* UNREAD JUMP BUTTON */}
-      {firstUnreadIndex > 0 && (
+      {showJumpToUnread && firstUnreadIndex > 0 && (
         <TouchableOpacity
           style={styles.jumpToUnread}
-          onPress={scrollToFirstUnread}
+          onPress={() => {
+            scrollToFirstUnread();
+            setShowJumpToUnread(false);
+          }}
           activeOpacity={0.9}
         >
           <View style={styles.jumpDot} />
@@ -380,6 +400,8 @@ export default function PrivateRoom() {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         onScrollBeginDrag={dismissKeyboard}
         onMomentumScrollBegin={dismissKeyboard}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       />
 
       {/* FLOATING INPUT */}
@@ -387,7 +409,7 @@ export default function PrivateRoom() {
         style={[
           styles.floatingInputWrapper,
           {
-            bottom: inputBottom,
+            transform: [{ translateY: inputTranslateY }],
           },
         ]}
       >

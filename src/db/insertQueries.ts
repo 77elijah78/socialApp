@@ -63,11 +63,21 @@ export class MessageInsertQueries {
         set: {
           id: sql`excluded.id`,
           content: sql`excluded.content`,
-          status: sql`excluded.status`,
           mediaUrl: sql`excluded.media_url`,
           thumbnailUrl: sql`excluded.thumbnail_url`,
           type: sql`excluded.type`,
+          status: sql`excluded.status`,
+          senderId: sql`excluded.sender_id`,
+          receiverId: sql`excluded.receiver_id`,
+          conversationId: sql`excluded.conversation_id`,
+          isRead: sql`excluded.is_read`,
           timestamp: sql`excluded.timestamp`,
+          editedAt: sql`excluded.edited_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          deletedBy: sql`excluded.deleted_by`,
+          duration: sql`excluded.duration`,
+          repliedToId: sql`excluded.replied_to_id`,
+          forwardedFromId: sql`excluded.forwarded_from_id`,
         },
       })
       .returning();

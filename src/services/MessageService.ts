@@ -159,26 +159,29 @@ export class MessageService extends BaseUploader {
 
     const messages = Array.isArray(data) ? data : data.messages ?? data.data ?? [];
 
-    const incoming: NewMessageRow[] = messages.map((m: any) => ({
-      localId: m.id,
-      id: m.id,
-      content: m.content ?? null,
-      mediaUrl: m.mediaUrl ?? null,
-      thumbnailUrl: m.thumbnailUrl ?? null,
-      type: m.type ?? "TEXT",
-      status: m.status ?? (m.senderId === currentUserId ? "SENT" : "DELIVERED"),
-      senderId: m.senderId,
-      receiverId: m.receiverId ?? null,
-      conversationId: m.conversationId,
-      isRead: m.isRead ?? false,
-      timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
-      editedAt: m.editedAt ? new Date(m.editedAt).toISOString() : null,
-      deletedAt: m.deletedAt ? new Date(m.deletedAt).toISOString() : null,
-      deletedBy: m.deletedBy ?? null,
-      duration: m.duration ?? null,
-      repliedToId: m.repliedToId ?? null,
-      forwardedFromId: m.forwardedFromId ?? null,
-    }));
+    const incoming: NewMessageRow[] = messages.map((m: any) => {
+      const serverId = typeof m.id === 'string' ? m.id : String(m.id ?? '');
+      return {
+        localId: serverId,
+        id: serverId,
+        content: m.content ?? null,
+        mediaUrl: m.mediaUrl ?? null,
+        thumbnailUrl: m.thumbnailUrl ?? null,
+        type: m.type ?? "TEXT",
+        status: m.status ?? (m.senderId === currentUserId ? "SENT" : "DELIVERED"),
+        senderId: m.senderId,
+        receiverId: m.receiverId ?? null,
+        conversationId: m.conversationId,
+        isRead: m.isRead ?? false,
+        timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+        editedAt: m.editedAt ? new Date(m.editedAt).toISOString() : null,
+        deletedAt: m.deletedAt ? new Date(m.deletedAt).toISOString() : null,
+        deletedBy: m.deletedBy ?? null,
+        duration: m.duration ?? null,
+        repliedToId: m.repliedToId ?? null,
+        forwardedFromId: m.forwardedFromId ?? null,
+      };
+    });
 
     return messageStore.saveMany(incoming);
   }
