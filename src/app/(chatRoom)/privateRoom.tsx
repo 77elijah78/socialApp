@@ -138,7 +138,7 @@ export default function PrivateRoom() {
   });
 
   const firstUnreadIndex = messages.findIndex(
-    (m) => m.senderId !== (currentUserId ?? "") && m.status !== "READ"
+    (m) => m.senderId !== (currentUserId ?? "") && m.status !== "READ",
   );
 
   const handleBack = useCallback(() => {
@@ -168,49 +168,63 @@ export default function PrivateRoom() {
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   }, [conversationId, router]);
 
-  const handleMessageAction = useCallback((message: any) => {
-    const isOwn = message.senderId === currentUserId;
-    Alert.alert(
-      "Message options",
-      "Choose an action",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reply",
-          onPress: () => setReplyingTo(message),
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              if (isOwn) {
-                const deleteFor = Alert.alert(
-                  "Delete message",
-                  "Delete for everyone or only for you?",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "For me", onPress: () => mediaService.message.delete(message.id) },
-                    { text: "For everyone", style: "destructive", onPress: () => mediaService.message.delete(message.id, "everyone") },
-                  ],
-                  { cancelable: true }
-                );
-              } else {
-                Alert.alert("Cannot delete", "You can only delete your own messages");
-              }
-            } catch (err) {
-              Alert.alert("Error", "Could not delete message");
-            }
+  const handleMessageAction = useCallback(
+    (message: any) => {
+      const isOwn = message.senderId === currentUserId;
+      Alert.alert(
+        "Message options",
+        "Choose an action",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Reply",
+            onPress: () => setReplyingTo(message),
           },
-        },
-      ],
-      { cancelable: true }
-    );
-  }, [currentUserId]);
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                if (isOwn) {
+                  const deleteFor = Alert.alert(
+                    "Delete message",
+                    "Delete for everyone or only for you?",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "For me",
+                        onPress: () => mediaService.message.delete(message.id),
+                      },
+                      {
+                        text: "For everyone",
+                        style: "destructive",
+                        onPress: () =>
+                          mediaService.message.delete(message.id, "everyone"),
+                      },
+                    ],
+                    { cancelable: true },
+                  );
+                } else {
+                  Alert.alert(
+                    "Cannot delete",
+                    "You can only delete your own messages",
+                  );
+                }
+              } catch (err) {
+                Alert.alert("Error", "Could not delete message");
+              }
+            },
+          },
+        ],
+        { cancelable: true },
+      );
+    },
+    [currentUserId],
+  );
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
@@ -260,11 +274,14 @@ export default function PrivateRoom() {
     }
   }, [firstUnreadIndex]);
 
-  const handleInputChange = useCallback((t: string) => {
-    setRecord(t.length === 0);
-    setInputText(t);
-    onTyping();
-  }, [onTyping]);
+  const handleInputChange = useCallback(
+    (t: string) => {
+      setRecord(t.length === 0);
+      setInputText(t);
+      onTyping();
+    },
+    [onTyping],
+  );
 
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
 
@@ -274,14 +291,19 @@ export default function PrivateRoom() {
     }
   }, [firstUnreadIndex]);
 
-  const handleScroll = useCallback((event: any) => {
-    if (!showJumpToUnread) return;
-    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-    const isNearBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 120;
-    if (isNearBottom && firstUnreadIndex > 0) {
-      setShowJumpToUnread(false);
-    }
-  }, [showJumpToUnread, firstUnreadIndex]);
+  const handleScroll = useCallback(
+    (event: any) => {
+      if (!showJumpToUnread) return;
+      const { layoutMeasurement, contentOffset, contentSize } =
+        event.nativeEvent;
+      const isNearBottom =
+        layoutMeasurement.height + contentOffset.y >= contentSize.height - 120;
+      if (isNearBottom && firstUnreadIndex > 0) {
+        setShowJumpToUnread(false);
+      }
+    },
+    [showJumpToUnread, firstUnreadIndex],
+  );
 
   const dismissKeyboard = useCallback(() => {
     Keyboard.dismiss();
@@ -289,8 +311,10 @@ export default function PrivateRoom() {
   }, []);
 
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const showSub = Keyboard.addListener(showEvent, (e) => {
       Animated.timing(keyboardHeight, {
@@ -338,7 +362,12 @@ export default function PrivateRoom() {
         lastDate = label;
       }
 
-      items.push({ kind: "message", id: m.localId ?? m.id ?? `msg-${idx}`, data: m, index: idx });
+      items.push({
+        kind: "message",
+        id: m.localId ?? m.id ?? `msg-${idx}`,
+        data: m,
+        index: idx,
+      });
     });
 
     return items;
@@ -437,11 +466,13 @@ export default function PrivateRoom() {
         }}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={!isSyncing && messages.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No messages yet</Text>
-          </View>
-        ) : null}
+        ListHeaderComponent={
+          !isSyncing && messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No messages yet</Text>
+            </View>
+          ) : null
+        }
         ListFooterComponent={
           isSyncing ? (
             <View style={styles.loadingMore}>
@@ -449,9 +480,9 @@ export default function PrivateRoom() {
             </View>
           ) : null
         }
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        onScrollBeginDrag={dismissKeyboard}
-        onMomentumScrollBegin={dismissKeyboard}
+        onContentSizeChange={() =>
+          flatListRef.current?.scrollToEnd({ animated: false })
+        }
         onScroll={handleScroll}
         scrollEventThrottle={16}
       />
@@ -470,20 +501,35 @@ export default function PrivateRoom() {
             <View style={styles.replyPreviewLine} />
             <View style={styles.replyPreviewContent}>
               <Text style={styles.replyPreviewName}>
-                {replyingTo.senderId === currentUserId ? "You" : replyingTo.sender?.username ?? "Message"}
+                {replyingTo.senderId === currentUserId
+                  ? "You"
+                  : (replyingTo.sender?.username ?? "Message")}
               </Text>
               <Text style={styles.replyPreviewText} numberOfLines={1}>
-                {replyingTo.content ?? (replyingTo.type === "IMAGE" ? "Photo" : replyingTo.type === "VIDEO" ? "Video" : replyingTo.type === "AUDIO" ? "Voice message" : "Message")}
+                {replyingTo.content ??
+                  (replyingTo.type === "IMAGE"
+                    ? "Photo"
+                    : replyingTo.type === "VIDEO"
+                      ? "Video"
+                      : replyingTo.type === "AUDIO"
+                        ? "Voice message"
+                        : "Message")}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyPreviewClose}>
+            <TouchableOpacity
+              onPress={() => setReplyingTo(null)}
+              style={styles.replyPreviewClose}
+            >
               <Ionicons name="close" size={18} color={theme.COLORS.textMuted} />
             </TouchableOpacity>
           </View>
         )}
 
         <View style={styles.inputRow}>
-          <TouchableOpacity onPress={() => setVisible(true)} style={styles.attachButton}>
+          <TouchableOpacity
+            onPress={() => setVisible(true)}
+            style={styles.attachButton}
+          >
             <Image source={icons.add} style={styles.iconSmall} />
           </TouchableOpacity>
 
@@ -517,7 +563,11 @@ export default function PrivateRoom() {
               />
             </Pressable>
           ) : (
-            <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
+            <TouchableOpacity
+              style={styles.sendButton}
+              onPress={handleSend}
+              disabled={sending}
+            >
               <Image source={icons.send} style={styles.iconSmall} />
             </TouchableOpacity>
           )}
