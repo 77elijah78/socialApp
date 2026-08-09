@@ -52,6 +52,8 @@ interface UseChatReturn {
     mediaUrl: string | null,
     receiverId: string,
   ) => Promise<void>;
+
+  markVisibleRead: (visibleMessageIds: string[]) => void;
 }
 
 export function useChat({
@@ -289,13 +291,6 @@ export function useChat({
        * New message should immediately appear.
        */
       scrollToEnd(true);
-
-      /**
-       * Only received messages are marked read.
-       */
-      if (!isOwnMessage) {
-        await mediaService.message.markRoomAsRead(conversationId);
-      }
     };
 
     const handleDelivered = async ({
@@ -604,14 +599,9 @@ export function useChat({
         /**
          * IMPORTANT:
          *
-         * We mark the conversation read ONCE when the chat
-         * screen has actually initialized.
-         *
-         * We do NOT do this for every message:new event.
+         * We no longer mark the conversation as read here.
+         * Read receipts are now visibility-based.
          */
-        if (!cancelled && mountedRef.current) {
-          await mediaService.message.markRoomAsRead(conversationId);
-        }
       } finally {
         initializingRef.current = false;
 
@@ -661,14 +651,73 @@ export function useChat({
 
   /**
    * ---------------------------------------------------------
-   * MARK AS READ WHEN FOCUSED
+   * VISIBILITY-BASED READ RECEIPTS
    * ---------------------------------------------------------
+   *
+   * We no longer mark the room as read simply because the
+   * screen is focused. Instead, we only mark messages as read
+   * when they are actually visible in the FlatList.
    */
-  useEffect(() => {
-    if (isFocused && conversationId && currentUser.id) {
-      mediaService.message.markRoomAsRead(conversationId);
+  const pendingVisibleReadIdsRef = useRef<Set<string>>(new Set());
+  const visibleReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markVisibleRead = useCallback((visibleMessageIds: string[]) => {
+    for (const id of visibleMessageIds) {
+      pendingVisibleReadIdsRef.current.add(id);
     }
-  }, [isFocused, conversationId, currentUser.id]);
+
+    if (visibleReadTimerRef.current) {
+      clearTimeout(visibleReadTimerRef.current);
+    }
+
+    visibleReadTimerRef.current = setTimeout(async () => {
+      const ids = Array.from(pendingVisibleReadIdsRef.current);
+      pendingVisibleReadIdsRef.current.clear();
+
+      if (!conversationId || !currentUserIdRef.current || ids.length === 0) {
+        return;
+      }
+
+      const localMessages = await messageStore.getByRoom(conversationId);
+
+      const toRead = localMessages.filter((msg) => {
+        const msgId = String(msg.id ?? msg.localId ?? "");
+        const isVisible = ids.includes(msgId);
+        const isReceived = String(msg.senderId ?? "") !== currentUserIdRef.current;
+        const isUnread = !msg.isRead;
+        const hasId = Boolean(msg.id ?? msg.localId);
+        return isVisible && isReceived && isUnread && hasId;
+      });
+
+      if (toRead.length === 0) {
+        return;
+      }
+
+      const readIds = toRead.map((m) => m.id ?? m.localId!).filter(Boolean) as string[];
+
+      setMessages((prev) =>
+        prev.map((message) => {
+          const key = String(message.id ?? message.localId ?? "");
+          if (!readIds.includes(key)) {
+            return message;
+          }
+          return { ...message, status: "READ" as const, isRead: true };
+        }),
+      );
+
+      try {
+        await Promise.all(
+          toRead.map((m) => messageStore.markRead(m.id ?? m.localId!, conversationId)),
+        );
+
+        for (const m of toRead) {
+          socketReceiver.emitMessageRead(conversationId, m.id ?? m.localId!);
+        }
+      } catch (error) {
+        console.warn("[useChat] visibility read persist failed:", error);
+      }
+    }, 500);
+  }, [conversationId]);
 
   /**
    * ---------------------------------------------------------
@@ -908,5 +957,7 @@ export function useChat({
     flatListRef,
 
     sendMedia,
+
+    markVisibleRead,
   };
 }

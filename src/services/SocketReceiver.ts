@@ -623,6 +623,13 @@ export class SocketReceiver {
     });
   }
 
+  emitMessageRead(conversationId: string, messageId: string): void {
+    this.socket?.emit("message:read", {
+      conversationId,
+      messageId,
+    });
+  }
+
   // =========================================================
   // APPLICATION LISTENERS
   // =========================================================

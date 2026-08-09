@@ -138,6 +138,7 @@ export default function PrivateRoom() {
     isSyncing,
     loadMore,
     replyMsg,
+    markVisibleRead,
   } = useChat({
     roomId,
     conversationId,
@@ -314,6 +315,27 @@ export default function PrivateRoom() {
       }
     },
     [showJumpToUnread, firstUnreadIndex],
+  );
+
+  const viewabilityConfig = useMemo(
+    () => ({
+      itemVisiblePercentThreshold: 50,
+      minimumViewTime: 300,
+    }),
+    [],
+  );
+
+  const handleViewableItemsChanged = useCallback(
+    ({ changed }: { changed: any[] }) => {
+      const visibleMessageIds = changed
+        .filter((c) => c.isViewable && c.item?.kind === "message")
+        .map((c) => c.item.id);
+
+      if (visibleMessageIds.length > 0 && markVisibleRead) {
+        markVisibleRead(visibleMessageIds);
+      }
+    },
+    [markVisibleRead],
   );
 
   const dismissKeyboard = useCallback(() => {
@@ -525,6 +547,8 @@ export default function PrivateRoom() {
         }
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        onViewableItemsChanged={handleViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
       />
 
       {/* FLOATING INPUT */}
