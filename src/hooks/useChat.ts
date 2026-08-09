@@ -67,6 +67,44 @@ export function useChat({
 
   const flatListRef = useRef<FlatList | null>(null);
 
+  const updateMessageStatus = useCallback(
+    (messageId: string, status: "DELIVERED" | "READ") => {
+      setMessages((previousMessages) =>
+        previousMessages.map((message) => {
+          const matches =
+            message.id === messageId || message.localId === messageId;
+
+          if (!matches) {
+            return message;
+          }
+
+          return {
+            ...message,
+            status,
+            ...(status === "READ" ? { isRead: true } : {}),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const updateAllOwnMessagesAsRead = useCallback(() => {
+    setMessages((previousMessages) =>
+      previousMessages.map((message) => {
+        if (message.senderId !== currentUserIdRef.current) {
+          return message;
+        }
+
+        return {
+          ...message,
+          status: "READ" as const,
+          isRead: true,
+        };
+      }),
+    );
+  }, []);
+
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -267,17 +305,45 @@ export function useChat({
       messageId: string;
       conversationId: string;
     }) => {
-      if (cancelled || !mountedRef.current) return;
+      if (cancelled || !mountedRef.current) {
+        return;
+      }
 
-      if (cid !== conversationId) return;
+      if (cid !== conversationId) {
+        return;
+      }
 
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId || msg.localId === messageId
-            ? { ...msg, status: "DELIVERED" as const }
-            : msg,
-        ),
-      );
+      if (!messageId) {
+        return;
+      }
+
+      console.log("[useChat] message:delivered received", {
+        messageId,
+        conversationId: cid,
+      });
+
+      try {
+        /**
+         * Persist first so a later reload() does not restore
+         * the previous status from SQLite.
+         */
+        await messageStore.markDelivered(messageId, conversationId);
+      } catch (error) {
+        console.warn("[useChat] failed to persist delivered status", {
+          messageId,
+          conversationId,
+          error,
+        });
+      }
+
+      if (cancelled || !mountedRef.current) {
+        return;
+      }
+
+      /**
+       * Update the visible UI immediately.
+       */
+      updateMessageStatus(messageId, "DELIVERED");
     };
 
     const handleRead = async ({
@@ -295,21 +361,61 @@ export function useChat({
         return;
       }
 
-      setMessages((prev) =>
-        prev.map((msg) => {
-          if (messageId) {
-            return msg.id === messageId || msg.localId === messageId
-              ? { ...msg, status: "READ" as const, isRead: true }
-              : msg;
-          }
+      /**
+       * The backend sent a receipt for one specific message.
+       */
+      if (messageId) {
+        console.log("[useChat] message:read received", {
+          messageId,
+          conversationId: cid,
+        });
 
-          if (msg.senderId === currentUserIdRef.current) {
-            return { ...msg, status: "READ" as const, isRead: true };
-          }
+        try {
+          /**
+           * Persist first so reload() keeps the new status.
+           */
+          await messageStore.markRead(messageId, conversationId);
+        } catch (error) {
+          console.warn("[useChat] failed to persist read status", {
+            messageId,
+            conversationId,
+            error,
+          });
+        }
 
-          return msg;
-        }),
-      );
+        if (cancelled || !mountedRef.current) {
+          return;
+        }
+
+        updateMessageStatus(messageId, "READ");
+        return;
+      }
+
+      /**
+       * No messageId means the backend considers all messages
+       * sent by the current user in this room as read.
+       */
+      console.log("[useChat] room read receipt received", {
+        conversationId: cid,
+      });
+
+      try {
+        await messageStore.markSentMessagesAsRead(
+          conversationId,
+          currentUserIdRef.current,
+        );
+      } catch (error) {
+        console.warn("[useChat] failed to persist room read status", {
+          conversationId,
+          error,
+        });
+      }
+
+      if (cancelled || !mountedRef.current) {
+        return;
+      }
+
+      updateAllOwnMessagesAsRead();
     };
 
     const handleDeleted = async ({
@@ -543,7 +649,15 @@ export function useChat({
 
       setTyping(null);
     };
-  }, [conversationId, currentUser.id, currentUser.token, reload, scrollToEnd]);
+  }, [
+    conversationId,
+    currentUser.id,
+    currentUser.token,
+    reload,
+    scrollToEnd,
+    updateMessageStatus,
+    updateAllOwnMessagesAsRead,
+  ]);
 
   /**
    * ---------------------------------------------------------

@@ -10,6 +10,17 @@ function uid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function statusRank(status: string): number {
+  const s = String(status ?? "").toUpperCase();
+  if (s === "READ") return 3;
+  if (s === "DELIVERED") return 2;
+  return 1;
+}
+
+function newerStatus(localStatus: string, serverStatus: string): string {
+  return statusRank(localStatus) >= statusRank(serverStatus) ? localStatus : serverStatus;
+}
+
 interface SendMeta {
   senderId: string;
   receiverId: string | null;
@@ -159,8 +170,21 @@ export class MessageService extends BaseUploader {
 
     const messages = Array.isArray(data) ? data : data.messages ?? data.data ?? [];
 
+    const existing = await messageStore.getByRoom(conversationId);
+    const statusByKey = new Map<string, string>();
+    for (const row of existing) {
+      const key = String(row.id ?? row.localId ?? "");
+      if (key) {
+        statusByKey.set(key, String(row.status ?? "SENT").toUpperCase());
+      }
+    }
+
     const incoming: NewMessageRow[] = messages.map((m: any) => {
       const serverId = typeof m.id === 'string' ? m.id : String(m.id ?? '');
+      const serverStatus = String(m.status ?? (m.senderId === currentUserId ? "SENT" : "DELIVERED")).toUpperCase();
+      const localStatus = statusByKey.get(serverId);
+      const finalStatus = localStatus ? newerStatus(localStatus, serverStatus) : serverStatus;
+
       return {
         localId: serverId,
         id: serverId,
@@ -168,7 +192,7 @@ export class MessageService extends BaseUploader {
         mediaUrl: m.mediaUrl ?? null,
         thumbnailUrl: m.thumbnailUrl ?? null,
         type: m.type ?? "TEXT",
-        status: m.status ?? (m.senderId === currentUserId ? "SENT" : "DELIVERED"),
+        status: finalStatus,
         senderId: m.senderId,
         receiverId: m.receiverId ?? null,
         conversationId: m.conversationId,
