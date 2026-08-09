@@ -26,16 +26,27 @@ function StatusCheckmarks({
 }) {
   if (!isSent) return null;
 
-  const color =
-    status === "READ" ? theme.COLORS.textTimeRead : theme.COLORS.textTimeRead;
+  if (status === "READ") {
+    return (
+      <View style={{ flexDirection: "row", marginLeft: 4 }}>
+        <Ionicons name="checkmark-sharp" size={12} color="#2196F3" />
+        <Ionicons name="checkmark-sharp" size={12} color="#2196F3" style={{ marginLeft: -6 }} />
+      </View>
+    );
+  }
 
-  const marks = status === "READ" || status === "DELIVERED" ? 2 : 1;
+  if (status === "DELIVERED") {
+    return (
+      <View style={{ flexDirection: "row", marginLeft: 4 }}>
+        <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
+        <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" style={{ marginLeft: -6 }} />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flexDirection: "row", marginLeft: 4 }}>
-      {Array.from({ length: marks }).map((_, i) => (
-        <Ionicons key={i} name="checkmark-sharp" size={12} color={color} />
-      ))}
+      <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
     </View>
   );
 }
@@ -155,14 +166,22 @@ export default function MessageCard({
                     resizeMode="contain"
                     onLoad={(e) =>
                       setAspectRatio(
-                        e.nativeEvent.source.width / e.nativeEvent.source.height,
+                        e.nativeEvent.source.width /
+                          e.nativeEvent.source.height,
                       )
                     }
                   />
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
-                <Ionicons name="download-outline" size={18} color={theme.COLORS.textWhite} />
+              <TouchableOpacity
+                style={styles.downloadButton}
+                onPress={handleDownload}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={18}
+                  color={theme.COLORS.textWhite}
+                />
               </TouchableOpacity>
             </View>
           )}
@@ -175,8 +194,15 @@ export default function MessageCard({
                 thumbnail=""
                 borderRadius={theme.BORDER_RADIUS.lg}
               />
-              <TouchableOpacity style={styles.downloadButtonOverlay} onPress={handleDownload}>
-                <Ionicons name="download-outline" size={22} color={theme.COLORS.textWhite} />
+              <TouchableOpacity
+                style={styles.downloadButtonOverlay}
+                onPress={handleDownload}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={22}
+                  color={theme.COLORS.textWhite}
+                />
               </TouchableOpacity>
             </View>
           )}
@@ -184,8 +210,15 @@ export default function MessageCard({
           {type === "audio/mpeg" && (
             <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
               <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
-              <TouchableOpacity style={styles.downloadButtonOverlay} onPress={handleDownload}>
-                <Ionicons name="download-outline" size={22} color={theme.COLORS.textWhite} />
+              <TouchableOpacity
+                style={styles.downloadButtonOverlay}
+                onPress={handleDownload}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={22}
+                  color={theme.COLORS.textWhite}
+                />
               </TouchableOpacity>
             </View>
           )}
