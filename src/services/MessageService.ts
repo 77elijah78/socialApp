@@ -205,11 +205,31 @@ export class MessageService extends BaseUploader {
   }
 
   async markRoomAsRead(conversationId: string) {
-    return messageStore.markRoomAsRead(conversationId, Date.now());
+    await messageStore.markRoomAsRead(conversationId, Date.now());
+
+    try {
+      await api.post(
+        `/messages/conversations/${encodeURIComponent(conversationId)}/read`,
+        {},
+        this.authToken ?? undefined,
+      );
+    } catch (err) {
+      console.log(err);
+    }
   }
 
   async markDelivered(messageId: string, conversationId: string) {
-    return messageStore.markDelivered(messageId, conversationId);
+    await messageStore.markDelivered(messageId, conversationId);
+
+    try {
+      await api.post(
+        `/messages/delivered`,
+        { messageIds: [messageId] },
+        this.authToken ?? undefined,
+      );
+    } catch (err) {
+      console.log(err);
+    }
   }
 
   async deleteConversation(conversationId: string) {

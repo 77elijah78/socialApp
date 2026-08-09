@@ -1,6 +1,5 @@
 import { io, Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
-import { NewMessageRow } from "../db/schema";
 import { roomStore } from "@/db/RoomStore";
 
 type Listener = (data?: any) => void;
@@ -9,254 +8,667 @@ function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
+
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export class SocketReceiver {
   public socket: Socket | null = null;
+
   private listeners: Map<string, Set<Listener>> = new Map();
+
   private readonly baseUrl: string;
-  private currentUserId: string = "";
-  private processedMessageIds: Set<string> = new Set();
+
+  private currentUserId = "";
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
   }
 
-  connect(userId: string, authToken: string): void {
-    if (this.socket?.connected) return;
+  // =========================================================
+  // CONNECT
+  // =========================================================
 
+  connect(userId: string, authToken: string): void {
     this.currentUserId = userId;
+
+    /**
+     * Already connected.
+     */
+    if (this.socket?.connected) {
+      return;
+    }
+
+    /**
+     * Socket exists but is currently reconnecting.
+     * Don't create another socket.
+     */
+    if (this.socket) {
+      return;
+    }
 
     this.socket = io(this.baseUrl, {
       auth: {
         token: authToken,
       },
+
       transports: ["websocket"],
+
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1500,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
 
     this.bindCoreEvents(userId);
   }
 
+  // =========================================================
+  // DISCONNECT
+  // =========================================================
+
   disconnect(): void {
+    this.socket?.removeAllListeners();
     this.socket?.disconnect();
+
     this.socket = null;
-    this.listeners.clear();
-    this.processedMessageIds.clear();
+
+    /**
+     * Don't clear application listeners here.
+     *
+     * useChat owns those listeners and will unsubscribe
+     * when its screen is destroyed.
+     */
+    this.currentUserId = "";
   }
 
+  // =========================================================
+  // ROOM
+  // =========================================================
+
   joinRoom(conversationId: string): void {
-    this.socket?.emit("conversation:join", conversationId);
+    if (!this.socket) {
+      return;
+    }
+
+    if (!this.socket.connected) {
+      return;
+    }
+
+    this.socket.emit("conversation:join", conversationId);
   }
 
   leaveRoom(conversationId: string): void {
-    this.socket?.emit("conversation:leave", conversationId);
+    if (!this.socket) {
+      return;
+    }
+
+    this.socket.emit("conversation:leave", conversationId);
   }
 
+  // =========================================================
+  // CONVERSATION DELETE
+  // =========================================================
+
   emitConversationDelete(conversationId: string): void {
-    this.socket?.emit("conversation:delete", { conversationId });
+    this.socket?.emit("conversation:delete", {
+      conversationId,
+    });
   }
+
+  // =========================================================
+  // CONNECTION STATE
+  // =========================================================
 
   get isConnected(): boolean {
     return this.socket?.connected ?? false;
   }
 
+  // =========================================================
+  // CORE SOCKET EVENTS
+  // =========================================================
+
   private bindCoreEvents(currentUserId: string): void {
-    const s = this.socket!;
+    const s = this.socket;
+
+    if (!s) {
+      return;
+    }
+
     this.currentUserId = currentUserId;
 
+    // -------------------------------------------------------
+    // CONNECT
+    // -------------------------------------------------------
+
     s.on("connect", () => {
+      console.log("[SocketReceiver] connected:", s.id);
+
       this.emit("connect");
+
+      /**
+       * Rejoin personal room.
+       */
+      s.emit("presence:join-personal");
     });
 
+    // -------------------------------------------------------
+    // DISCONNECT
+    // -------------------------------------------------------
+
     s.on("disconnect", (reason: string) => {
+      console.log("[SocketReceiver] disconnected:", reason);
+
       this.emit("disconnect", reason);
     });
 
+    // -------------------------------------------------------
+    // CONNECT ERROR
+    // -------------------------------------------------------
+
     s.on("connect_error", (err: Error) => {
+      console.warn("[SocketReceiver] connect error:", err.message);
+
       this.emit("error", err.message);
     });
 
-    // ── New message via WebSocket ──
+    // =======================================================
+    // NEW MESSAGE
+    // =======================================================
+
     s.on("message:new", async (payload: any) => {
-      // Deduplicate: ignore if we've already processed this message ID
-      const messageId = payload.id;
-      if (messageId && this.processedMessageIds.has(messageId)) {
-        return;
-      }
-      if (messageId) {
-        this.processedMessageIds.add(messageId);
-        // Limit the set size to prevent memory leaks
-        if (this.processedMessageIds.size > 1000) {
-          const first = this.processedMessageIds.values().next().value;
-          if (first) this.processedMessageIds.delete(first);
-        }
-      }
+      try {
+        console.log("[SocketReceiver] message:new", payload?.id);
 
-      const message = await this.normalize(payload, currentUserId);
-      if (message.senderId !== currentUserId) {
-        await messageStore.saveReceived(message);
+        const message = await this.normalize(payload, currentUserId);
+
+        /**
+         * IMPORTANT:
+         *
+         * Always let MessageStore decide whether this
+         * message already exists.
+         *
+         * Do NOT use processedMessageIds here.
+         *
+         * message:notification and message:new may
+         * represent the same server message.
+         */
+
+        if (message.senderId !== currentUserId) {
+          await messageStore.saveReceived(message);
+        }
+
+        /**
+         * Immediately notify useChat.
+         */
+        this.emit("message:new", message);
+      } catch (error) {
+        console.error("[SocketReceiver] message:new error:", error);
       }
-      this.emit("message:new", message);
     });
 
-    // ── Push notification when not in the chat room ──
+    // =======================================================
+    // MESSAGE NOTIFICATION
+    // =======================================================
+
     s.on("message:notification", async (payload: any) => {
-      const messageId = payload.id;
-      if (messageId && this.processedMessageIds.has(messageId)) {
-        return;
-      }
-      if (messageId) {
-        this.processedMessageIds.add(messageId);
-        if (this.processedMessageIds.size > 1000) {
-          const first = this.processedMessageIds.values().next().value;
-          if (first) this.processedMessageIds.delete(first);
+      try {
+        console.log("[SocketReceiver] message:notification", payload?.id);
+
+        /**
+         * Update room information.
+         */
+        const existing = await roomStore.findRoom(payload.conversationId);
+
+        if (!existing || existing.length === 0) {
+          const room = {
+            id: uid(),
+
+            name:
+              payload.sender?.username ?? payload.senderUsername ?? "Unknown",
+
+            conversationId: payload.conversationId,
+
+            avatarUrl: payload.sender?.avatarUrl ?? payload.avatarUrl ?? "",
+
+            lastMessage: payload.content ?? payload.text ?? "",
+
+            lastMessageTimestamp: payload.createdAt
+              ? new Date(payload.createdAt).getTime()
+              : Date.now(),
+
+            lastMessageType: payload.type ?? "TEXT",
+
+            unreadCount: 1,
+
+            receiverId: payload.senderId,
+          };
+
+          await roomStore.addRoom(room);
         }
-      }
 
-      const existing = await roomStore.findRoom(payload.conversationId);
-      if (!existing || existing.length === 0) {
-        const localId = uid();
-        const room = {
-          id: localId,
-          name: payload.sender?.username ?? payload.senderUsername ?? "Unknown",
-          conversationId: payload.conversationId,
-          avatarUrl: payload.sender?.avatarUrl ?? payload.avatarUrl ?? "",
-          lastMessage: payload.content ?? "",
-          lastMessageTimestamp: Date.now(),
-          lastMessageType: payload.type ?? "TEXT",
-          unreadCount: 1,
-          receiverId: payload.senderId,
-        };
-        await roomStore.addRoom(room);
-      }
-      const message = await this.normalize(payload, currentUserId);
-      await messageStore.saveReceived(message);
-      this.emit("message:notification", message);
-    });
+        /**
+         * Normalize and save.
+         */
+        const message = await this.normalize(payload, currentUserId);
 
-    // ── Delivery receipt ──
-    s.on("message:delivered", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
-      await messageStore.markDelivered(messageId, conversationId);
-      this.emit("message:delivered", { messageId, conversationId });
-    });
+        /**
+         * saveReceived must be idempotent.
+         */
+        if (message.senderId !== currentUserId) {
+          await messageStore.saveReceived(message);
+        }
 
-    // ── Read receipt ──
-    s.on("message:read", async ({ conversationId, userId }: { conversationId: string; userId: string }) => {
-      if (userId !== currentUserId) {
-        await messageStore.markRoomAsRead(conversationId, Date.now());
-      }
-      this.emit("message:read", { conversationId, userId });
-    });
+        /**
+         * Notify notification listeners.
+         */
+        this.emit("message:notification", message);
 
-    // ── Remote delete (everywhere) ──
-    s.on("message:deleted", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
-      await messageStore.deleteOne(messageId);
-      this.emit("message:deleted", { messageId, conversationId });
-    });
-
-    // ── Delete for me only ──
-    s.on("message:deleted-for-me", async ({ messageId, conversationId }: { messageId: string; conversationId: string }) => {
-      await messageStore.deleteOne(messageId);
-      this.emit("message:deleted-for-me", { messageId, conversationId });
-    });
-
-    // ── Remote edit ──
-    s.on("message:edited", async ({ messageId, conversationId, content }: { messageId: string; conversationId: string; content: string }) => {
-      await messageStore.editText(messageId, content);
-      this.emit("message:edited", { messageId, conversationId, content });
-    });
-
-    // ── Typing indicators ──
-    // Backend emits a single "message:typing" event with isTyping boolean.
-    // We translate it to internal "typing:start" / "typing:stop" events.
-    s.on("message:typing", ({ userId, conversationId, isTyping }: { userId: string; conversationId: string; isTyping: boolean }) => {
-      if (isTyping) {
-        this.emit("typing:start", { userId, conversationId });
-      } else {
-        this.emit("typing:stop", { userId, conversationId });
+        /**
+         * IMPORTANT FIX:
+         *
+         * Also notify chat listeners.
+         *
+         * Previously message:notification added the
+         * message ID to processedMessageIds, causing
+         * message:new to be ignored.
+         *
+         * Now the chat gets the message immediately.
+         */
+        this.emit("message:new", message);
+      } catch (error) {
+        console.error("[SocketReceiver] notification error:", error);
       }
     });
 
-    // ── Presence ──
-    s.on("presence:online", ({ userId, username }: { userId: string; username: string }) => {
-      this.emit("presence:online", { userId, username });
-    });
+    // =======================================================
+    // DELIVERED
+    // =======================================================
 
-    s.on("presence:offline", ({ userId, lastSeen }: { userId: string; lastSeen: string }) => {
-      this.emit("presence:offline", { userId, lastSeen });
-    });
+    s.on(
+      "message:delivered",
+      async ({
+        messageId,
+        conversationId,
+      }: {
+        messageId: string;
+        conversationId: string;
+      }) => {
+        try {
+          console.log("[SocketReceiver] message:delivered", messageId);
 
-    s.on("conversation:deleted", ({ conversationId }: { conversationId: string }) => {
-      this.emit("conversation:deleted", { conversationId });
-    });
+          /**
+           * Update the exact message.
+           */
+          await messageStore.markDelivered(messageId, conversationId);
 
-    // Auto-join personal room for push notifications
+          /**
+           * Immediately update useChat.
+           */
+          this.emit("message:delivered", {
+            messageId,
+            conversationId,
+          });
+        } catch (error) {
+          console.error("[SocketReceiver] delivered error:", error);
+        }
+      },
+    );
+
+    // =======================================================
+    // READ
+    // =======================================================
+
+    s.on(
+      "message:read",
+      async ({
+        conversationId,
+        userId,
+        messageId,
+      }: {
+        conversationId: string;
+        userId: string;
+        messageId?: string;
+      }) => {
+        try {
+          console.log("[SocketReceiver] message:read", {
+            conversationId,
+            userId,
+            messageId,
+          });
+
+          /**
+           * IMPORTANT:
+           *
+           * userId is the person who READ the message.
+           *
+           * If userId !== currentUserId, then another
+           * person read OUR message.
+           *
+           * Therefore mark OUR SENT message as READ.
+           */
+          if (userId !== currentUserId) {
+            if (messageId) {
+              /**
+               * Prefer exact message when backend
+               * provides messageId.
+               */
+              await messageStore.markRead(messageId, conversationId);
+            }
+          }
+
+          /**
+           * Notify useChat immediately.
+           */
+          this.emit("message:read", {
+            messageId,
+            conversationId,
+            userId,
+          });
+        } catch (error) {
+          console.error("[SocketReceiver] read error:", error);
+        }
+      },
+    );
+
+    // =======================================================
+    // REMOTE DELETE
+    // =======================================================
+
+    s.on(
+      "message:deleted",
+      async ({
+        messageId,
+        conversationId,
+      }: {
+        messageId: string;
+        conversationId: string;
+      }) => {
+        try {
+          await messageStore.deleteOne(messageId);
+
+          this.emit("message:deleted", {
+            messageId,
+            conversationId,
+          });
+        } catch (error) {
+          console.error("[SocketReceiver] delete error:", error);
+        }
+      },
+    );
+
+    // =======================================================
+    // DELETE FOR ME
+    // =======================================================
+
+    s.on(
+      "message:deleted-for-me",
+      async ({
+        messageId,
+        conversationId,
+      }: {
+        messageId: string;
+        conversationId: string;
+      }) => {
+        try {
+          await messageStore.deleteOne(messageId);
+
+          this.emit("message:deleted-for-me", {
+            messageId,
+            conversationId,
+          });
+        } catch (error) {
+          console.error("[SocketReceiver] delete-for-me error:", error);
+        }
+      },
+    );
+
+    // =======================================================
+    // EDIT
+    // =======================================================
+
+    s.on(
+      "message:edited",
+      async ({
+        messageId,
+        conversationId,
+        content,
+      }: {
+        messageId: string;
+        conversationId: string;
+        content: string;
+      }) => {
+        try {
+          await messageStore.editText(messageId, content);
+
+          this.emit("message:edited", {
+            messageId,
+            conversationId,
+            content,
+          });
+        } catch (error) {
+          console.error("[SocketReceiver] edit error:", error);
+        }
+      },
+    );
+
+    // =======================================================
+    // TYPING
+    // =======================================================
+
+    s.on(
+      "message:typing",
+      ({
+        userId,
+        conversationId,
+        isTyping,
+      }: {
+        userId: string;
+        conversationId: string;
+        isTyping: boolean;
+      }) => {
+        if (userId === currentUserId) {
+          return;
+        }
+
+        if (isTyping) {
+          this.emit("typing:start", {
+            userId,
+            conversationId,
+          });
+        } else {
+          this.emit("typing:stop", {
+            userId,
+            conversationId,
+          });
+        }
+      },
+    );
+
+    // =======================================================
+    // PRESENCE
+    // =======================================================
+
+    s.on(
+      "presence:online",
+      ({ userId, username }: { userId: string; username: string }) => {
+        this.emit("presence:online", {
+          userId,
+          username,
+        });
+      },
+    );
+
+    s.on(
+      "presence:offline",
+      ({ userId, lastSeen }: { userId: string; lastSeen: string }) => {
+        this.emit("presence:offline", {
+          userId,
+          lastSeen,
+        });
+      },
+    );
+
+    // =======================================================
+    // CONVERSATION DELETED
+    // =======================================================
+
+    s.on(
+      "conversation:deleted",
+      ({ conversationId }: { conversationId: string }) => {
+        this.emit("conversation:deleted", {
+          conversationId,
+        });
+      },
+    );
+
+    /**
+     * Join personal notification room.
+     */
     s.emit("presence:join-personal");
   }
 
-  // ─── Normalize payload → SQLite row shape ──
+  // =========================================================
+  // NORMALIZE
+  // =========================================================
 
-  private async normalize(payload: any, currentUserId: string): Promise<NewMessageRow> {
+  private async normalize(payload: any, currentUserId: string): Promise<any> {
     const senderId = payload.senderId ?? payload.sender?.id;
+
     const content = payload.content ?? payload.text ?? null;
+
     const type = payload.type ?? "TEXT";
+
     const mediaUrl = payload.mediaUrl ?? null;
+
     const thumbnailUrl = payload.thumbnailUrl ?? null;
+
     const createdAt = payload.createdAt ?? payload.timestamp ?? Date.now();
-    const timestamp = typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+
+    const timestamp =
+      typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+
     const serverId = payload.id;
 
+    /**
+     * Find existing local message.
+     */
     let localId = serverId ?? `${senderId}-${timestamp}`;
+
     if (serverId) {
       const existing = await messageStore.getById(serverId);
-      if (existing) localId = existing.localId;
+
+      if (existing) {
+        localId = existing.localId;
+      }
     }
 
     return {
       localId,
+
       id: serverId ?? localId,
+
       content,
+
       mediaUrl,
+
       thumbnailUrl,
+
       type,
+
       status: senderId === currentUserId ? "SENT" : "DELIVERED",
+
       senderId,
-      receiverId: senderId === currentUserId ? payload.receiverId ?? null : currentUserId,
+
+      receiverId:
+        senderId === currentUserId
+          ? (payload.receiverId ?? null)
+          : currentUserId,
+
       conversationId: payload.conversationId,
+
       isRead: senderId !== currentUserId ? false : true,
+
       timestamp,
+
       editedAt: payload.editedAt ?? null,
+
       deletedAt: payload.deletedAt ?? null,
+
       deletedBy: payload.deletedBy ?? null,
+
       duration: payload.duration ?? null,
+
       repliedToId: payload.repliedToId ?? null,
+
       forwardedFromId: payload.forwardedFromId ?? null,
     };
   }
 
-  emitTypingStart(conversationId: string, senderId: string): void {
-    this.socket?.emit("message:typing", { conversationId, isTyping: true });
+  // =========================================================
+  // TYPING
+  // =========================================================
+
+  emitTypingStart(conversationId: string, _senderId: string): void {
+    this.socket?.emit("message:typing", {
+      conversationId,
+      isTyping: true,
+    });
   }
 
-  emitTypingStop(conversationId: string, senderId: string): void {
-    this.socket?.emit("message:typing", { conversationId, isTyping: false });
+  emitTypingStop(conversationId: string, _senderId: string): void {
+    this.socket?.emit("message:typing", {
+      conversationId,
+      isTyping: false,
+    });
   }
+
+  // =========================================================
+  // APPLICATION LISTENERS
+  // =========================================================
 
   on(event: string, cb: Listener): () => void {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
-    this.listeners.get(event)!.add(cb);
-    return () => this.listeners.get(event)?.delete(cb);
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+
+    const listeners = this.listeners.get(event)!;
+
+    listeners.add(cb);
+
+    return () => {
+      listeners.delete(cb);
+
+      if (listeners.size === 0) {
+        this.listeners.delete(event);
+      }
+    };
   }
 
   private emit(event: string, data?: any): void {
-    this.listeners.get(event)?.forEach((cb) => cb(data));
+    const listeners = this.listeners.get(event);
+
+    if (!listeners) {
+      return;
+    }
+
+    /**
+     * Copy the set before iterating.
+     *
+     * This prevents unsubscribe operations during
+     * callbacks from affecting the current iteration.
+     */
+    [...listeners].forEach((cb) => {
+      try {
+        cb(data);
+      } catch (error) {
+        console.error(`[SocketReceiver] listener "${event}" error:`, error);
+      }
+    });
   }
 }
 
-const SOCKET_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000";
+const SOCKET_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000";
 
 export const socketReceiver = new SocketReceiver(SOCKET_BASE_URL);
