@@ -17,9 +17,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useFocusEffect } from "expo-router";
 import ChatHeader from "@/components/chat/ChatHeader";
-import { Ionicons } from "@expo/vector-icons";
 import MessageCard from "@/components/messages/MessageCard";
+import { MessageCardProps } from "@/types";
+import { Ionicons } from "@expo/vector-icons";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
 import theme from "@/constants/theme";
@@ -117,6 +119,14 @@ export default function PrivateRoom() {
 
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, []),
+  );
 
   const {
     messages,
@@ -131,6 +141,7 @@ export default function PrivateRoom() {
   } = useChat({
     roomId,
     conversationId,
+    isFocused,
     currentUser: {
       id: currentUserId ?? "",
       token: currentUserToken ?? "",
@@ -351,6 +362,12 @@ export default function PrivateRoom() {
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     let lastDate = "";
 
+    const messageMap = new Map<string, any>();
+    messages.forEach((m) => {
+      if (m.id) messageMap.set(m.id, m);
+      if (m.localId) messageMap.set(m.localId, m);
+    });
+
     messages.forEach((m, idx) => {
       const ts = new Date(m.timestamp).toDateString();
       let label = ts;
@@ -362,16 +379,39 @@ export default function PrivateRoom() {
         lastDate = label;
       }
 
+      let repliedTo: MessageCardProps["repliedTo"] | undefined;
+      if (m.repliedToId) {
+        const replied = messageMap.get(m.repliedToId);
+        if (replied) {
+          repliedTo = {
+            id: replied.id ?? replied.localId ?? m.repliedToId,
+            content: replied.content ?? "",
+            senderId: replied.senderId,
+            type: replied.type ?? "TEXT",
+            sender: replied.senderId
+              ? { username: replied.senderId === currentUserId ? "You" : "User", avatarUrl: "" }
+              : undefined,
+          };
+        } else {
+          repliedTo = {
+            id: m.repliedToId,
+            content: "Message",
+            senderId: "",
+            type: "TEXT",
+          };
+        }
+      }
+
       items.push({
         kind: "message",
         id: m.localId ?? m.id ?? `msg-${idx}`,
-        data: m,
+        data: { ...m, repliedTo },
         index: idx,
       });
     });
 
     return items;
-  }, [messages]);
+  }, [messages, currentUserId]);
 
   const renderItem = useCallback(
     ({ item }: { item: MessageItem }) => {
