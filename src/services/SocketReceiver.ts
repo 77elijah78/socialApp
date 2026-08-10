@@ -21,6 +21,8 @@ export class SocketReceiver {
 
   private currentUserId = "";
 
+  private deliveredAckSet = new Set<string>();
+
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
   }
@@ -196,6 +198,17 @@ export class SocketReceiver {
 
         if (message.senderId !== currentUserId) {
           await messageStore.saveReceived(message);
+
+          const messageId = String(message.id ?? message.localId ?? "");
+
+          if (messageId && !this.deliveredAckSet.has(messageId)) {
+            this.deliveredAckSet.add(messageId);
+
+            this.socket?.emit("message:delivered", {
+              conversationId: message.conversationId,
+              messageIds: [messageId],
+            });
+          }
         }
 
         /**
@@ -627,6 +640,13 @@ export class SocketReceiver {
     this.socket?.emit("message:read", {
       conversationId,
       messageId,
+    });
+  }
+
+  emitMessageDelivered(conversationId: string, messageId: string): void {
+    this.socket?.emit("message:delivered", {
+      conversationId,
+      messageIds: [messageId],
     });
   }
 

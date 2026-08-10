@@ -411,7 +411,10 @@ export default function PrivateRoom() {
             senderId: replied.senderId,
             type: replied.type ?? "TEXT",
             sender: replied.senderId
-              ? { username: replied.senderId === currentUserId ? "You" : "User", avatarUrl: "" }
+              ? {
+                  username: replied.senderId === currentUserId ? "You" : "User",
+                  avatarUrl: "",
+                }
               : undefined,
           };
         } else {
@@ -463,7 +466,7 @@ export default function PrivateRoom() {
             message={m.content}
             time={m.timestamp}
             sender=""
-            isRead={m.isRead}
+            isRead={m.isRead === true || m.status === "READ"}
             isSent={isSent}
             status={m.status ?? "SENT"}
             type={getMessageType(m.type)}
@@ -520,6 +523,7 @@ export default function PrivateRoom() {
         ref={flatListRef}
         style={{ flex: 1 }}
         data={flatData}
+        extraData={messages}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
