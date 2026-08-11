@@ -1,8 +1,8 @@
 import { db } from "./db";
-import { messages, MessageRow } from "./schema";
+import { messages, MessageRow, rooms, RoomRow } from "./schema";
 import { eq, and, lte, or } from "drizzle-orm";
 
-type StatusValue = "SENDING" | "SENT" | "DELIVERED" | "READ";
+type StatusValue = "SENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
 export class MessageUpdateQueries {
   async patch(
@@ -22,25 +22,45 @@ export class MessageUpdateQueries {
     serverId: string,
     serverTimestamp?: number
   ): Promise<MessageRow | null> {
+    const nowIso = new Date().toISOString();
     return this.patch(localId, {
       id:        serverId,
-      localId:   serverId,
+      localId:   localId,
       status:    "SENT",
+      failedAt:  null,
+      retryCount: 0,
       ...(serverTimestamp && { timestamp: serverTimestamp }),
+      updatedAt: nowIso,
     });
   }
 
   async markFailed(localId: string): Promise<MessageRow | null> {
-    return this.patch(localId, { status: "FAILED" });
+    const nowIso = new Date().toISOString();
+    return this.patch(localId, {
+      status: "FAILED",
+      failedAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+
+  async resetForRetry(localId: string): Promise<MessageRow | null> {
+    const nowIso = new Date().toISOString();
+    const [row] = await db
+      .update(messages)
+      .set({ status: "SENDING", failedAt: null, updatedAt: nowIso })
+      .where(eq(messages.localId, localId))
+      .returning();
+    return row ?? null;
   }
 
   async markDelivered(
     messageId: string,
     conversationId: string
   ): Promise<MessageRow | null> {
+    const nowIso = new Date().toISOString();
     const [row] = await db
       .update(messages)
-      .set({ status: "DELIVERED" })
+      .set({ status: "DELIVERED", deliveredAt: nowIso, updatedAt: nowIso })
       .where(
         and(
           eq(messages.conversationId, conversationId),
@@ -55,9 +75,10 @@ export class MessageUpdateQueries {
     messageId: string,
     conversationId: string
   ): Promise<MessageRow | null> {
+    const nowIso = new Date().toISOString();
     const [row] = await db
       .update(messages)
-      .set({ status: "READ", isRead: true })
+      .set({ status: "READ", isRead: true, readAt: nowIso, updatedAt: nowIso })
       .where(
         and(
           eq(messages.conversationId, conversationId),
@@ -72,9 +93,10 @@ export class MessageUpdateQueries {
     conversationId: string,
     upToTimestamp: number = Date.now()
   ): Promise<number> {
+    const nowIso = new Date().toISOString();
     const rows = await db
       .update(messages)
-      .set({ status: "READ", isRead: true })
+      .set({ status: "READ", isRead: true, readAt: nowIso, updatedAt: nowIso })
       .where(
         and(
           eq(messages.conversationId, conversationId),
@@ -89,11 +111,8 @@ export class MessageUpdateQueries {
     localId: string,
     newText: string
   ): Promise<MessageRow | null> {
-    return this.patch(localId, { content: newText });
-  }
-
-  async resetForRetry(localId: string): Promise<MessageRow | null> {
-    return this.patch(localId, { status: "SENDING" });
+    const nowIso = new Date().toISOString();
+    return this.patch(localId, { content: newText, updatedAt: nowIso });
   }
 
   async bulkSetStatus(
@@ -110,6 +129,33 @@ export class MessageUpdateQueries {
       )
     );
   }
+
+  async updateRoom(
+    conversationId: string,
+    patch: Partial<Omit<RoomRow, "id" | "conversationId">>
+  ): Promise<RoomRow | null> {
+    const [row] = await db
+      .update(rooms)
+      .set(patch)
+      .where(eq(rooms.conversationId, conversationId))
+      .returning();
+    return row ?? null;
+  }
+}
+
+export class RoomUpdateQueries {
+  async updateRoom(
+    conversationId: string,
+    patch: Partial<Omit<RoomRow, "id" | "conversationId">>
+  ): Promise<RoomRow | null> {
+    const [row] = await db
+      .update(rooms)
+      .set(patch)
+      .where(eq(rooms.conversationId, conversationId))
+      .returning();
+    return row ?? null;
+  }
 }
 
 export const messageUpdateQueries = new MessageUpdateQueries();
+export const roomUpdateQueries = new RoomUpdateQueries();

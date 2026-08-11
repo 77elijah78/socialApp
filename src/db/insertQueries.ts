@@ -9,6 +9,9 @@ import {
 } from "./schema";
 import { sql } from "drizzle-orm";
 
+const nowIso = () => new Date().toISOString();
+const nowMs = () => Date.now();
+
 export class MessageInsertQueries {
   async insert(message: NewMessageRow): Promise<MessageRow> {
     const [row] = await db.insert(messages).values(message).returning();
@@ -47,6 +50,10 @@ export class MessageInsertQueries {
           duration: message.duration,
           repliedToId: message.repliedToId,
           forwardedFromId: message.forwardedFromId,
+          deliveredAt: message.deliveredAt,
+          readAt: message.readAt,
+          failedAt: message.failedAt,
+          retryCount: message.retryCount,
         },
       })
       .returning();
@@ -78,6 +85,10 @@ export class MessageInsertQueries {
           duration: sql`excluded.duration`,
           repliedToId: sql`excluded.replied_to_id`,
           forwardedFromId: sql`excluded.forwarded_from_id`,
+          deliveredAt: sql`excluded.delivered_at`,
+          readAt: sql`excluded.read_at`,
+          failedAt: sql`excluded.failed_at`,
+          retryCount: sql`excluded.retry_count`,
         },
       })
       .returning();
@@ -96,12 +107,17 @@ export class RoomsInsertQueries {
       .insert(rooms)
       .values(room)
       .onConflictDoUpdate({
-        target: rooms.id,
+        target: rooms.conversationId,
         set: {
+          name: room.name,
+          avatarUrl: room.avatarUrl,
           lastMessage: room.lastMessage,
           lastMessageType: room.lastMessageType,
           lastMessageTimestamp: room.lastMessageTimestamp,
-          unreadCount: sql`${rooms.unreadCount} + 1`,
+          receiverId: room.receiverId,
+          lastMessageStatus: room.lastMessageStatus ?? rooms.lastMessageStatus,
+          cachedAt: nowMs(),
+          updatedAt: nowMs(),
         },
       })
       .returning();

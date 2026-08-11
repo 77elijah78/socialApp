@@ -51,6 +51,13 @@ export class MessageStore {
   /**
    * Single message by server id
    */
+  getByServerId(id: string) {
+    return messageGetQueries.getByServerId(id);
+  }
+
+  /**
+   * Single message by any id (local or server)
+   */
   getById(id: string) {
     return messageGetQueries.getById(id);
   }
@@ -58,15 +65,15 @@ export class MessageStore {
   /**
    * Unread badge count for one room
    */
-  getUnreadCount(roomId: string) {
-    return messageGetQueries.getUnreadCount(roomId);
+  getUnreadCount(roomId: string, currentUserId: string) {
+    return messageGetQueries.getUnreadCount(roomId, currentUserId);
   }
 
   /**
    * Unread counts for all rooms
    */
-  getAllUnreadCounts() {
-    return messageGetQueries.getAllUnreadCounts();
+  getAllUnreadCounts(currentUserId: string) {
+    return messageGetQueries.getAllUnreadCounts(currentUserId);
   }
 
   /**
@@ -81,6 +88,20 @@ export class MessageStore {
    */
   getLastMessages(roomIds: string[]) {
     return messageGetQueries.getLastMessages(roomIds);
+  }
+
+  /**
+   * Oldest message timestamp in a room (for cursor pagination)
+   */
+  getOldestMessageTimestamp(roomId: string) {
+    return messageGetQueries.getOldestMessageTimestamp(roomId);
+  }
+
+  /**
+   * Oldest message id in a room (for cursor pagination)
+   */
+  getOldestMessageId(roomId: string) {
+    return messageGetQueries.getOldestMessageId(roomId);
   }
 
   /**
@@ -125,6 +146,10 @@ export class MessageStore {
   /**
    * Confirm an optimistic message after
    * the server responds.
+   *
+   * IMPORTANT:
+   * Preserve localId so we can still map optimistic
+   * rows by localId after confirmation.
    */
   confirm(localId: string, serverId: string, serverTimestamp?: number) {
     return messageUpdateQueries.confirm(localId, serverId, serverTimestamp);

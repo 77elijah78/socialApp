@@ -1,7 +1,8 @@
 import { roomDeleteQueries } from "./deleteQueries";
 import { roomGetQueries } from "./getQueries";
 import { roomInsertQueries } from "./insertQueries";
-import { NewRoomRow } from "./schema";
+import { roomUpdateQueries } from "./updateQueries";
+import { NewRoomRow, RoomRow } from "./schema";
 
 export class RoomStore {
   getAllRooms() {
@@ -16,8 +17,16 @@ export class RoomStore {
     return roomInsertQueries.upsert(room);
   }
 
+  updateRoom(conversationId: string, patch: Partial<Omit<RoomRow, "id" | "conversationId">>) {
+    return roomUpdateQueries.updateRoom(conversationId, patch);
+  }
+
   deleteOne(roomId: string) {
     return roomDeleteQueries.deleteOne(roomId);
+  }
+
+  deleteAll() {
+    return roomDeleteQueries.deleteAll();
   }
 
   findRoom(conversationId: string) {

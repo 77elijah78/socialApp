@@ -58,6 +58,15 @@ export class MessageGetQueries {
     return row ?? null;
   }
 
+  async getByServerId(id: string): Promise<MessageRow | null> {
+    const [row] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, id))
+      .limit(1);
+    return row ?? null;
+  }
+
   async getById(id: string): Promise<MessageRow | null> {
     const [row] = await db
       .select()
@@ -67,31 +76,56 @@ export class MessageGetQueries {
     return row ?? null;
   }
 
-  async getUnreadCount(roomId: string): Promise<number> {
+  async getUnreadCount(roomId: string, currentUserId: string): Promise<number> {
     const [result] = await db
       .select({ count: sql<number>`count(*)` })
       .from(messages)
       .where(
         and(
           eq(messages.conversationId, roomId),
-          eq(messages.senderId, ""),
+          ne(messages.senderId, currentUserId),
           ne(messages.status, "READ"),
         ),
       );
     return result?.count ?? 0;
   }
 
-  async getAllUnreadCounts(): Promise<Record<string, number>> {
+  async getAllUnreadCounts(currentUserId: string): Promise<Record<string, number>> {
     const rows = await db
       .select({
         conversationId: messages.conversationId,
         count: sql<number>`count(*)`,
       })
       .from(messages)
-      .where(ne(messages.status, "READ"))
+      .where(
+        and(
+          ne(messages.senderId, currentUserId),
+          ne(messages.status, "READ"),
+        ),
+      )
       .groupBy(messages.conversationId);
 
     return Object.fromEntries(rows.map((r) => [r.conversationId, r.count]));
+  }
+
+  async getOldestMessageTimestamp(roomId: string): Promise<number | null> {
+    const [row] = await db
+      .select({ ts: messages.timestamp })
+      .from(messages)
+      .where(eq(messages.conversationId, roomId))
+      .orderBy(asc(messages.timestamp))
+      .limit(1);
+    return row?.ts ?? null;
+  }
+
+  async getOldestMessageId(roomId: string): Promise<string | null> {
+    const [row] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, roomId))
+      .orderBy(asc(messages.timestamp))
+      .limit(1);
+    return row?.id ?? null;
   }
 
   async getFailed(roomId: string): Promise<MessageRow[]> {

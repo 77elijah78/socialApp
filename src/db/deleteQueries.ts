@@ -77,6 +77,11 @@ export class RoomDeleteQueries {
       .delete(rooms)
       .where(eq(rooms.id, roomId));
   }
+
+  async deleteAll(): Promise<number> {
+    const rows = await db.delete(rooms).returning();
+    return rows.length;
+  }
 }
 
 export const messageDeleteQueries = new MessageDeleteQueries();

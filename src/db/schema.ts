@@ -19,6 +19,11 @@ export const messages = sqliteTable("messages", {
   duration:   real("duration"),
   repliedToId: text("replied_to_id"),
   forwardedFromId: text("forwarded_from_id"),
+  deliveredAt: text("delivered_at"),
+  readAt:     text("read_at"),
+  failedAt:   text("failed_at"),
+  retryCount: integer("retry_count").notNull().default(0),
+  updatedAt:  text("updated_at"),
 });
 
 export const rooms = sqliteTable("rooms", {
@@ -30,6 +35,15 @@ export const rooms = sqliteTable("rooms", {
   lastMessageType: text("last_message_type").notNull(),
   lastMessageTimestamp: integer("last_message_timestamp").notNull(),
   unreadCount:  integer("unread_count").notNull(),
+  receiverId:   text("receiver_id"),
+  lastMessageStatus: text("last_message_status").notNull().default("SENT"),
+  cachedAt:     integer("cached_at").notNull(),
+  updatedAt:    integer("updated_at").notNull(),
+  muted:        integer("muted", { mode: "boolean" }).notNull().default(false),
+  pinned:       integer("pinned", { mode: "boolean" }).notNull().default(false),
+  archived:     integer("archived", { mode: "boolean" }).notNull().default(false),
+  cursorOldestTs: integer("cursor_oldest_ts"),
+  cursorOldestId: text("cursor_oldest_id"),
 });
 
 export type MessageRow    = typeof messages.$inferSelect;
