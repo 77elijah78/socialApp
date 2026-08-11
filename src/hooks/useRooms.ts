@@ -34,8 +34,8 @@ interface BackendConversation {
   }[];
 }
 
-interface RoomWithReceiver extends RoomRow {
-  receiverId?: string;
+interface RoomWithReceiver extends Omit<RoomRow, 'receiverId' | 'lastMessageStatus'> {
+  receiverId?: string | null;
   lastMessageStatus?: string;
 }
 
@@ -64,7 +64,6 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
   const lastMessageStatus = lastMessage?.status || "DELIVERED";
   const lastMessageTimestamp = lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now();
   
-  // Calculate unread count - messages sent by others that are not READ
   const unreadCount = conversation.messages?.filter(
     (m) => m.senderId !== currentUserId && m.status !== "READ"
   ).length || 0;
@@ -78,8 +77,15 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
     lastMessageType,
     lastMessageTimestamp,
     unreadCount,
-    receiverId,
+    receiverId: receiverId ?? null,
     lastMessageStatus,
+    cachedAt: Date.now(),
+    updatedAt: Date.now(),
+    muted: false,
+    pinned: false,
+    archived: false,
+    cursorOldestTs: null,
+    cursorOldestId: null,
   };
 }
 
@@ -87,10 +93,17 @@ export function useRooms() {
   const [rooms, setRooms] = useState<RoomWithReceiver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const cancelledRef = useRef(false);
+
+  const loadLocalRooms = useCallback(async () => {
+    const localRooms = await roomStore.getAllRooms();
+    const mapped = localRooms.map((r) => ({ ...r } as RoomWithReceiver));
+    setRooms(mapped);
+  }, []);
 
   const fetchConversations = useCallback(async () => {
     if (!token || !currentUserId) {
@@ -100,6 +113,7 @@ export function useRooms() {
 
     cancelledRef.current = false;
     setLoading(true);
+    setSyncing(true);
 
     try {
       const response = await api.get<{ success: boolean; data: BackendConversation[] }>(
@@ -122,16 +136,17 @@ export function useRooms() {
     } finally {
       if (!cancelledRef.current) {
         setLoading(false);
+        setSyncing(false);
       }
     }
   }, [token, currentUserId]);
 
   useEffect(() => {
+    void loadLocalRooms();
     void fetchConversations();
 
     const unsub = socketReceiver.on("message:notification", async (msg: MessageRow) => {
       if (!cancelledRef.current) {
-        // Update room from notification in-place
         setRooms((prev) => {
           const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
           const lastMessageContent = msg.content ?? "";
@@ -146,11 +161,9 @@ export function useRooms() {
               lastMessageTimestamp: msg.timestamp,
               unreadCount: updated[existingIdx].unreadCount + 1,
             };
-            // Move to top
             const [moved] = updated.splice(existingIdx, 1);
             return [moved, ...updated];
           } else {
-            // Room not in list yet - full reload needed
             void fetchConversations();
             return prev;
           }
@@ -166,7 +179,6 @@ export function useRooms() {
 
     const unsubNewMessage = socketReceiver.on("message:new", async (msg: MessageRow) => {
       if (!cancelledRef.current) {
-        // Update the specific room in-place without full reload
         setRooms((prev) => {
           const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
           const lastMessageContent = msg.content ?? "";
@@ -179,13 +191,11 @@ export function useRooms() {
               lastMessage: lastMessageContent,
               lastMessageType,
               lastMessageTimestamp: msg.timestamp,
-              unreadCount: updated[existingIdx].unreadCount + 1,
+              lastMessageStatus: msg.status ?? updated[existingIdx].lastMessageStatus,
             };
-            // Move to top
             const [moved] = updated.splice(existingIdx, 1);
             return [moved, ...updated];
           } else {
-            // Room not in list yet - full reload needed
             void fetchConversations();
             return prev;
           }
@@ -199,7 +209,7 @@ export function useRooms() {
       unsubDelete();
       unsubNewMessage();
     };
-  }, [fetchConversations]);
+  }, [fetchConversations, loadLocalRooms]);
 
   const addRoom = useCallback(async (room: RoomRow) => {
     await roomStore.addRoom(room);
@@ -215,6 +225,7 @@ export function useRooms() {
     rooms,
     loading,
     error,
+    syncing,
     reload: fetchConversations,
     addRoom,
     deleteRoom,

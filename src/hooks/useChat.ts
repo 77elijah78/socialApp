@@ -43,6 +43,8 @@ interface UseChatReturn {
   typingUserId: string | null;
   isConnected: boolean;
   isSyncing: boolean;
+  isOffline: boolean;
+  syncError: Error | null;
   hasMore: boolean;
 
   flatListRef: React.RefObject<FlatList | null>;
@@ -64,6 +66,8 @@ export function useChat({
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isSyncing, setIsSyncing] = useState(true);
   const [isConnected, setConnected] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+  const [syncError, setSyncError] = useState<Error | null>(null);
   const [typingUserId, setTyping] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
@@ -278,10 +282,29 @@ export function useChat({
       const isOwnMessage = senderId === currentUserIdRef.current;
 
       /**
+       * Append directly to state instead of
+       * reloading all 30 messages from SQLite.
+       *
        * SQLite has already been updated by
        * SocketReceiver.
        */
-      await reload();
+      setMessages((prev) => {
+        const exists = prev.some(
+          (m) => m.id === msg.id || m.localId === msg.localId
+        );
+
+        if (exists) {
+          return prev.map((m) => {
+            if (m.id !== msg.id && m.localId !== msg.localId) {
+              return m;
+            }
+
+            return { ...m, ...msg };
+          });
+        }
+
+        return [...prev, msg];
+      });
 
       if (cancelled || !mountedRef.current) {
         return;
@@ -849,7 +872,8 @@ export function useChat({
       return;
     }
 
-    const oldestTimestamp = messages[0]?.timestamp;
+    const oldestMessage = messages[0];
+    const oldestTimestamp = oldestMessage?.timestamp;
 
     if (!oldestTimestamp) {
       return;
@@ -857,11 +881,9 @@ export function useChat({
 
     loadingMoreRef.current = true;
     setIsSyncing(true);
+    setSyncError(null);
 
     try {
-      /**
-       * First try local SQLite.
-       */
       const older = await messageStore.getOlderThan(
         conversationId,
         oldestTimestamp,
@@ -880,14 +902,11 @@ export function useChat({
         return;
       }
 
-      /**
-       * Nothing older locally.
-       *
-       * Ask server for older messages.
-       */
+      const oldestId = oldestMessage?.id ?? oldestMessage?.localId;
       const serverOlder = await mediaService.message.syncFromServer(
         conversationId,
         currentUser.id,
+        oldestId ? { lastId: oldestId, lastTimestamp: oldestTimestamp } : undefined,
       );
 
       if (!mountedRef.current) {
@@ -900,6 +919,10 @@ export function useChat({
       }
 
       await reload();
+    } catch (error) {
+      if (mountedRef.current) {
+        setSyncError(error instanceof Error ? error : new Error(String(error)));
+      }
     } finally {
       loadingMoreRef.current = false;
 
@@ -952,6 +975,8 @@ export function useChat({
 
     isConnected,
     isSyncing,
+    isOffline,
+    syncError,
     hasMore,
 
     flatListRef,
