@@ -136,6 +136,8 @@ export default function PrivateRoom() {
     sendMedia,
     isTyping,
     isSyncing,
+    isOffline,
+    syncError,
     loadMore,
     replyMsg,
     markVisibleRead,
