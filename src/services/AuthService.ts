@@ -114,6 +114,15 @@ export class AuthService {
       await AsyncStorage.removeItem("refreshToken");
     }
     setTokens(null, null);
+
+    try {
+      const { messageStore } = await import("@/db/MessageStore");
+      const { roomStore } = await import("@/db/RoomStore");
+      await messageStore.deleteAll();
+      await roomStore.deleteAll();
+    } catch (err) {
+      console.warn("[AuthService] logout cache clear error:", err);
+    }
   }
 }
 

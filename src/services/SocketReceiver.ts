@@ -23,6 +23,10 @@ export class SocketReceiver {
 
   private deliveredAckSet = new Set<string>();
 
+  private reconnectSyncInFlight = false;
+
+  private authToken = "";
+
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
   }
@@ -33,6 +37,7 @@ export class SocketReceiver {
 
   connect(userId: string, authToken: string): void {
     this.currentUserId = userId;
+    this.authToken = authToken;
 
     /**
      * Already connected.
@@ -82,6 +87,9 @@ export class SocketReceiver {
      * when its screen is destroyed.
      */
     this.currentUserId = "";
+
+    this.deliveredAckSet.clear();
+    this.reconnectSyncInFlight = false;
   }
 
   // =========================================================
@@ -144,7 +152,15 @@ export class SocketReceiver {
     // -------------------------------------------------------
 
     s.on("connect", () => {
-      console.log("[SocketReceiver] connected:", s.id);
+      const socketAny = this.socket as any;
+      const isReconnect = socketAny?.reconnectAttempts ?? 0 > 0;
+
+      console.log("[SocketReceiver] connected:", {
+        userId: this.currentUserId,
+        socketId: s.id,
+        reconnect: isReconnect,
+        reconnectAttempt: socketAny?.reconnectAttempts ?? 0,
+      });
 
       this.emit("connect");
 
@@ -152,6 +168,20 @@ export class SocketReceiver {
        * Rejoin personal room.
        */
       s.emit("presence:join-personal");
+
+      console.log("[SocketReceiver] user room joined:", `user:${this.currentUserId}`);
+
+      /**
+       * Reconnect sync: fetch pending delivery messages
+       * and ACK them immediately.
+       *
+       * Only run on reconnect, not on initial connection.
+       */
+      if (isReconnect) {
+        this.syncPendingDelivery().catch((error) => {
+          console.error("[SocketReceiver] syncPendingDelivery error:", error);
+        });
+      }
     });
 
     // -------------------------------------------------------
@@ -208,6 +238,8 @@ export class SocketReceiver {
               conversationId: message.conversationId,
               messageIds: [messageId],
             });
+
+            await messageStore.markDelivered(messageId, message.conversationId);
           }
         }
 
@@ -246,15 +278,31 @@ export class SocketReceiver {
 
             lastMessage: payload.content ?? payload.text ?? "",
 
+            lastMessageType: payload.type ?? "TEXT",
+
             lastMessageTimestamp: payload.createdAt
               ? new Date(payload.createdAt).getTime()
               : Date.now(),
 
-            lastMessageType: payload.type ?? "TEXT",
-
             unreadCount: 1,
 
             receiverId: payload.senderId,
+
+            lastMessageStatus: "SENT",
+
+            cachedAt: Date.now(),
+
+            updatedAt: Date.now(),
+
+            muted: false,
+
+            pinned: false,
+
+            archived: false,
+
+            cursorOldestTs: null,
+
+            cursorOldestId: null,
           };
 
           await roomStore.addRoom(room);
@@ -308,7 +356,11 @@ export class SocketReceiver {
         conversationId: string;
       }) => {
         try {
-          console.log("[SocketReceiver] message:delivered", messageId);
+          console.log("[SocketReceiver] backend ACK received / sender delivery receipt emitted:", {
+            messageId,
+            conversationId,
+            userId: this.currentUserId,
+          });
 
           /**
            * Update the exact message.
@@ -648,6 +700,100 @@ export class SocketReceiver {
       conversationId,
       messageIds: [messageId],
     });
+  }
+
+  async syncPendingDelivery(): Promise<void> {
+    if (this.reconnectSyncInFlight) {
+      return;
+    }
+
+    if (!this.socket?.connected || !this.currentUserId) {
+      return;
+    }
+
+    this.reconnectSyncInFlight = true;
+
+    try {
+      const apiBase = `${this.baseUrl.replace(/\/$/, "")}/api/v1`;
+      const url = `${apiBase}/messages/pending/delivery?limit=200`;
+
+      console.log("[SocketReceiver] pending sync started:", {
+        userId: this.currentUserId,
+        socketId: this.socket.id,
+        url,
+      });
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn("[SocketReceiver] syncPendingDelivery failed:", {
+          status: response.status,
+          userId: this.currentUserId,
+          socketId: this.socket.id,
+        });
+        return;
+      }
+
+      const data = await response.json();
+      const messages = Array.isArray(data?.data) ? data.data : [];
+
+      console.log("[SocketReceiver] pending message count:", {
+        userId: this.currentUserId,
+        socketId: this.socket.id,
+        count: messages.length,
+      });
+
+      for (const msg of messages) {
+        try {
+          const message = await this.normalize(msg, this.currentUserId);
+
+          const messageId = String(message.id ?? message.localId ?? "");
+
+          console.log("[SocketReceiver] pending message:", {
+            userId: this.currentUserId,
+            socketId: this.socket.id,
+            messageId,
+            conversationId: message.conversationId,
+          });
+
+          if (message.senderId !== this.currentUserId) {
+            await messageStore.saveReceived(message);
+
+            console.log("[SocketReceiver] SQLite save completed:", {
+              userId: this.currentUserId,
+              socketId: this.socket.id,
+              messageId,
+            });
+
+            if (messageId && !this.deliveredAckSet.has(messageId)) {
+              this.deliveredAckSet.add(messageId);
+
+              this.socket.emit("message:delivered", {
+                conversationId: message.conversationId,
+                messageIds: [messageId],
+              });
+
+              await messageStore.markDelivered(messageId, message.conversationId);
+
+              console.log("[SocketReceiver] delivery ACK emitted (reconnect sync):", {
+                userId: this.currentUserId,
+                socketId: this.socket.id,
+                messageId,
+                conversationId: message.conversationId,
+              });
+            }
+          }
+        } catch (error) {
+          console.error("[SocketReceiver] pending delivery save error:", error);
+        }
+      }
+    } finally {
+      this.reconnectSyncInFlight = false;
+    }
   }
 
   // =========================================================

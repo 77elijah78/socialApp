@@ -63,6 +63,10 @@ export class MessageService extends BaseUploader {
       duration: null,
       repliedToId: null,
       forwardedFromId: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      retryCount: 0,
     };
 
     await messageStore.save(optimistic);
@@ -136,6 +140,10 @@ export class MessageService extends BaseUploader {
       duration: null,
       repliedToId: null,
       forwardedFromId: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      retryCount: 0,
     };
 
     await messageStore.save(optimistic);
@@ -160,13 +168,18 @@ export class MessageService extends BaseUploader {
   async syncFromServer(
     conversationId: string,
     currentUserId: string,
-    page = 1,
+    cursor?: { lastTimestamp: number; lastId: string },
     limit = 30,
   ) {
-    const data = await api.get<any>(
-      `/messages/conversations/${encodeURIComponent(conversationId)}/messages?page=${page}&limit=${limit}`,
-      this.authToken ?? undefined,
-    );
+    let url = `/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${limit}`;
+
+    if (cursor?.lastId) {
+      url += `&cursorId=${encodeURIComponent(cursor.lastId)}`;
+    } else if (cursor?.lastTimestamp) {
+      url += `&before=${cursor.lastTimestamp}`;
+    }
+
+    const data = await api.get<any>(url, this.authToken ?? undefined);
 
     const messages = Array.isArray(data) ? data : data.messages ?? data.data ?? [];
 
@@ -204,6 +217,10 @@ export class MessageService extends BaseUploader {
         duration: m.duration ?? null,
         repliedToId: m.repliedToId ?? null,
         forwardedFromId: m.forwardedFromId ?? null,
+        deliveredAt: m.deliveredAt ? new Date(m.deliveredAt).toISOString() : null,
+        readAt: m.readAt ? new Date(m.readAt).toISOString() : null,
+        failedAt: m.failedAt ? new Date(m.failedAt).toISOString() : null,
+        retryCount: m.retryCount ?? 0,
       };
     });
 
@@ -287,6 +304,10 @@ export class MessageService extends BaseUploader {
       duration: null,
       repliedToId,
       forwardedFromId: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      retryCount: 0,
     };
 
     await messageStore.save(optimistic);
