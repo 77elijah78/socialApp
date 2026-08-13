@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { api } from "@/services/api";
@@ -61,7 +61,6 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
 }
 
 export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, ref) => {
-  const [visible, setVisible] = useState(false);
   const [postId, setPostId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,12 +108,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
   const open = useCallback((pid: string) => {
     setPostId(pid);
     fetchComments(pid);
-    setVisible(true);
     bottomSheetRef.current?.present();
   }, [fetchComments]);
 
   const close = useCallback(() => {
-    setVisible(false);
     bottomSheetRef.current?.dismiss();
   }, []);
 
@@ -146,53 +143,59 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
       handleStyle={{ backgroundColor: theme.COLORS.bgLight }}
       backgroundStyle={{ backgroundColor: theme.COLORS.bgLight }}
     >
-      <View style={styles.sheetContainer}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Comments</Text>
-          <TouchableOpacity onPress={close}>
-            <Ionicons name="close" size={24} color={theme.COLORS.textPrimary} />
-          </TouchableOpacity>
-        </View>
-
-        {loading ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator size="large" color={theme.COLORS.primary} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={styles.sheetContainer}>
+          <View style={styles.handle} />
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Comments</Text>
+            <TouchableOpacity onPress={close}>
+              <Ionicons name="close" size={24} color={theme.COLORS.textPrimary} />
+            </TouchableOpacity>
           </View>
-        ) : (
-          <BottomSheetScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 80 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {comments.map((item) => (
-              <CommentItem key={item.id} comment={item} isOwn={item.author?.id === currentUserId} />
-            ))}
-          </BottomSheetScrollView>
-        )}
 
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="Add a comment..."
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={!input.trim() || sending}
-          >
-            {sending ? (
-              <ActivityIndicator size="small" color={theme.COLORS.white} />
-            ) : (
-              <Ionicons name="send" size={20} color={theme.COLORS.white} />
-            )}
-          </TouchableOpacity>
+          {loading ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <ActivityIndicator size="large" color={theme.COLORS.primary} />
+            </View>
+          ) : (
+            <BottomSheetScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 80 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {comments.map((item) => (
+                <CommentItem key={item.id} comment={item} isOwn={item.author?.id === currentUserId} />
+              ))}
+            </BottomSheetScrollView>
+          )}
+
+          <View style={styles.inputRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Add a comment..."
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
+              onPress={handleSend}
+              disabled={!input.trim() || sending}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color={theme.COLORS.white} />
+              ) : (
+                <Ionicons name="send" size={20} color={theme.COLORS.white} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </BottomSheetModal>
   );
 });
