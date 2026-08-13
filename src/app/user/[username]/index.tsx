@@ -68,8 +68,8 @@ export default function UserProfileScreen() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
-   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'posts' | 'likes'>('posts');
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'posts'>('posts');
   const [messaging, setMessaging] = useState(false);
 
   useEffect(() => {
@@ -317,19 +317,16 @@ export default function UserProfileScreen() {
 
         {/* Tabs */}
         <View style={styles.tabBar}>
-          {(['posts', 'likes'] as const).map((tab) => (
-            <Pressable
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Ionicons
-                name={tab === 'posts' ? 'grid-outline' : 'heart-outline'}
-                size={22}
-                color={activeTab === tab ? theme.COLORS.primary : theme.COLORS.textMuted}
-              />
-            </Pressable>
-          ))}
+          <Pressable
+            style={[styles.tab, activeTab === 'posts' && styles.tabActive]}
+            onPress={() => setActiveTab('posts')}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={22}
+              color={activeTab === 'posts' ? theme.COLORS.primary : theme.COLORS.textMuted}
+            />
+          </Pressable>
         </View>
       </View>
     );
@@ -338,15 +335,13 @@ export default function UserProfileScreen() {
   const renderEmpty = () => (
     <View style={styles.emptyState}>
       <Ionicons
-        name={activeTab === 'likes' ? 'heart-outline' : 'images-outline'}
+        name="images-outline"
         size={48}
         color={theme.COLORS.textMuted}
       />
-      <Text style={styles.emptyTitle}>No {activeTab} yet</Text>
+      <Text style={styles.emptyTitle}>No posts yet</Text>
       <Text style={styles.emptySubtitle}>
-        {activeTab === 'posts'
-          ? 'Share your first post to see it here'
-          : 'Posts you like will show up here'}
+        Share your first post to see it here
       </Text>
     </View>
   );
