@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,19 +7,27 @@ import {
   Image,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import theme from '@/constants/theme';
-import { useAppSelector } from '@/store/hooks';
+import { useAppSelector, useAppDispatch } from '@/store/hooks';
 import { router } from 'expo-router';
+import { logout } from '@/store/slices/authSlice';
+import { authService } from '@/services/AuthService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api } from '@/services/api';
+import { PostResponse, SocialPost } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
 
-type ProfileTab = 'posts' | 'media' | 'likes';
+type ProfileTab = 'views' | 'likes';
 
 interface MenuItem {
   id: string;
@@ -31,59 +39,137 @@ interface MenuItem {
 
 export default function ProfileScreen() {
   const user = useAppSelector((state) => state.auth.user);
+  const token = useAppSelector((state) => state.auth.token);
+  const dispatch = useAppDispatch();
+
+  const [activeTab, setActiveTab] = useState<ProfileTab>('views');
+  const [profileData, setProfileData] = useState<any>(null);
+  const [posts, setPosts] = useState<SocialPost[]>([]);
+  const [likedPosts, setLikedPosts] = useState<SocialPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const displayName = user?.displayName || user?.username || 'User';
   const username = user?.username ? `@${user.username}` : '';
   const avatarUrl = user?.avatarUrl || null;
+  const currentUsername = user?.username ?? '';
 
-  const [activeTab, setActiveTab] = React.useState<ProfileTab>('posts');
-  const [stats] = React.useState({ posts: 128, followers: 2450, following: 482 });
+  const fetchProfile = useCallback(async () => {
+    if (!token || !currentUsername) return;
+    try {
+      const resp = await api.get<{ success: boolean; data: any }>(
+        `/users/${currentUsername}`,
+        token,
+      );
+      setProfileData(resp.data);
+    } catch (err) {
+      console.warn('Failed to load profile stats:', err);
+    }
+  }, [token, currentUsername]);
 
-  const menuItems: MenuItem[] = React.useMemo(
-    () => [
-      {
-        id: 'edit',
-        label: 'Edit Profile',
-        icon: 'create-outline',
-        onPress: () => {},
-      },
-      {
-        id: 'bookmarks',
-        label: 'Bookmarks',
-        icon: 'bookmark-outline',
-        onPress: () => router.push('/bookmarks'),
-      },
-      {
-        id: 'settings',
-        label: 'Settings',
-        icon: 'settings-outline',
-        onPress: () => router.push('/settings'),
-      },
-      {
-        id: 'logout',
-        label: 'Log Out',
-        icon: 'log-out-outline',
-        onPress: () => {},
-        danger: true,
-      },
-    ],
-    [],
-  );
+  const fetchPosts = useCallback(async () => {
+    if (!token || !currentUsername) return;
+    try {
+      const resp = await api.get<{
+        success: boolean;
+        data: { user: any; posts: PostResponse[]; total: number };
+      }>(`/posts/user/${currentUsername}?page=1&limit=50`, token);
+      const mapped = (resp.data.posts ?? []).map(mapPostResponse);
+      setPosts(mapped);
+    } catch (err) {
+      console.warn('Failed to load posts:', err);
+    }
+  }, [token, currentUsername]);
+
+  const fetchLikedPosts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const resp = await api.get<{
+        success: boolean;
+        data: { posts: PostResponse[]; total: number };
+      }>('/posts/liked?page=1&limit=50', token);
+      const mapped = (resp.data.posts ?? []).map(mapPostResponse);
+      setLikedPosts(mapped);
+    } catch (err) {
+      console.warn('Failed to load liked posts:', err);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAll() {
+      setLoading(true);
+      await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
+      if (!cancelled) setLoading(false);
+    }
+    loadAll();
+    return () => { cancelled = true; };
+  }, [fetchProfile, fetchPosts, fetchLikedPosts]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
+    setRefreshing(false);
+  }, [fetchProfile, fetchPosts, fetchLikedPosts]);
+
+  const currentData = activeTab === 'views' ? posts : likedPosts;
+
+  const menuItems = [
+    {
+      id: 'edit',
+      label: 'Edit Profile',
+      icon: 'create-outline' as const,
+      onPress: () => router.push('/editProfile'),
+    },
+    {
+      id: 'bookmarks',
+      label: 'Bookmarks',
+      icon: 'bookmark-outline' as const,
+      onPress: () => router.push('/bookmarks'),
+    },
+    {
+      id: 'settings',
+      label: 'Settings',
+      icon: 'settings-outline' as const,
+      onPress: () => router.push('/settings'),
+    },
+    {
+      id: 'logout',
+      label: 'Log Out',
+      icon: 'log-out-outline' as const,
+      onPress: () =>
+        Alert.alert('Log Out', 'Are you sure you want to log out?', [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Log Out',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await authService.logout();
+              } catch (err) {
+                console.warn('Logout error:', err);
+              } finally {
+                dispatch(logout());
+                await AsyncStorage.removeItem('refreshToken');
+                router.replace('/(auth)/login');
+              }
+            },
+          },
+        ]),
+      danger: true,
+    },
+  ];
 
   const renderHeader = useCallback(() => {
+    const stats = profileData?._count ?? { posts: 0, followers: 0, following: 0 };
     return (
       <View>
-        {/* Cover Image */}
         <View style={styles.coverContainer}>
           <View style={styles.coverPlaceholder}>
             <Ionicons name="images-outline" size={40} color={theme.COLORS.textMuted} />
           </View>
-          <Pressable style={styles.coverEditBtn}>
-            <Ionicons name="camera" size={16} color={theme.COLORS.textWhite} />
-          </Pressable>
         </View>
 
-        {/* Avatar */}
         <View style={styles.avatarContainer}>
           <View style={styles.avatarWrapper}>
             {avatarUrl ? (
@@ -95,46 +181,34 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             )}
-            <Pressable style={styles.avatarEditBtn}>
-              <Ionicons name="camera" size={14} color={theme.COLORS.textWhite} />
-            </Pressable>
           </View>
         </View>
 
-        {/* User Info */}
         <View style={styles.infoSection}>
           <View style={styles.nameRow}>
             <Text style={styles.displayName}>{displayName}</Text>
-            {user?.id && (
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={18} color={theme.COLORS.primary} />
-              </View>
-            )}
           </View>
           {username ? <Text style={styles.username}>{username}</Text> : null}
-          <Text style={styles.bio}>Building something amazing. Stay tuned!</Text>
 
-          {/* Stats */}
           <View style={styles.statsRow}>
             <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.posts}</Text>
+              <Text style={styles.statValue}>{formatCount(stats.posts ?? 0)}</Text>
               <Text style={styles.statLabel}>Posts</Text>
             </Pressable>
             <View style={styles.statDivider} />
             <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(stats.followers)}</Text>
+              <Text style={styles.statValue}>{formatCount(stats.followers ?? 0)}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </Pressable>
             <View style={styles.statDivider} />
             <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(stats.following)}</Text>
+              <Text style={styles.statValue}>{formatCount(stats.following ?? 0)}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </Pressable>
           </View>
 
-          {/* Action Buttons */}
           <View style={styles.actionRow}>
-            <Pressable style={styles.primaryButton}>
+            <Pressable style={styles.primaryButton} onPress={() => router.push('/editProfile')}>
               <Text style={styles.primaryButtonText}>Edit Profile</Text>
             </Pressable>
             <Pressable style={styles.secondaryButton}>
@@ -143,22 +217,15 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Tabs */}
         <View style={styles.tabBar}>
-          {(['posts', 'media', 'likes'] as ProfileTab[]).map((tab) => (
+          {(['views', 'likes'] as ProfileTab[]).map((tab) => (
             <Pressable
               key={tab}
               style={[styles.tab, activeTab === tab && styles.tabActive]}
               onPress={() => setActiveTab(tab)}
             >
               <Ionicons
-                name={
-                  tab === 'posts'
-                    ? 'grid-outline'
-                    : tab === 'media'
-                    ? 'images-outline'
-                    : 'heart-outline'
-                }
+                name={tab === 'views' ? 'eye-outline' : 'heart-outline'}
                 size={22}
                 color={activeTab === tab ? theme.COLORS.primary : theme.COLORS.textMuted}
               />
@@ -168,24 +235,44 @@ export default function ProfileScreen() {
                   activeTab === tab && styles.tabLabelActive,
                 ]}
               >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'views' ? 'Views' : 'Likes'}
               </Text>
             </Pressable>
           ))}
         </View>
       </View>
     );
-  }, [displayName, username, avatarUrl, user?.id, stats, activeTab]);
+  }, [displayName, username, avatarUrl, profileData, activeTab]);
 
-  const renderGridItem = useCallback(() => {
+  const renderGridItem = useCallback(({ item }: { item: SocialPost }) => {
+    const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';
     return (
-      <Pressable style={styles.gridItem}>
-        <View style={styles.gridPlaceholder}>
-          <Ionicons name="image-outline" size={24} color={theme.COLORS.textMuted} />
+      <Pressable
+        style={styles.gridItem}
+        onPress={() => router.push(`/posts/${item.id}/comments`)}
+      >
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.gridImage} />
+        ) : (
+          <View style={[styles.gridImage, styles.gridPlaceholder]}>
+            <Ionicons name="image-outline" size={24} color={theme.COLORS.textMuted} />
+          </View>
+        )}
+        <View style={styles.gridOverlay}>
+          <View style={styles.gridStat}>
+            <Ionicons
+              name={activeTab === 'likes' ? 'heart' : 'eye'}
+              size={12}
+              color={theme.COLORS.white}
+            />
+            <Text style={styles.gridStatText}>
+              {activeTab === 'likes' ? item.likeCount ?? 0 : item.commentCount ?? 0}
+            </Text>
+          </View>
         </View>
       </Pressable>
     );
-  }, []);
+  }, [activeTab]);
 
   const renderMenuList = useCallback(() => {
     return (
@@ -243,17 +330,15 @@ export default function ProfileScreen() {
     return (
       <View style={styles.emptyState}>
         <Ionicons
-          name={activeTab === 'likes' ? 'heart-outline' : 'images-outline'}
+          name={activeTab === 'likes' ? 'heart-outline' : 'eye-outline'}
           size={48}
           color={theme.COLORS.textMuted}
         />
-        <Text style={styles.emptyTitle}>No {activeTab} yet</Text>
+        <Text style={styles.emptyTitle}>No {activeTab === 'likes' ? 'likes' : 'posts'} yet</Text>
         <Text style={styles.emptySubtitle}>
-          {activeTab === 'posts'
-            ? 'Share your first post to see it here'
-            : activeTab === 'media'
-            ? 'Photos and videos will appear here'
-            : 'Posts you like will show up here'}
+          {activeTab === 'likes'
+            ? 'Posts you like will show up here'
+            : 'Share your first post to see it here'}
         </Text>
       </View>
     );
@@ -261,39 +346,46 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Profile</Text>
-        <Pressable style={styles.headerIconBtn}>
+        <Pressable style={styles.headerIconBtn} onPress={() => router.push('/settings')}>
           <Ionicons name="settings-outline" size={22} color={theme.COLORS.textPrimary} />
         </Pressable>
       </View>
 
-      <FlatList
-        style={styles.list}
-        data={[]}
-        ListHeaderComponent={renderHeader}
-        ListFooterComponent={
-          <View style={styles.footer}>
-            {renderMenuList()}
-            <View style={{ height: theme.SPACING.xxxxl }} />
-          </View>
-        }
-        contentContainerStyle={styles.listContent}
-        renderItem={renderGridItem}
-        keyExtractor={(_, index) => index.toString()}
-        numColumns={GRID_COLUMNS}
-        columnWrapperStyle={styles.gridRow}
-        ListEmptyComponent={renderEmptyState}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.COLORS.primary} />
+        </View>
+      ) : (
+        <FlatList
+          style={styles.list}
+          data={currentData}
+          ListHeaderComponent={renderHeader}
+          ListFooterComponent={
+            <View style={styles.footer}>
+              {renderMenuList()}
+              <View style={{ height: theme.SPACING.xxxxl }} />
+            </View>
+          }
+          contentContainerStyle={styles.listContent}
+          renderItem={renderGridItem}
+          keyExtractor={(item) => item.id}
+          numColumns={GRID_COLUMNS}
+          columnWrapperStyle={styles.gridRow}
+          ListEmptyComponent={renderEmptyState}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.COLORS.primary}
+              colors={[theme.COLORS.primary]}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   );
-}
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
 }
 
 const styles = StyleSheet.create({
@@ -330,6 +422,11 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   listContent: {
     paddingBottom: theme.SPACING.xxxxxl,
@@ -534,6 +631,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: theme.COLORS.bgChat,
   },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gridOverlay: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  gridStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  gridStatText: {
+    color: theme.COLORS.white,
+    fontSize: 10,
+    fontWeight: '600',
+  },
   footer: {
     marginTop: theme.SPACING.xxxxl,
     paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
@@ -612,3 +734,26 @@ const styles = StyleSheet.create({
     lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
   },
 });
+
+function mapPostResponse(post: PostResponse): SocialPost {
+  const firstImageUrl = post.imageUrls?.[0] ?? '';
+  const likeCount = post._count?.likes ?? 0;
+  const commentCount = post._count?.comments ?? 0;
+  return {
+    ...post,
+    timestamp: new Date(post.createdAt).toISOString(),
+    imageUrl: firstImageUrl,
+    tags: [],
+    likeCount,
+    commentCount,
+    shareCount: 0,
+    isLiked: post.isLiked ?? false,
+    isBookmarked: post.isSaved ?? false,
+  };
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}

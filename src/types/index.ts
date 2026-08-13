@@ -284,6 +284,7 @@ export interface LoginResponse {
       username: string;
       email: string;
       displayName: string | null;
+      bio: string | null;
       avatarUrl: string | null;
       createdAt: Date;
     };
@@ -301,6 +302,7 @@ export interface RegisterResponse {
       username: string;
       email: string;
       displayName: string | null;
+      bio: string | null;
       avatarUrl: string | null;
       createdAt: Date;
     };
