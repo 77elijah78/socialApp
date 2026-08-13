@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Animated,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import theme from '@/constants/theme';
@@ -43,12 +44,43 @@ export default function PostCard({
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [likeScale] = useState(new Animated.Value(1));
   const [imageLoading, setImageLoading] = useState(false);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const [fadeAnim] = useState(new Animated.Value(1));
+
+  const mediaUrls = post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls : (post.imageUrl ? [post.imageUrl] : []);
+  const currentMedia = mediaUrls[mediaIndex] ?? '';
+  const hasMultipleMedia = mediaUrls.length > 1;
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLiked(post.isLiked ?? false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLikeCount(post.likeCount);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBookmarked(post.isBookmarked ?? false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMediaIndex(0);
   }, [post.id, post.isLiked, post.likeCount, post.isBookmarked]);
+
+  const goToNextMedia = () => {
+    if (mediaIndex < mediaUrls.length - 1) {
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]).start();
+      setMediaIndex((i) => i + 1);
+    }
+  };
+
+  const goToPrevMedia = () => {
+    if (mediaIndex > 0) {
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]).start();
+      setMediaIndex((i) => i - 1);
+    }
+  };
 
   const handleLike = () => {
     const next = !liked;
@@ -135,23 +167,40 @@ export default function PostCard({
       </View>
 
       {/* Post Image */}
-      {post.imageUrl ? (
-        <TouchableOpacity activeOpacity={0.95}>
-          <View style={styles.imageWrapper}>
+      {currentMedia ? (
+        <TouchableOpacity activeOpacity={0.95} style={styles.imageWrapper}>
+          <Animated.View style={{ opacity: fadeAnim, width: '100%' }}>
             <Image
-              source={{ uri: post.imageUrl }}
+              source={{ uri: currentMedia }}
               style={styles.postImage}
               resizeMode="cover"
               onLoadStart={() => setImageLoading(true)}
               onLoad={() => setImageLoading(false)}
               onError={() => setImageLoading(false)}
             />
-            {imageLoading && (
-              <View style={styles.imageLoadingOverlay}>
-                <ActivityIndicator size="small" color={theme.COLORS.primary} />
+          </Animated.View>
+          {imageLoading && (
+            <View style={styles.imageLoadingOverlay}>
+              <ActivityIndicator size="small" color={theme.COLORS.primary} />
+            </View>
+          )}
+          {hasMultipleMedia && (
+            <View style={styles.mediaNavContainer}>
+              {mediaIndex > 0 && (
+                <TouchableOpacity style={styles.mediaNavBtn} onPress={goToPrevMedia} activeOpacity={0.8}>
+                  <Ionicons name="chevron-back" size={24} color={theme.COLORS.white} />
+                </TouchableOpacity>
+              )}
+              {mediaIndex < mediaUrls.length - 1 && (
+                <TouchableOpacity style={[styles.mediaNavBtn, styles.mediaNavBtnRight]} onPress={goToNextMedia} activeOpacity={0.8}>
+                  <Ionicons name="chevron-forward" size={24} color={theme.COLORS.white} />
+                </TouchableOpacity>
+              )}
+              <View style={styles.mediaCounter}>
+                <Text style={styles.mediaCounterText}>{mediaIndex + 1}/{mediaUrls.length}</Text>
               </View>
-            )}
-          </View>
+            </View>
+          )}
         </TouchableOpacity>
       ) : null}
 
@@ -321,6 +370,43 @@ const styles = {
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+  } as const,
+  mediaNavContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  } as const,
+  mediaNavBtn: {
+    position: 'absolute',
+    left: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as const,
+  mediaNavBtnRight: {
+    left: undefined,
+    right: 8,
+  } as const,
+  mediaCounter: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  } as const,
+  mediaCounterText: {
+    color: theme.COLORS.white,
+    fontSize: 11,
+    fontWeight: '600',
   } as const,
   divider: {
     height: theme.BORDER.width.xs,

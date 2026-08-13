@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Image,
@@ -20,12 +20,22 @@ interface StoryMediaProps {
   story: StoryItem;
 }
 
-function StoryProgress({ progress }: { progress: number }) {
+function StoryProgress({ progress, stories, activeIndex }: { progress: number; stories: StoryItem[]; activeIndex: number }) {
   return (
     <View style={styles.progressContainer}>
-      <View style={styles.progressBarBg}>
-        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-      </View>
+      {stories.map((story, idx) => (
+        <View key={story.id} style={styles.progressBarBg}>
+          <View
+            style={[
+              styles.progressBar,
+              {
+                width: idx < activeIndex ? '100%' : idx === activeIndex ? `${progress * 100}%` : '0%',
+                backgroundColor: idx < activeIndex ? theme.COLORS.white : theme.COLORS.white,
+              },
+            ]}
+          />
+        </View>
+      ))}
     </View>
   );
 }
@@ -91,6 +101,7 @@ export default function StoryViewer({
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevStoryIdRef = useRef<string | null>(null);
 
   const story = stories[activeIndex];
 
@@ -135,10 +146,17 @@ export default function StoryViewer({
       return;
     }
 
-    setProgress(0);
+    const isNewStory = prevStoryIdRef.current !== story.id;
+    prevStoryIdRef.current = story.id;
+
+    if (isNewStory) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProgress(0);
+    }
+
     timerRef.current = setInterval(() => {
       setProgress((prev) => {
-        const next = prev + 1 / 30;
+        const next = prev + 1 / 15;
         if (next >= 1) {
           goToNext();
           return 0;
@@ -184,7 +202,7 @@ export default function StoryViewer({
     <View style={styles.fullScreen}>
       <View style={styles.statusBar} />
       <View style={styles.progressWrapper}>
-        <StoryProgress progress={progress} />
+        <StoryProgress progress={progress} stories={stories} activeIndex={activeIndex} />
       </View>
 
       <View style={styles.header}>
@@ -259,11 +277,11 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     flexDirection: "row",
-    gap: 4,
+    gap: 3,
   },
   progressBarBg: {
     flex: 1,
-    height: 2,
+    height: 2.5,
     backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 1,
     overflow: "hidden",
