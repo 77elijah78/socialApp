@@ -39,7 +39,7 @@ function mapPostResponse(post: PostResponse): SocialPost {
     commentCount,
     shareCount: 0,
     isLiked: post.isLiked ?? false,
-    isBookmarked: post.isSaved ?? true,
+    isBookmarked: post.isSaved ?? false,
   };
 }
 

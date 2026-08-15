@@ -842,6 +842,6 @@ export class SocketReceiver {
 }
 
 const SOCKET_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000";
+  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000";
 
 export const socketReceiver = new SocketReceiver(SOCKET_BASE_URL);

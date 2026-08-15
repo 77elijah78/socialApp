@@ -65,5 +65,5 @@ export class MediaService {
 // ─── App-wide singleton ───────────────────────────────────────────────────────
 // Import this everywhere — one instance, one socket connection, one token state.
 export const mediaService = new MediaService(
-  `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.5:3000"}/api/v1`,
+  `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1`,
 );

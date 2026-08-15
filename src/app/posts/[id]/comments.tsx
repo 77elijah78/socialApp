@@ -54,11 +54,13 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
         </Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text
-          style={{ fontWeight: "600", fontSize: theme.TYPOGRAPHY.fontSize.sm }}
-        >
-          {authorName}
-        </Text>
+        <TouchableOpacity onPress={() => comment.author?.username && router.push(`/user/${comment.author.username}`)}>
+          <Text
+            style={{ fontWeight: "600", fontSize: theme.TYPOGRAPHY.fontSize.sm }}
+          >
+            {authorName}
+          </Text>
+        </TouchableOpacity>
         <Text
           style={{
             fontSize: theme.TYPOGRAPHY.fontSize.lg,

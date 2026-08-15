@@ -20,7 +20,7 @@ export interface SocialPostCardProps {
   onBookmark?: (postId: string, bookmarked: boolean) => void;
   onMenuPress?: (postId: string) => void;
   onTagPress?: (tag: string) => void;
-  onUserPress?: (userId: string) => void;
+  onUserPress?: (username: string) => void;
 }
 
 function formatCount(n: number): string {
@@ -115,7 +115,7 @@ export default function PostCard({
       <TouchableOpacity
         style={styles.header}
         activeOpacity={theme.OPACITY.semiTransparent}
-        onPress={() => onUserPress?.(post.id)}
+        onPress={() => onUserPress?.(post.author.username)}
       >
         <View style={styles.avatarWrapper}>
           <Image

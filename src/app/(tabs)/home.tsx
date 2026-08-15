@@ -29,6 +29,9 @@ export default function FeedScreen() {
         onComment={(postId) => {
           commentSheetRef.current?.open(postId);
         }}
+        onUserPress={(username) => {
+          router.push(`/user/${username}`);
+        }}
         onBookmark={(postId, bookmarked) => {
           if (bookmarked) save(postId); else unsave(postId);
         }}

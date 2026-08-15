@@ -17,7 +17,7 @@
 const http = require("http");
 const { io } = require("socket.io-client");
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.2:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 const BOB_EMAIL = "bob@example.com";
 const BOB_PASSWORD = "Password123!";
 

@@ -160,8 +160,10 @@ export default function PrivateRoom() {
   }, [router]);
 
   const handleProfilePress = useCallback(() => {
-    // TODO: navigate to profile
-  }, []);
+    if (receiverName) {
+      router.push(`/user/${receiverName}`);
+    }
+  }, [receiverName, router]);
 
   const handleMenuPress = useCallback(() => {
     Alert.alert(

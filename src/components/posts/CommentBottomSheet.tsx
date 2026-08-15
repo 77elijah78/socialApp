@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import { router } from "expo-router";
 import { Comment, PostOneResponse } from "@/types";
 import theme from "@/constants/theme";
 
@@ -46,9 +47,11 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
         </Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontWeight: "600", color: theme.COLORS.textPrimary, marginBottom: 2 }}>
-          {authorName} {isOwn && <Text style={{ color: theme.COLORS.primary }}>(you)</Text>}
-        </Text>
+        <TouchableOpacity onPress={() => comment.author?.username && router.push(`/user/${comment.author.username}`)}>
+          <Text style={{ fontWeight: "600", color: theme.COLORS.textPrimary, marginBottom: 2 }}>
+            {authorName} {isOwn && <Text style={{ color: theme.COLORS.primary }}>(you)</Text>}
+          </Text>
+        </TouchableOpacity>
         <Text style={{ color: theme.COLORS.textPrimary, fontSize: 14, lineHeight: 20 }}>
           {comment.content}
         </Text>
