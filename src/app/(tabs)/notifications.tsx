@@ -1,82 +1,22 @@
-import React, { useCallback, useMemo } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useMemo } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import theme from '@/constants/theme';
+import { useAppSelector, useAppDispatch } from '@/store/hooks';
+import { notificationService } from '@/services/NotificationService';
+import {
+  setNotifications,
+  setUnreadCount,
+  markRead,
+  markAllRead,
+  setLoading,
+  setError,
+} from '@/store/slices/notificationsSlice';
 import { Notification, NotificationType } from '@/types';
 
 type FilterTab = 'all' | 'unread';
-
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: '1',
-    type: 'LIKE',
-    content: 'liked your post',
-    isRead: false,
-    userId: 'u1',
-    actorId: 'u2',
-    resourceId: 'p1',
-    createdAt: new Date(Date.now() - 1000 * 60 * 5),
-  },
-  {
-    id: '2',
-    type: 'COMMENT',
-    content: 'commented on your photo',
-    isRead: false,
-    userId: 'u1',
-    actorId: 'u3',
-    resourceId: 'p2',
-    createdAt: new Date(Date.now() - 1000 * 60 * 30),
-  },
-  {
-    id: '3',
-    type: 'FOLLOW',
-    content: 'started following you',
-    isRead: true,
-    userId: 'u1',
-    actorId: 'u4',
-    resourceId: null,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-  },
-  {
-    id: '4',
-    type: 'MESSAGE',
-    content: 'sent you a message',
-    isRead: false,
-    userId: 'u1',
-    actorId: 'u5',
-    resourceId: 'c1',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5),
-  },
-  {
-    id: '5',
-    type: 'MENTION',
-    content: 'mentioned you in a comment',
-    isRead: true,
-    userId: 'u1',
-    actorId: 'u6',
-    resourceId: 'p3',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-  },
-  {
-    id: '6',
-    type: 'LIKE',
-    content: 'liked your comment',
-    isRead: true,
-    userId: 'u1',
-    actorId: 'u7',
-    resourceId: 'cm1',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48),
-  },
-];
-
-const AVATAR_COLORS = [
-  theme.COLORS.primary,
-  theme.COLORS.accentBlue,
-  theme.COLORS.accentPurple,
-  theme.COLORS.secondary,
-  theme.COLORS.indigo,
-];
 
 const ICON_MAP: Record<NotificationType, keyof typeof Ionicons.glyphMap> = {
   LIKE: 'heart',
@@ -84,6 +24,7 @@ const ICON_MAP: Record<NotificationType, keyof typeof Ionicons.glyphMap> = {
   FOLLOW: 'person-add',
   MESSAGE: 'mail',
   MENTION: 'at',
+  SYSTEM: 'notifications',
 };
 
 function formatTimestamp(date: Date): string {
@@ -105,7 +46,14 @@ function getAvatarColor(actorId: string | null): string {
   for (let i = 0; i < actorId.length; i++) {
     hash = actorId.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  const colors = [
+    theme.COLORS.primary,
+    theme.COLORS.accentBlue,
+    theme.COLORS.accentPurple,
+    theme.COLORS.secondary,
+    theme.COLORS.indigo,
+  ];
+  return colors[Math.abs(hash) % colors.length];
 }
 
 function getInitial(actorId: string | null): string {
@@ -114,20 +62,72 @@ function getInitial(actorId: string | null): string {
 }
 
 export default function NotificationsScreen() {
-  const [filter, setFilter] = React.useState<FilterTab>('all');
+  const token = useAppSelector((s) => s.auth.token);
+  const userId = useAppSelector((s) => s.auth.user?.id);
+  const dispatch = useAppDispatch();
+  const items = useAppSelector((s) => s.notifications.items);
+  const unreadCount = useAppSelector((s) => s.notifications.unreadCount);
+  const loading = useAppSelector((s) => s.notifications.loading);
+  const error = useAppSelector((s) => s.notifications.error);
 
-  const notifications = React.useMemo(() => MOCK_NOTIFICATIONS, []);
+  const [filter, setFilter] = React.useState<FilterTab>('all');
 
   const filtered = useMemo(() => {
     if (filter === 'unread') {
-      return notifications.filter((n) => !n.isRead);
+      return items.filter((n) => !n.isRead);
     }
-    return notifications;
-  }, [notifications, filter]);
+    return items;
+  }, [items, filter]);
 
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.isRead).length,
-    [notifications],
+  const fetchNotifications = useCallback(async () => {
+    if (!token || !userId) return;
+    dispatch(setLoading(true));
+    dispatch(setError(null));
+    try {
+      const page = await notificationService.getNotifications(token);
+      dispatch(setNotifications(page.notifications));
+      dispatch(setUnreadCount(page.unreadCount));
+    } catch (err: any) {
+      dispatch(setError(err.message ?? 'Failed to load notifications'));
+    } finally {
+      dispatch(setLoading(false));
+    }
+  }, [token, userId, dispatch]);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const onRefresh = useCallback(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const handleMarkAllRead = useCallback(async () => {
+    if (!token) return;
+    try {
+      await notificationService.markAllRead(token);
+      dispatch(markAllRead());
+    } catch (err) {
+      console.error('Failed to mark all read:', err);
+    }
+  }, [token, dispatch]);
+
+  const handleItemPress = useCallback(
+    (item: Notification) => {
+      if (!item.isRead) {
+        notificationService.markRead(token ?? '', item.id).catch(() => {});
+        dispatch(markRead(item.id));
+      }
+      const actorUsername = item.user?.username;
+      if (actorUsername) {
+        router.push(`/user/${actorUsername}`);
+      } else if (item.resourceId && (item.type === 'COMMENT' || item.type === 'LIKE' || item.type === 'MENTION')) {
+        router.push(`/posts/${item.resourceId}/comments`);
+      } else if (item.type === 'MESSAGE') {
+        router.push('/(chatRoom)/messages');
+      }
+    },
+    [token, dispatch, router],
   );
 
   const renderItem = useCallback(
@@ -135,9 +135,13 @@ export default function NotificationsScreen() {
       const iconName = ICON_MAP[item.type] || 'notifications';
       const avatarColor = getAvatarColor(item.actorId);
       const initial = getInitial(item.actorId);
+      const actorName = item.user?.displayName || item.user?.username || 'Someone';
 
       return (
-        <Pressable style={[styles.item, !item.isRead && styles.itemUnread]}>
+        <Pressable
+          style={[styles.item, !item.isRead && styles.itemUnread]}
+          onPress={() => handleItemPress(item)}
+        >
           <View style={styles.avatarContainer}>
             <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
               <Text style={styles.avatarText}>{initial}</Text>
@@ -150,18 +154,18 @@ export default function NotificationsScreen() {
           <View style={styles.content}>
             <View style={styles.textRow}>
               <Text style={styles.contentText}>
-                <Text style={styles.actorName}>{item.actorId ? `User ${item.actorId.slice(0, 5)}` : 'Someone'}</Text>
+                <Text style={styles.actorName}>{actorName}</Text>
                 <Text style={styles.contentSuffix}> {item.content}</Text>
               </Text>
             </View>
-            <Text style={styles.timestamp}>{formatTimestamp(item.createdAt)}</Text>
+            <Text style={styles.timestamp}>{formatTimestamp(new Date(item.createdAt))}</Text>
           </View>
 
           {!item.isRead && <View style={styles.unreadDot} />}
         </Pressable>
       );
     },
-    [],
+    [handleItemPress],
   );
 
   const renderEmpty = useCallback(() => {
@@ -178,19 +182,40 @@ export default function NotificationsScreen() {
     );
   }, [filter]);
 
+  if (error && items.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={theme.COLORS.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Notifications</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable onPress={onRefresh}>
+            <Text style={{ color: theme.COLORS.primary }}>Retry</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color={theme.COLORS.textPrimary} />
+        </Pressable>
         <Text style={styles.headerTitle}>Notifications</Text>
         {unreadCount > 0 && (
-          <Pressable style={styles.markAllBtn}>
+          <Pressable style={styles.markAllBtn} onPress={handleMarkAllRead}>
             <Text style={styles.markAllText}>Mark all read</Text>
           </Pressable>
         )}
       </View>
 
-      {/* Filter Tabs */}
       <View style={styles.tabBar}>
         <Pressable
           style={[styles.tab, filter === 'all' && styles.tabActive]}
@@ -208,7 +233,7 @@ export default function NotificationsScreen() {
           <Text style={[styles.tabText, filter === 'unread' && styles.tabTextActive]}>
             Unread
           </Text>
-          {unreadCount > 0 && (
+          {filter === 'unread' && unreadCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{unreadCount}</Text>
             </View>
@@ -217,16 +242,29 @@ export default function NotificationsScreen() {
         </Pressable>
       </View>
 
-      {/* List */}
-      <FlatList
-        style={styles.list}
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        contentContainerStyle={filtered.length === 0 ? styles.emptyContent : styles.listContent}
-        ListEmptyComponent={renderEmpty}
-      />
+      {loading && items.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.COLORS.primary} />
+        </View>
+      ) : (
+        <FlatList
+          style={styles.list}
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          contentContainerStyle={filtered.length === 0 ? styles.emptyContent : styles.listContent}
+          ListEmptyComponent={renderEmpty}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={onRefresh}
+              tintColor={theme.COLORS.primary}
+              colors={[theme.COLORS.primary]}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -236,16 +274,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.COLORS.bgLight,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
-    paddingBottom: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgLight,
-    ...theme.SHADOWS.xl,
-    zIndex: 10,
+  backBtn: {
+    padding: 4,
   },
   headerTitle: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
@@ -261,6 +291,33 @@ const styles = StyleSheet.create({
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     color: theme.COLORS.primary,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+  },
+  errorText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: theme.COLORS.danger,
+    marginBottom: theme.SPACING.md,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingTop: theme.SPACING.md,
+    paddingBottom: theme.SPACING.sm,
+    backgroundColor: theme.COLORS.bgLight,
+    ...theme.SHADOWS.xl,
+    zIndex: 10,
   },
   tabBar: {
     flexDirection: 'row',

@@ -9,10 +9,11 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
 import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
+import { addNotification as addNotificationToStore, incrementUnreadCount } from "@/store/slices/notificationsSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
@@ -75,6 +76,7 @@ function SocketProvider() {
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
   const token = useAppSelector((s) => s.auth.token);
   const userId = useAppSelector((s) => s.auth.user?.id);
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     if (isAuthenticated && userId && token) {
@@ -84,6 +86,16 @@ function SocketProvider() {
       mediaService.disconnectSocket();
     }
   }, [isAuthenticated, token, userId]);
+
+  useEffect(() => {
+    const unsub = mediaService.socket.on("notification:new", (payload: any) => {
+      if (payload) {
+        dispatch(addNotificationToStore(payload));
+        dispatch(incrementUnreadCount());
+      }
+    });
+    return unsub;
+  }, [dispatch]);
 
   return null;
 }

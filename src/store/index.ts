@@ -5,16 +5,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage'; // ← rea
 
 import authReducer from './slices/authSlice';
 import appReducer from './slices/appSlice';
+import notificationsReducer from './slices/notificationsSlice';
 
 const rootReducer = combineReducers({
   auth: authReducer,
   app: appReducer,
+  notifications: notificationsReducer,
 });
 
 const persistConfig = {
   key: 'root',
   storage: AsyncStorage,
-  whitelist: ['auth', 'app'],
+  whitelist: ['auth', 'app', 'notifications'],
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

@@ -12,7 +12,7 @@ import {
 
 export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ';
-export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION';
+export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SYSTEM';
 
 export interface User {
   id: string;

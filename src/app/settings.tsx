@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import theme from '@/constants/theme';
 import { useAppSelector, useAppDispatch } from '@/store/hooks';
 import { logout } from '@/store/slices/authSlice';
+import { toggleNotifications } from '@/store/slices/appSlice';
 import { authService } from '@/services/AuthService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -72,7 +73,7 @@ function SettingItem({
 }
 
 export default function SettingsScreen() {
-  const [notifications, setNotifications] = useState(true);
+  const notificationsEnabled = useAppSelector((s) => s.app.notificationsEnabled);
   const [darkMode, setDarkMode] = useState(false);
   const dispatch = useAppDispatch();
 
@@ -152,13 +153,13 @@ export default function SettingsScreen() {
                 <Text style={styles.settingLabel}>Notifications</Text>
               </View>
               <Switch
-                value={notifications}
-                onValueChange={setNotifications}
+                value={notificationsEnabled}
+                onValueChange={(value: boolean) => { dispatch(toggleNotifications()); }}
                 trackColor={{
                   false: theme.COLORS.borderGray,
                   true: theme.COLORS.primaryLight,
                 }}
-                thumbColor={notifications ? theme.COLORS.primary : theme.COLORS.textMuted}
+                thumbColor={notificationsEnabled ? theme.COLORS.primary : theme.COLORS.textMuted}
               />
             </View>
             <View style={styles.settingItem}>

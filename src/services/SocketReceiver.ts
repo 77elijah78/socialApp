@@ -39,20 +39,14 @@ export class SocketReceiver {
     this.currentUserId = userId;
     this.authToken = authToken;
 
-    /**
-     * Already connected.
-     */
-    if (this.socket?.connected) {
-      return;
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
     }
 
-    /**
-     * Socket exists but is currently reconnecting.
-     * Don't create another socket.
-     */
-    if (this.socket) {
-      return;
-    }
+    this.deliveredAckSet.clear();
+    this.reconnectSyncInFlight = false;
 
     this.socket = io(this.baseUrl, {
       auth: {
@@ -586,6 +580,10 @@ export class SocketReceiver {
         });
       },
     );
+
+    s.on("notification:new", (payload: any) => {
+      this.emit("notification:new", payload);
+    });
 
     /**
      * Join personal notification room.
