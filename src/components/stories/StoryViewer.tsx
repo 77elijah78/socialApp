@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Image,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { api, getAccessToken } from "@/services/api";
 import { StoryItem } from "@/types";
 import theme from "@/constants/theme";
@@ -18,6 +19,8 @@ const { width, height } = Dimensions.get("window");
 
 interface StoryMediaProps {
   story: StoryItem;
+  onVideoProgress?: (progress: number) => void;
+  onVideoEnd?: () => void;
 }
 
 function StoryProgress({ progress, stories, activeIndex }: { progress: number; stories: StoryItem[]; activeIndex: number }) {
@@ -29,8 +32,8 @@ function StoryProgress({ progress, stories, activeIndex }: { progress: number; s
             style={[
               styles.progressBar,
               {
-                width: idx < activeIndex ? '100%' : idx === activeIndex ? `${progress * 100}%` : '0%',
-                backgroundColor: idx < activeIndex ? theme.COLORS.white : theme.COLORS.white,
+                width: idx < activeIndex ? "100%" : idx === activeIndex ? `${progress * 100}%` : "0%",
+                backgroundColor: theme.COLORS.white,
               },
             ]}
           />
@@ -40,30 +43,65 @@ function StoryProgress({ progress, stories, activeIndex }: { progress: number; s
   );
 }
 
-function StoryMedia({ story }: StoryMediaProps) {
+function StoryMedia({ story, onVideoProgress, onVideoEnd }: StoryMediaProps) {
   const [loaded, setLoaded] = useState(false);
+  const player = useVideoPlayer(
+    story.mediaType === "video" ? story.mediaUrl : null,
+    (p) => {
+      if (story.mediaType === "video") {
+        p.play();
+        p.muted = true;
+        p.timeUpdateEventInterval = 0.1;
+      }
+    },
+  );
 
-  const handleLoaded = () => setLoaded(true);
+  useEffect(() => {
+    if (story.mediaType !== "video") return;
+
+    const statusSub = player.addListener("statusChange", ({ status }) => {
+      if (status === "readyToPlay") {
+        setLoaded(true);
+      } else if (status === "error") {
+        setLoaded(true);
+      }
+    });
+
+    const timeSub = player.addListener("timeUpdate", () => {
+      const duration = player.duration;
+      const position = player.currentTime;
+      const progress = duration > 0 ? position / duration : 0;
+      onVideoProgress?.(progress);
+    });
+
+    const endSub = player.addListener("playToEnd", () => {
+      onVideoEnd?.();
+    });
+
+    return () => {
+      statusSub.remove();
+      timeSub.remove();
+      endSub.remove();
+    };
+  }, [player, onVideoProgress, onVideoEnd, story.mediaType]);
+
+  const handleImageLoaded = () => setLoaded(true);
 
   return (
     <View style={styles.mediaContainer}>
       {story.mediaUrl ? (
         story.mediaType === "video" ? (
-          <View style={styles.videoPlaceholder}>
-            <Ionicons name="play-circle" size={64} color={theme.COLORS.white} />
-            <Image
-              source={{ uri: story.mediaUrl }}
-              style={styles.videoThumbnail}
-              resizeMode="cover"
-              onLoad={handleLoaded}
-            />
-          </View>
+          <VideoView
+            player={player}
+            style={styles.media}
+            contentFit="contain"
+          />
         ) : (
           <Image
             source={{ uri: story.mediaUrl }}
             style={styles.media}
             resizeMode="contain"
-            onLoad={handleLoaded}
+            onLoad={handleImageLoaded}
           />
         )
       ) : (
@@ -102,8 +140,13 @@ export default function StoryViewer({
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStoryIdRef = useRef<string | null>(null);
+  const activeIndexRef = useRef(initialIndex);
 
   const story = stories[activeIndex];
+
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   // Auto-mark story as viewed immediately when it becomes active
   useEffect(() => {
@@ -139,6 +182,28 @@ export default function StoryViewer({
     };
   }, [story, activeIndex]);
 
+  const goToNext = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (activeIndexRef.current < stories.length - 1) {
+      const newIndex = activeIndexRef.current + 1;
+      setActiveIndex(newIndex);
+      onIndexChange?.(newIndex);
+    } else {
+      onClose?.();
+    }
+  }, [stories.length, onIndexChange, onClose]);
+
+  const goToPrev = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (activeIndexRef.current > 0) {
+      const newIndex = activeIndexRef.current - 1;
+      setActiveIndex(newIndex);
+      onIndexChange?.(newIndex);
+    } else {
+      onClose?.();
+    }
+  }, [onIndexChange, onClose]);
+
   // Progress timer
   useEffect(() => {
     if (!story || story.id === "me") {
@@ -150,47 +215,38 @@ export default function StoryViewer({
     prevStoryIdRef.current = story.id;
 
     if (isNewStory) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProgress(0);
     }
 
+    if (story.mediaType === "video") {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+
+    // Image: smooth 5-second timer (100ms ticks, 0.02 per tick)
     timerRef.current = setInterval(() => {
       setProgress((prev) => {
-        const next = prev + 1 / 15;
+        const next = prev + 0.02;
         if (next >= 1) {
           goToNext();
-          return 0;
+          return 1;
         }
         return next;
       });
-    }, 1000);
+    }, 100);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeIndex, story]);
+  }, [activeIndex, story, goToNext]);
 
-  function goToNext() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (activeIndex < stories.length - 1) {
-      const newIndex = activeIndex + 1;
-      setActiveIndex(newIndex);
-      onIndexChange?.(newIndex);
-    } else {
-      onClose?.();
-    }
-  }
+  const handleVideoProgress = useCallback((videoProgress: number) => {
+    setProgress(videoProgress);
+  }, []);
 
-  function goToPrev() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (activeIndex > 0) {
-      const newIndex = activeIndex - 1;
-      setActiveIndex(newIndex);
-      onIndexChange?.(newIndex);
-    } else {
-      onClose?.();
-    }
-  }
+  const handleVideoEnd = useCallback(() => {
+    goToNext();
+  }, [goToNext]);
 
   if (!story) {
     return null;
@@ -232,7 +288,11 @@ export default function StoryViewer({
       </View>
 
       <TouchableWithoutFeedback>
-        <StoryMedia story={story} />
+        <StoryMedia
+          story={story}
+          onVideoProgress={handleVideoProgress}
+          onVideoEnd={handleVideoEnd}
+        />
       </TouchableWithoutFeedback>
 
       <View style={styles.footer}>
@@ -342,19 +402,6 @@ const styles = StyleSheet.create({
   media: {
     width: width,
     height: height - 120,
-  },
-  videoPlaceholder: {
-    width: width,
-    height: height - 120,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.8)",
-  },
-  videoThumbnail: {
-    position: "absolute",
-    width: width,
-    height: height - 120,
-    opacity: 0.5,
   },
   loadingOverlay: {
     position: "absolute",
