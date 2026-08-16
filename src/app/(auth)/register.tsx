@@ -15,6 +15,7 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { appAlert } from "@/components/ui/AppAlert";
 
 export default function RegisterScreen() {
   const [form, setForm] = useState({
@@ -22,7 +23,6 @@ export default function RegisterScreen() {
     email: "",
     password: "",
   });
-  const [registerError, setRegisterError] = useState<string | null>(null);
   const dispatch = useAppDispatch();
 
   return (
@@ -47,12 +47,6 @@ export default function RegisterScreen() {
         <Text style={styles.description}>
           Join the community and start sharing.
         </Text>
-
-        {registerError ? (
-          <View style={{ backgroundColor: "#fee", padding: 12, borderRadius: 8, marginBottom: 12 }}>
-            <Text style={{ color: "#c00", textAlign: "center" }}>{registerError}</Text>
-          </View>
-        ) : null}
 
         <Text style={styles.label}>Full Name</Text>
         <View style={styles.inputContainer}>
@@ -94,7 +88,6 @@ export default function RegisterScreen() {
           style={styles.button}
           title="Sign Up"
           onPress={async () => {
-            setRegisterError(null);
             try {
               const username = form.fullName.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
               await authService.register(
@@ -105,8 +98,14 @@ export default function RegisterScreen() {
                 dispatch,
               );
               router.replace("/(tabs)/home");
-           		} catch (err: any) {
-              setRegisterError(err.message || "Registration failed");
+            } catch (err: any) {
+              appAlert({
+                title: "Registration Failed",
+                message: err.message || "Something went wrong. Please try again.",
+                buttons: [
+                  { key: "ok", label: "OK", onPress: () => {} },
+                ],
+              });
             }
           }}
         />

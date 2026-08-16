@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { appAlert } from "@/components/ui/AppAlert";
 
 export default function LoginScreen() {
   const [blinded, setBlinded] = useState(true);
@@ -30,20 +31,12 @@ export default function LoginScreen() {
 
   const dispatch = useAppDispatch();
 
-  const [loginError, setLoginError] = useState<string | null>(null);
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Social App</Text>
         <Text style={styles.subtitle}>Welcome Back</Text>
       </View>
-
-      {loginError ? (
-        <View style={{ backgroundColor: "#fee", padding: 12, borderRadius: 8, marginBottom: 12 }}>
-          <Text style={{ color: "#c00", textAlign: "center" }}>{loginError}</Text>
-        </View>
-      ) : null}
 
       <View style={styles.card}>
         <View style={styles.inputWrapper}>
@@ -100,12 +93,17 @@ export default function LoginScreen() {
         <PrimaryButton
           title="Log In"
           onPress={async () => {
-            setLoginError(null);
             try {
               await authService.login(form.email, form.password, dispatch);
               router.replace("/(tabs)/home");
             } catch (err: any) {
-              setLoginError(err.message || "Login failed");
+              appAlert({
+                title: "Login Failed",
+                message: err.message || "Please check your credentials and try again.",
+                buttons: [
+                  { key: "ok", label: "OK", onPress: () => {} },
+                ],
+              });
             }
           }}
           style={{ marginTop: theme.SPACING.lg }}
