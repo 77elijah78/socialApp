@@ -10,6 +10,7 @@ import { SocialPost } from '@/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import theme from '@/constants/theme';
 import { usePosts } from '@/hooks/usePosts';
+import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 export default function FeedScreen() {
   const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore } = usePosts({ limit: 20 });
@@ -34,6 +35,17 @@ export default function FeedScreen() {
         }}
         onBookmark={(postId, bookmarked) => {
           if (bookmarked) save(postId); else unsave(postId);
+        }}
+        onMenuPress={(postId) => {
+          const actions: ActionMenuItem[] = [
+            { key: 'save', icon: 'bookmark-outline', label: 'Save post', onPress: () => save(postId) },
+            { key: 'share', icon: 'share-outline', label: 'Share', onPress: () => {} },
+            { key: 'report', icon: 'flag-outline', label: 'Report', onPress: () => {} },
+            { key: 'hide', icon: 'eye-off-outline', label: 'Hide post', onPress: () => {} },
+            { key: 'unfollow', icon: 'person-remove-outline', label: 'Unfollow', onPress: () => {} },
+            { key: 'delete', icon: 'trash-outline', label: 'Delete', destructive: true, onPress: () => {} },
+          ];
+          presentActionMenu(actions);
         }}
       />
     );

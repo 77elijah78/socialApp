@@ -7,7 +7,6 @@ import {
   useWindowDimensions,
   Image,
   TouchableOpacity,
-  Alert,
   Linking,
 } from "react-native";
 import { useState, useMemo } from "react";
@@ -15,7 +14,7 @@ import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as FileSystem from "expo-file-system";
+import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 function StatusCheckmarks({
   status,
@@ -73,15 +72,12 @@ export default function MessageCard({
     return Number.isNaN(d.getTime()) ? null : d;
   }, [time]);
 
-  const handleDownload = async () => {
-    try {
-      Alert.alert("Download", "Open media in browser to download?", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Open", onPress: () => Linking.openURL(uri) },
-      ]);
-    } catch (err) {
-      Alert.alert("Error", "Could not open media");
-    }
+  const handleDownload = () => {
+    const items: ActionMenuItem[] = [
+      { key: 'open', icon: 'open-outline', label: 'Open in browser', onPress: () => Linking.openURL(uri) },
+      { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
+    ];
+    presentActionMenu(items);
   };
 
   const sentBubble = {

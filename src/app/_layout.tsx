@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { PaperProvider } from "react-native-paper";
 import { runMigrations } from "../db/migrations";
 import { useEffect, useState } from "react";
+import React from "react";
 import { Provider } from "react-redux";
 import { store, persistor } from "@/store/index";
 import { ActivityIndicator, View } from "react-native";
@@ -14,6 +15,7 @@ import { mediaService } from "@/services/MediaService";
 import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
 import { addNotification as addNotificationToStore, incrementUnreadCount } from "@/store/slices/notificationsSlice";
+import ActionMenu, { registerActionMenu } from "@/components/ui/ActionMenu";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
@@ -120,6 +122,8 @@ export default function RootLayout() {
     });
   }, []);
 
+  const actionMenuRef = React.useRef<{ present: (items: any[]) => void }>(null);
+
   return (
     <KeyboardProvider>
       <Provider store={store}>
@@ -128,6 +132,7 @@ export default function RootLayout() {
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
                 <SocketProvider />
+                <ActionMenu />
                 <Stack
                   screenOptions={{
                     contentStyle: {

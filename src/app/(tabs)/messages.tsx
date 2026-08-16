@@ -1,13 +1,14 @@
 import PrivateMessageCard from "@/components/messages/PrivateMessageCard";
 import { useRooms } from "@/hooks/useRooms";
 import { router } from "expo-router";
-import { View, Text, FlatList, Pressable, ActivityIndicator, Alert, TextInput, StyleSheet } from "react-native";
+import { View, Text, FlatList, Pressable, ActivityIndicator, TextInput, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import theme from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mediaService } from "@/services/MediaService";
 import { useFocusEffect } from "expo-router";
+import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 export default function Messages() {
   const { rooms, loading, reload, deleteRoom } = useRooms();
@@ -16,26 +17,18 @@ export default function Messages() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleDeleteRoom = useCallback(async (roomId: string, receiverName: string) => {
-    Alert.alert(
-      "Delete conversation",
-      `Are you sure you want to delete your conversation with ${receiverName}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await mediaService.message.deleteConversation(roomId);
-              await deleteRoom(roomId);
-            } catch (err) {
-              Alert.alert("Error", "Could not delete conversation");
-            }
-          },
-        },
-      ],
-      { cancelable: true }
-    );
+    const actions: ActionMenuItem[] = [
+      { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
+      { key: 'delete', icon: 'trash-outline', label: `Delete conversation with ${receiverName}`, destructive: true, onPress: async () => {
+        try {
+          await mediaService.message.deleteConversation(roomId);
+          await deleteRoom(roomId);
+        } catch (err) {
+          presentActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
+        }
+      }},
+    ];
+    presentActionMenu(actions);
   }, [deleteRoom]);
 
   const filteredRooms = rooms.filter((room) =>

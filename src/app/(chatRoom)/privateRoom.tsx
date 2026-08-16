@@ -34,6 +34,7 @@ import {
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 import { mediaService } from "@/services/MediaService";
+import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -166,78 +167,36 @@ export default function PrivateRoom() {
   }, [receiverName, router]);
 
   const handleMenuPress = useCallback(() => {
-    Alert.alert(
-      "Conversation options",
-      "What would you like to do?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete conversation",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await mediaService.message.deleteConversation(conversationId);
-              router.back();
-            } catch (err) {
-              Alert.alert("Error", "Could not delete conversation");
-            }
-          },
-        },
-      ],
-      { cancelable: true },
-    );
+    const actions: ActionMenuItem[] = [
+      { key: 'search', icon: 'search', label: 'Search', onPress: () => {} },
+      { key: 'mute', icon: 'notifications-off-outline', label: 'Mute notifications', onPress: () => {} },
+      { key: 'wallpaper', icon: 'image-outline', label: 'Wallpaper', onPress: () => {} },
+      { key: 'delete', icon: 'trash-outline', label: 'Delete conversation', destructive: true, onPress: async () => {
+        try {
+          await mediaService.message.deleteConversation(conversationId);
+          router.back();
+        } catch (err) {
+          presentActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
+        }
+      }},
+    ];
+    presentActionMenu(actions);
   }, [conversationId, router]);
 
   const handleMessageAction = useCallback(
     (message: any) => {
       const isOwn = message.senderId === currentUserId;
-      Alert.alert(
-        "Message options",
-        "Choose an action",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Reply",
-            onPress: () => setReplyingTo(message),
-          },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                if (isOwn) {
-                  const deleteFor = Alert.alert(
-                    "Delete message",
-                    "Delete for everyone or only for you?",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "For me",
-                        onPress: () => mediaService.message.delete(message.id),
-                      },
-                      {
-                        text: "For everyone",
-                        style: "destructive",
-                        onPress: () =>
-                          mediaService.message.delete(message.id, "everyone"),
-                      },
-                    ],
-                    { cancelable: true },
-                  );
-                } else {
-                  Alert.alert(
-                    "Cannot delete",
-                    "You can only delete your own messages",
-                  );
-                }
-              } catch (err) {
-                Alert.alert("Error", "Could not delete message");
-              }
-            },
-          },
-        ],
-        { cancelable: true },
-      );
+      const actions: ActionMenuItem[] = [
+        { key: 'reply', icon: 'arrow-undo-outline', label: 'Reply', onPress: () => setReplyingTo(message) },
+        isOwn ? { key: 'delete', icon: 'trash-outline', label: 'Delete', destructive: true, onPress: async () => {
+          const deleteOptions: ActionMenuItem[] = [
+            { key: 'forme', icon: 'close-circle-outline', label: 'Delete for me', onPress: () => mediaService.message.delete(message.id) },
+            { key: 'everyone', icon: 'people-outline', label: 'Delete for everyone', destructive: true, onPress: () => mediaService.message.delete(message.id, "everyone") },
+          ];
+          presentActionMenu(deleteOptions);
+        }} : { key: 'cannot', icon: 'lock-closed-outline', label: 'Cannot delete others messages', onPress: () => {} },
+      ];
+      presentActionMenu(actions);
     },
     [currentUserId],
   );
