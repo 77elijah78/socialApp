@@ -12,6 +12,8 @@ import {
 import { useState, useMemo } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
+import SharedPostCard from "./SharedPostCard";
+import SharedStoryCard from "./SharedStoryCard";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
@@ -218,6 +220,49 @@ export default function MessageCard({
               </TouchableOpacity>
             </View>
           )}
+
+          {type === "SHARED_POST" && (() => {
+            try {
+              const parsed = JSON.parse(message || "{}");
+              return (
+                <SharedPostCard
+                  content={parsed.content ?? "Shared post"}
+                  authorName={parsed.authorName ?? "User"}
+                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
+                  imageUrl={parsed.imageUrl ?? null}
+                  onPress={() => parsed.postId && router.push(`/posts/${parsed.postId}/comments`)}
+                />
+              );
+            } catch {
+              return (
+                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
+                  <Text style={{ color: textColor }}>Shared post</Text>
+                </View>
+              );
+            }
+          })()}
+
+          {type === "SHARED_STORY" && (() => {
+            try {
+              const parsed = JSON.parse(message || "{}");
+              return (
+                <SharedStoryCard
+                  mediaUrl={parsed.mediaUrl ?? ""}
+                  mediaType={parsed.mediaType ?? "image"}
+                  caption={parsed.caption ?? null}
+                  authorName={parsed.authorName ?? "User"}
+                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
+                  onPress={() => parsed.storyId && router.push(`/stories/${parsed.storyId}`)}
+                />
+              );
+            } catch {
+              return (
+                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
+                  <Text style={{ color: textColor }}>Shared story</Text>
+                </View>
+              );
+            }
+          })()}
 
           <View
             style={{

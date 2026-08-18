@@ -329,4 +329,108 @@ export class MessageService extends BaseUploader {
       throw err;
     }
   }
+
+  async sendSharedPost(postId: string, meta: SendMeta) {
+    const localId = uid();
+
+    const optimistic: NewMessageRow = {
+      localId,
+      id: localId,
+      content: JSON.stringify({ sharedPostId: postId }),
+      mediaUrl: null,
+      thumbnailUrl: null,
+      type: "SHARED_POST",
+      status: "SENDING",
+      senderId: meta.senderId,
+      receiverId: meta.receiverId,
+      conversationId: meta.conversationId,
+      isRead: false,
+      timestamp: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      duration: null,
+      repliedToId: null,
+      forwardedFromId: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      retryCount: 0,
+    };
+
+    await messageStore.save(optimistic);
+
+    try {
+      const resp = await api.post<{ data: { id: string; createdAt: string } }>(
+        `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+        {
+          content: JSON.stringify({ sharedPostId: postId }),
+          type: "SHARED_POST",
+          receiverId: meta.receiverId,
+        },
+        this.authToken ?? undefined,
+      );
+
+      const serverId = resp.data.id;
+      const serverTimestamp = new Date(resp.data.createdAt).getTime();
+
+      return messageStore.confirm(localId, serverId, serverTimestamp);
+    } catch (err) {
+      console.log(err);
+      await messageStore.markFailed(localId);
+      throw err;
+    }
+  }
+
+  async sendSharedStory(storyId: string, meta: SendMeta) {
+    const localId = uid();
+
+    const optimistic: NewMessageRow = {
+      localId,
+      id: localId,
+      content: JSON.stringify({ sharedStoryId: storyId }),
+      mediaUrl: null,
+      thumbnailUrl: null,
+      type: "SHARED_STORY",
+      status: "SENDING",
+      senderId: meta.senderId,
+      receiverId: meta.receiverId,
+      conversationId: meta.conversationId,
+      isRead: false,
+      timestamp: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      duration: null,
+      repliedToId: null,
+      forwardedFromId: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      retryCount: 0,
+    };
+
+    await messageStore.save(optimistic);
+
+    try {
+      const resp = await api.post<{ data: { id: string; createdAt: string } }>(
+        `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
+        {
+          content: JSON.stringify({ sharedStoryId: storyId }),
+          type: "SHARED_STORY",
+          receiverId: meta.receiverId,
+        },
+        this.authToken ?? undefined,
+      );
+
+      const serverId = resp.data.id;
+      const serverTimestamp = new Date(resp.data.createdAt).getTime();
+
+      return messageStore.confirm(localId, serverId, serverTimestamp);
+    } catch (err) {
+      console.log(err);
+      await messageStore.markFailed(localId);
+      throw err;
+    }
+  }
 }
