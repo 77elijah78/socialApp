@@ -10,7 +10,7 @@ import {
 // SHARED DOMAIN TYPES (mirrors backend src/types/index.ts)
 // ─────────────────────────────────────────────────────────────────────
 
-export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'SHARED_POST' | 'SHARED_STORY';
 export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ';
 export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SYSTEM';
 
@@ -271,6 +271,31 @@ export interface MessageResponse {
   repliedToId: string | null;
   repliedTo?: MessageResponse | null;
   forwardedFromId: string | null;
+  sharedPostId?: string | null;
+  sharedStoryId?: string | null;
+  sharedPost?: {
+    id: string;
+    content: string;
+    imageUrls: string[];
+    author: {
+      id: string;
+      username: string;
+      displayName: string | null;
+      avatarUrl: string | null;
+    };
+  } | null;
+  sharedStory?: {
+    id: string;
+    mediaUrl: string;
+    mediaType: string;
+    caption: string | null;
+    user: {
+      id: string;
+      username: string;
+      displayName: string | null;
+      avatarUrl: string | null;
+    };
+  } | null;
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────

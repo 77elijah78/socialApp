@@ -17,6 +17,7 @@ import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
 import { addNotification as addNotificationToStore, incrementUnreadCount } from "@/store/slices/notificationsSlice";
 import ActionMenu, { registerActionMenu } from "@/components/ui/ActionMenu";
 import AppAlert, { registerAppAlert } from "@/components/ui/AppAlert";
+import ShareSheet, { registerShareSheet } from "@/components/ui/ShareSheet";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
@@ -135,6 +136,7 @@ export default function RootLayout() {
                 <SocketProvider />
                 <ActionMenu />
                 <AppAlert />
+                <ShareSheet />
                 <Stack
                   screenOptions={{
                     contentStyle: {
