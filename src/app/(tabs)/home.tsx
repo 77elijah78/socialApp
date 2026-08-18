@@ -1,5 +1,5 @@
-import React, { useCallback, useRef } from "react";
-import { View, Text, FlatList, RefreshControl, Pressable } from "react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { View, Text, FlatList, RefreshControl, Pressable, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import PostCard from "@/components/feed/PostCard";
@@ -11,9 +11,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import theme from '@/constants/theme';
 import { usePosts } from '@/hooks/usePosts';
 import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 export default function FeedScreen() {
-  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore } = usePosts({ limit: 20 });
+  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore, error } = usePosts({ limit: 20 });
+  const { isOffline } = useNetworkStatus();
   const commentSheetRef = useRef<CommentBottomSheetRef>(null);
 
   const onRefresh = useCallback(() => {
@@ -51,6 +54,33 @@ export default function FeedScreen() {
     );
   }, [like, unlike, save, unsave, commentSheetRef]);
 
+  const skeletonData = useMemo(() => Array.from({ length: 3 }), []);
+
+  const renderSkeleton = useCallback((info: { item: any; index: number }) => (
+    <FeedPostSkeleton key={`skeleton-${info.index}`} testID="feed-skeleton" />
+  ), []);
+
+  const renderEmpty = useCallback(() => {
+    if (loading) return null;
+    if (error && posts.length === 0) {
+      return (
+        <View style={{ alignItems: "center", marginTop: theme.SPACING.xxxxxl, paddingHorizontal: theme.LAYOUT.contentPadding }}>
+          <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.md }}>{error.message}</Text>
+          <TouchableOpacity onPress={refresh} style={{ padding: theme.SPACING.md, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
+            <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return (
+      <View style={{ alignItems: "center", marginTop: theme.SPACING.xxxxxl }}>
+        <Text style={{ color: theme.COLORS.textMuted }}>No posts yet</Text>
+      </View>
+    );
+  }, [loading, error, posts.length, refresh]);
+
+  const showSkeletons = loading && posts.length === 0;
+
   return (
     <SafeAreaView
       style={{
@@ -58,6 +88,8 @@ export default function FeedScreen() {
         backgroundColor: theme.COLORS.bgLight,
       }}
     >
+      <OfflineBanner isOffline={isOffline} onRetry={refresh} />
+
       {/* Header */}
       <View
         style={{
@@ -94,13 +126,14 @@ export default function FeedScreen() {
           flex: 1,
           backgroundColor: theme.COLORS.bgLight,
         }}
-        data={posts}
+        data={showSkeletons ? skeletonData as any : posts}
         showsVerticalScrollIndicator={false}
         numColumns={1}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={<StoriesBar />}
+        keyExtractor={(item, index) => showSkeletons ? `skeleton-${index}` : item.id}
+        ListHeaderComponent={showSkeletons ? null : <StoriesBar />}
+        ListEmptyComponent={showSkeletons ? null : renderEmpty}
         ListFooterComponent={
-          loading ? (
+          loading && !showSkeletons ? (
             <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
               <Text style={{ color: theme.COLORS.textMuted }}>Loading...</Text>
             </View>
@@ -108,7 +141,7 @@ export default function FeedScreen() {
             <View style={{ height: theme.SPACING.xxxxl }} />
           )
         }
-        onEndReached={hasMore ? loadMore : undefined}
+        onEndReached={hasMore && !showSkeletons ? loadMore : undefined}
         onEndReachedThreshold={0.5}
         refreshControl={
           <RefreshControl
@@ -118,7 +151,7 @@ export default function FeedScreen() {
             colors={[theme.COLORS.primary]}
           />
         }
-        renderItem={renderItem}
+        renderItem={showSkeletons ? renderSkeleton : renderItem}
       />
       <CommentBottomSheet ref={commentSheetRef} />
     </SafeAreaView>

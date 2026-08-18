@@ -1,20 +1,27 @@
 import PrivateMessageCard from "@/components/messages/PrivateMessageCard";
 import { useRooms } from "@/hooks/useRooms";
 import { router } from "expo-router";
-import { View, Text, FlatList, Pressable, ActivityIndicator, TextInput, StyleSheet } from "react-native";
+import { View, Text, FlatList, Pressable, ActivityIndicator, TextInput, StyleSheet, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import theme from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { mediaService } from "@/services/MediaService";
 import { useFocusEffect } from "expo-router";
 import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { ConversationRowSkeleton, OfflineBanner } from "@/components/ui";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 export default function Messages() {
-  const { rooms, loading, reload, deleteRoom } = useRooms();
+  const { rooms, loading, error, reload, deleteRoom } = useRooms();
+  const { isOffline } = useNetworkStatus();
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   const [searchQuery, setSearchQuery] = useState("");
+
+  const handleRetry = useCallback(() => {
+    reload();
+  }, [reload]);
 
   const handleDeleteRoom = useCallback(async (roomId: string, receiverName: string) => {
     const actions: ActionMenuItem[] = [
@@ -36,6 +43,12 @@ export default function Messages() {
     (room.lastMessage ?? "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const skeletonData = useMemo(() => Array.from({ length: 6 }), []);
+
+  const renderSkeleton = useCallback((info: { item: any; index: number }) => (
+    <ConversationRowSkeleton key={`skeleton-${info.index}`} testID="conversation-skeleton" />
+  ), []);
+
   useFocusEffect(
     useCallback(() => {
       void reloadRef.current();
@@ -44,6 +57,8 @@ export default function Messages() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.COLORS.bgLight }}>
+      <OfflineBanner isOffline={isOffline} onRetry={handleRetry} />
+
       <View
         style={{
           flexDirection: "row",
@@ -81,9 +96,21 @@ export default function Messages() {
         <Ionicons name="search" size={22} color={theme.COLORS.textMuted} style={styles.searchIcon} />
       </View>
 
-      {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={theme.COLORS.primary} />
+      {loading && rooms.length === 0 ? (
+        <FlatList
+          style={{ flex: 1, paddingHorizontal: theme.LAYOUT.listPaddingHorizontal }}
+          data={skeletonData as any}
+          keyExtractor={(_, i) => `skeleton-${i}`}
+          ItemSeparatorComponent={() => <View style={{ height: theme.SPACING.sm }} />}
+          contentContainerStyle={{ paddingVertical: theme.SPACING.md }}
+          renderItem={renderSkeleton}
+        />
+      ) : error && rooms.length === 0 ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.LAYOUT.contentPadding }}>
+          <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.md }}>{error.message}</Text>
+          <TouchableOpacity onPress={handleRetry} style={{ padding: theme.SPACING.md, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
+            <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList

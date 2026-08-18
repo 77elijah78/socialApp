@@ -34,7 +34,7 @@ import {
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 import { mediaService } from "@/services/MediaService";
-import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { presentActionMenu, ActionMenuItem, OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -447,6 +447,8 @@ export default function PrivateRoom() {
 
   return (
     <View style={{ flex: 1 }}>
+      <OfflineBanner isOffline={isOffline} />
+
       {/* HEADER */}
       <SafeAreaView edges={["top"]}>
         <View style={styles.headerWrapper}>
@@ -503,7 +505,13 @@ export default function PrivateRoom() {
           ) : null
         }
         ListFooterComponent={
-          isSyncing ? (
+          isSyncing && messages.length === 0 ? (
+            <View style={{ paddingVertical: theme.SPACING.xl }}>
+              <ChatBubbleSkeleton isOwn={false} />
+              <ChatBubbleSkeleton isOwn={true} />
+              <ChatBubbleSkeleton isOwn={false} />
+            </View>
+          ) : isSyncing && messages.length > 0 ? (
             <View style={styles.loadingMore}>
               <Text style={styles.loadingMoreText}>Loading...</Text>
             </View>

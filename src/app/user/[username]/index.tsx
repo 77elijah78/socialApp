@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,9 @@ import { api } from '@/services/api';
 import { useAppSelector } from '@/store/hooks';
 import theme from '@/constants/theme';
 import { PostResponse, SocialPost, Conversation } from '@/types';
+import { ProfileSkeleton, OfflineBanner } from '@/components/ui';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { getCached, setCached } from '@/utils/queryCache';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = theme.SPACING.sm;
@@ -63,6 +66,7 @@ export default function UserProfileScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
+  const { isOffline } = useNetworkStatus();
 
   const [profile, setProfile] = useState<SearchedUserProfile | null>(null);
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -71,6 +75,7 @@ export default function UserProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'posts'>('posts');
   const [messaging, setMessaging] = useState(false);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     if (!username) return;
@@ -83,10 +88,12 @@ export default function UserProfileScreen() {
           data: SearchedUserProfile;
         }>(`/users/${username}`, token ?? undefined);
         setProfile(resp.data);
+        setCached(`profile:${username}`, resp.data, 5 * 60_000);
       } catch (err: any) {
         setError(err.message ?? 'Failed to load profile');
       } finally {
         setLoading(false);
+        hydratedRef.current = false;
       }
     };
 
@@ -112,6 +119,7 @@ export default function UserProfileScreen() {
         );
         const mapped = (resp.data.posts ?? []).map(mapPostResponse);
         setPosts(mapped);
+        setCached(`posts:${username}`, mapped, 5 * 60_000);
       } catch (err: any) {
         setError(err.message ?? 'Failed to load posts');
       } finally {
@@ -197,11 +205,7 @@ export default function UserProfileScreen() {
 
   const renderHeader = () => {
     if (loading) {
-      return (
-        <View style={styles.profileLoading}>
-          <ActivityIndicator size="large" color={theme.COLORS.primary} />
-        </View>
-      );
+      return <ProfileSkeleton />;
     }
 
     if (!profile) return null;
@@ -363,6 +367,7 @@ export default function UserProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <OfflineBanner isOffline={isOffline} />
 
       <FlatList
         style={styles.list}
@@ -376,9 +381,9 @@ export default function UserProfileScreen() {
         contentContainerStyle={styles.listContent}
       />
 
-      {loadingPosts && (
+      {loadingPosts && posts.length === 0 && (
         <View style={styles.postsLoading}>
-          <ActivityIndicator size="small" color={theme.COLORS.primary} />
+          <ProfileSkeleton />
         </View>
       )}
     </SafeAreaView>

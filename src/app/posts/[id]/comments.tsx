@@ -16,6 +16,7 @@ import { useAppSelector } from "@/store/hooks";
 import { api } from "@/services/api";
 import { PostOneResponse, Comment } from "@/types";
 import theme from "@/constants/theme";
+import { CommentsSkeleton } from "@/components/ui";
 
 interface CommentItemProps {
   comment: Comment;
@@ -178,10 +179,8 @@ export default function CommentsScreen() {
         </View>
 
         {loading ? (
-          <View
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-          >
-            <ActivityIndicator size="large" color={theme.COLORS.primary} />
+          <View style={{ flex: 1, paddingTop: theme.SPACING.xl }}>
+            <CommentsSkeleton count={5} />
           </View>
         ) : (
           <FlatList

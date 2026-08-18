@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { PostResponse, PaginatedResponse, SocialPost } from "@/types";
+import { getCached, setCached } from "@/utils/queryCache";
+
+const FEED_CACHE_KEY = "feed:page1";
+const FEED_CACHE_TTL = 5 * 60_000;
 
 interface UsePostsOptions {
   page?: number;
@@ -47,20 +51,40 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(initialPage);
   const postsRef = useRef<SocialPost[]>([]);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
 
   useEffect(() => {
-    if (!token) {
-      setTimeout(() => setLoading(false), 0);
-      return;
-    }
-
     let cancelled = false;
 
+    async function hydrate() {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const cached = await getCached<SocialPost[]>(FEED_CACHE_KEY);
+        if (cached && !cancelled) {
+          setPosts(cached);
+          hydratedRef.current = true;
+          setLoading(false);
+        }
+      } catch {
+        // ignore cache errors
+      }
+    }
+
+    hydrate();
+
     async function fetchPosts() {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await api.get<PaginatedResponse<PostResponse>>(
           `/posts/feed?page=${page}&limit=${limit}`,
@@ -71,18 +95,24 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
           const mapped = data.data.map(mapPostResponse);
           if (page === 1) {
             setPosts(mapped);
+            setCached(FEED_CACHE_KEY, mapped, FEED_CACHE_TTL);
           } else {
             setPosts((prev) => [...prev, ...mapped]);
           }
           setHasMore(data.page * data.pageSize < data.total);
+          setError(null);
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error(String(err)));
+          if (!hydratedRef.current) {
+            setLoading(false);
+          }
         }
       } finally {
         if (!cancelled) {
           setLoading(false);
+          hydratedRef.current = false;
         }
       }
     }
@@ -108,6 +138,8 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
       setPage(1);
       setHasMore(data.page * data.pageSize < data.total);
       postsRef.current = mapped;
+      setCached(FEED_CACHE_KEY, mapped, FEED_CACHE_TTL);
+      setError(null);
     } catch (err) {
       console.error("Refresh failed:", err);
     } finally {
