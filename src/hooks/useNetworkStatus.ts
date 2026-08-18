@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import NetInfo from "@react-native-community/netinfo";
+import * as Network from "expo-network";
 
 const OFFLINE_DEBOUNCE_MS = 2500;
 
@@ -30,24 +30,33 @@ export function useNetworkStatus() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener((state) => {
-      const connected = state.isConnected ?? state.isInternetReachable ?? false;
-      if (connected) {
-        markOnline();
-      } else {
-        markOffline();
-      }
-    });
+    let cancelled = false;
 
-    NetInfo.fetch().then((state) => {
-      const connected = state.isConnected ?? state.isInternetReachable ?? false;
-      setIsConnected(connected);
-      setIsOffline(!connected);
-      lastKnownOnlineRef.current = connected;
-    });
+    const checkNetwork = async () => {
+      try {
+        const state = await Network.getNetworkStateAsync();
+        const connected = state.isInternetReachable ?? state.isConnected ?? false;
+        if (!cancelled) {
+          if (connected) {
+            markOnline();
+          } else {
+            markOffline();
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          markOffline();
+        }
+      }
+    };
+
+    checkNetwork();
+
+    const interval = setInterval(checkNetwork, 5000);
 
     return () => {
-      unsubscribe();
+      cancelled = true;
+      clearInterval(interval);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [markOffline, markOnline]);

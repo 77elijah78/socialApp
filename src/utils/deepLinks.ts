@@ -1,5 +1,4 @@
-import { Linking, Platform } from "react-native";
-import * as Clipboard from "expo-clipboard";
+import { Linking, Clipboard, Platform } from "react-native";
 
 const SCHEME = "yoursocialapp";
 
@@ -31,5 +30,5 @@ export async function openDeepLink(url: string): Promise<void> {
 }
 
 export async function copyToClipboard(text: string): Promise<void> {
-  await Clipboard.setStringAsync(text);
+  await Clipboard.setString(text);
 }

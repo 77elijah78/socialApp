@@ -12,7 +12,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { BottomSheetModal, BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
-import * as Sharing from "expo-sharing";
 
 export interface ShareItem {
   key: string;

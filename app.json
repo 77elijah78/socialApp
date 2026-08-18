@@ -6,7 +6,9 @@
     "orientation": "portrait",
     "icon": "./src/assets/favicon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "scheme": "yoursocialapp",
     "ios": {
       "supportsTablet": true
