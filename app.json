@@ -6,9 +6,7 @@
     "orientation": "portrait",
     "icon": "./src/assets/favicon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "scheme": "yoursocialapp",
     "ios": {
       "supportsTablet": true
@@ -17,7 +15,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/splash-icon.png",
+        "foregroundImage": "./src/assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [

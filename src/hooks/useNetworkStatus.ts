@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as Network from "expo-network";
+import { AppState, AppStateStatus } from "react-native";
 
 const OFFLINE_DEBOUNCE_MS = 2500;
 
@@ -29,37 +29,45 @@ export function useNetworkStatus() {
     setIsOffline(false);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const checkNetwork = useCallback(async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch("https://www.google.com/favicon.ico", {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        markOnline();
+      } else {
+        markOffline();
+      }
+    } catch {
+      markOffline();
+    }
+  }, [markOffline, markOnline]);
 
-    const checkNetwork = async () => {
-      try {
-        const state = await Network.getNetworkStateAsync();
-        const connected = state.isInternetReachable ?? state.isConnected ?? false;
-        if (!cancelled) {
-          if (connected) {
-            markOnline();
-          } else {
-            markOffline();
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          markOffline();
-        }
+  useEffect(() => {
+    checkNetwork();
+
+    const interval = setInterval(checkNetwork, 15000);
+
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === "active") {
+        checkNetwork();
       }
     };
 
-    checkNetwork();
-
-    const interval = setInterval(checkNetwork, 5000);
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
 
     return () => {
-      cancelled = true;
       clearInterval(interval);
+      subscription.remove();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [markOffline, markOnline]);
+  }, [checkNetwork]);
 
   return {
     isConnected,
