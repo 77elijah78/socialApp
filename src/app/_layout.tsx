@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { PaperProvider } from "react-native-paper";
 import { runMigrations } from "../db/migrations";
 import { useEffect, useState } from "react";
@@ -19,6 +19,7 @@ import ActionMenu, { registerActionMenu } from "@/components/ui/ActionMenu";
 import AppAlert, { registerAppAlert } from "@/components/ui/AppAlert";
 import ShareSheet, { registerShareSheet } from "@/components/ui/ShareSheet";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Linking } from "react-native";
 
   function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -105,6 +106,7 @@ function SocketProvider() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   useEffect(() => {
     runMigrations();
 
@@ -122,6 +124,31 @@ export default function RootLayout() {
         console.warn("[layout] onTokenRefresh callback error:", err?.message ?? err);
       }
     });
+
+    const handleDeepLink = (event: { url: string }) => {
+      const { url } = event;
+      if (url.startsWith("yoursocialapp://post/")) {
+        const postId = url.replace("yoursocialapp://post/", "");
+        if (postId) {
+          router.navigate(`/posts/${postId}/comments`);
+        }
+      } else if (url.startsWith("yoursocialapp://story/")) {
+        const storyId = url.replace("yoursocialapp://story/", "");
+        if (storyId) {
+          router.navigate(`/stories/${storyId}`);
+        }
+      }
+    };
+
+    const subscription = Linking.addEventListener("url", handleDeepLink);
+
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink({ url });
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   const actionMenuRef = React.useRef<{ present: (items: any[]) => void }>(null);

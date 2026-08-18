@@ -27,6 +27,7 @@ export interface ShareSheetRef {
     title: string;
     message?: string;
     url?: string;
+    canExternalShare?: boolean;
     items: ShareItem[];
   }) => void;
   dismiss: () => void;
@@ -37,6 +38,7 @@ const ShareSheetComponent = () => {
   const [title, setTitle] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [url, setUrl] = React.useState("");
+  const [canExternalShare, setCanExternalShare] = React.useState(true);
   const [items, setItems] = React.useState<ShareItem[]>([]);
 
   const snapPoints = useMemo(() => ["45%"], []);
@@ -45,11 +47,13 @@ const ShareSheetComponent = () => {
     title: string;
     message?: string;
     url?: string;
+    canExternalShare?: boolean;
     items: ShareItem[];
   }) => {
     setTitle(options.title);
     setMessage(options.message ?? "");
     setUrl(options.url ?? "");
+    setCanExternalShare(options.canExternalShare ?? true);
     setItems(options.items);
     bottomSheetRef.current?.present();
   }, []);
@@ -162,10 +166,12 @@ const ShareSheetComponent = () => {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.nativeShareBtn} onPress={handleNativeShare}>
-          <Ionicons name="share-social-outline" size={22} color={theme.COLORS.primary} />
-          <Text style={styles.nativeShareLabel}>Share via...</Text>
-        </TouchableOpacity>
+        {canExternalShare ? (
+          <TouchableOpacity style={styles.nativeShareBtn} onPress={handleNativeShare}>
+            <Ionicons name="share-social-outline" size={22} color={theme.COLORS.primary} />
+            <Text style={styles.nativeShareLabel}>Share via...</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </BottomSheetModal>
   );
@@ -175,6 +181,7 @@ let globalPresent: ((options: {
   title: string;
   message?: string;
   url?: string;
+  canExternalShare?: boolean;
   items: ShareItem[];
 }) => void) | null = null;
 
@@ -182,6 +189,7 @@ export function registerShareSheet(presentFn: (options: {
   title: string;
   message?: string;
   url?: string;
+  canExternalShare?: boolean;
   items: ShareItem[];
 }) => void) {
   globalPresent = presentFn;
@@ -191,6 +199,7 @@ export function presentShareSheet(options: {
   title: string;
   message?: string;
   url?: string;
+  canExternalShare?: boolean;
   items: ShareItem[];
 }) {
   if (globalPresent) {
