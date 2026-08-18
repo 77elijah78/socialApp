@@ -27,6 +27,10 @@ export class ShareService {
     );
     return resp.data;
   }
+
+  isStoryExpired(expiresAt: string | Date): boolean {
+    return new Date(expiresAt).getTime() < Date.now();
+  }
 }
 
 export const shareService = new ShareService();

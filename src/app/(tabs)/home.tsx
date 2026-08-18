@@ -13,10 +13,12 @@ import { usePosts } from '@/hooks/usePosts';
 import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { useShare } from "@/hooks/useShare";
 
 export default function FeedScreen() {
   const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore, error } = usePosts({ limit: 20 });
   const { isOffline } = useNetworkStatus();
+  const { sharePost, sharing } = useShare();
   const commentSheetRef = useRef<CommentBottomSheetRef>(null);
 
   const onRefresh = useCallback(() => {
@@ -40,9 +42,10 @@ export default function FeedScreen() {
           if (bookmarked) save(postId); else unsave(postId);
         }}
         onMenuPress={(postId) => {
+          const post = posts.find(p => p.id === postId);
           const actions: ActionMenuItem[] = [
             { key: 'save', icon: 'bookmark-outline', label: 'Save post', onPress: () => save(postId) },
-            { key: 'share', icon: 'share-outline', label: 'Share', onPress: () => {} },
+            { key: 'share', icon: 'share-outline', label: 'Share', onPress: () => post && sharePost(post) },
             { key: 'report', icon: 'flag-outline', label: 'Report', onPress: () => {} },
             { key: 'hide', icon: 'eye-off-outline', label: 'Hide post', onPress: () => {} },
             { key: 'unfollow', icon: 'person-remove-outline', label: 'Unfollow', onPress: () => {} },

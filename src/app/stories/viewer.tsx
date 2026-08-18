@@ -5,6 +5,7 @@ import StoryViewer from "@/components/stories/StoryViewer";
 import { StoryItem } from "@/types";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import { useShare } from "@/hooks/useShare";
 
 interface BackendStory {
   id: string;
@@ -49,6 +50,7 @@ export default function StoryViewerScreen() {
   const initialIndex = params.index ? parseInt(params.index, 10) : 0;
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
+  const { shareStory } = useShare();
 
   const [stories, setStories] = useState<StoryItem[]>(() => {
     const isFresh = Date.now() - storyCacheTime < CACHE_TTL;
@@ -117,6 +119,19 @@ export default function StoryViewerScreen() {
         initialIndex={initialIndex}
         onStoryViewed={handleStoryViewed}
         onClose={handleClose}
+        onShare={(story) => shareStory({
+          id: story.id,
+          mediaUrl: story.mediaUrl,
+          mediaType: story.mediaType,
+          caption: story.caption,
+          expiresAt: story.expiresAt,
+          user: {
+            id: story.userId,
+            username: story.username,
+            displayName: story.displayName,
+            avatarUrl: story.avatarUrl,
+          },
+        })}
       />
     </View>
   );

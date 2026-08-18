@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
-import { router } from "expo-router";
+import { shareService } from "@/services/ShareService";
 
 interface SharedStoryCardProps {
   mediaUrl: string;
@@ -10,16 +10,18 @@ interface SharedStoryCardProps {
   caption: string | null;
   authorName: string;
   authorAvatarUrl: string | null;
+  expiresAt?: string | Date;
   onPress?: () => void;
 }
 
-export default function SharedStoryCard({ mediaUrl, caption, authorName, authorAvatarUrl, onPress }: SharedStoryCardProps) {
+export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorName, authorAvatarUrl, expiresAt, onPress }: SharedStoryCardProps) {
   const [imageError, setImageError] = useState(false);
+  const isExpired = expiresAt ? shareService.isStoryExpired(expiresAt) : false;
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity style={styles.container} onPress={isExpired ? undefined : onPress} activeOpacity={isExpired ? 1 : 0.9}>
       <View style={styles.mediaWrapper}>
-        {!imageError ? (
+        {!imageError && !isExpired ? (
           <Image
             source={{ uri: mediaUrl }}
             style={styles.media}
@@ -28,7 +30,10 @@ export default function SharedStoryCard({ mediaUrl, caption, authorName, authorA
           />
         ) : (
           <View style={styles.mediaPlaceholder}>
-            <Ionicons name="image-outline" size={32} color={theme.COLORS.textMuted} />
+            <Ionicons name={isExpired ? "time-outline" : "image-outline"} size={32} color={theme.COLORS.textMuted} />
+            <Text style={styles.unavailableText}>
+              {isExpired ? "Story expired" : "Media unavailable"}
+            </Text>
           </View>
         )}
         <View style={styles.overlay}>
@@ -44,14 +49,14 @@ export default function SharedStoryCard({ mediaUrl, caption, authorName, authorA
               {authorName}
             </Text>
           </View>
-          <View style={styles.storyBadge}>
+          <View style={[styles.storyBadge, isExpired && styles.storyBadgeExpired]}>
             <Ionicons name="share-social-outline" size={14} color={theme.COLORS.textWhite} />
-            <Text style={styles.storyBadgeText}>Story</Text>
+            <Text style={styles.storyBadgeText}>{isExpired ? "Expired" : "Story"}</Text>
           </View>
         </View>
       </View>
 
-      {caption ? (
+      {caption && !isExpired ? (
         <View style={styles.captionContainer}>
           <Text style={styles.caption} numberOfLines={2}>
             {caption}
@@ -84,6 +89,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.bgChat,
+    gap: theme.SPACING.sm,
+  },
+  unavailableText: {
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: theme.COLORS.textMuted,
   },
   overlay: {
     position: "absolute",
@@ -135,6 +145,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.SPACING.sm,
     paddingVertical: theme.SPACING.xs,
     borderRadius: theme.BORDER_RADIUS.full,
+  },
+  storyBadgeExpired: {
+    backgroundColor: "rgba(255,71,87,0.8)",
   },
   storyBadgeText: {
     fontSize: theme.TYPOGRAPHY.fontSize.xs,

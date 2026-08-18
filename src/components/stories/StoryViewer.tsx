@@ -129,12 +129,14 @@ export default function StoryViewer({
   onIndexChange,
   onStoryViewed,
   onClose,
+  onShare,
 }: {
   stories: StoryItem[];
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   onStoryViewed?: (storyId: string, isViewed: boolean) => void;
   onClose?: () => void;
+  onShare?: (story: StoryItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
@@ -282,9 +284,16 @@ export default function StoryViewer({
             </Text>
           </View>
         </View>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="close" size={28} color={theme.COLORS.white} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {onShare && story.id !== "me" ? (
+            <TouchableOpacity onPress={() => onShare(story)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="share-outline" size={22} color={theme.COLORS.white} />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity onPress={onClose}>
+            <Ionicons name="close" size={28} color={theme.COLORS.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TouchableWithoutFeedback>
@@ -363,6 +372,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.sm,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.md,
   },
   avatarPlaceholder: {
     width: 36,
