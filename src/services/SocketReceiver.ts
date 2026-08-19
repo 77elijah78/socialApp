@@ -166,16 +166,13 @@ export class SocketReceiver {
       console.log("[SocketReceiver] user room joined:", `user:${this.currentUserId}`);
 
       /**
-       * Reconnect sync: fetch pending delivery messages
-       * and ACK them immediately.
-       *
-       * Only run on reconnect, not on initial connection.
+       * Sync pending delivery messages on every connect so that
+       * messages sent while the user was offline are acknowledged
+       * as delivered when the user comes online.
        */
-      if (isReconnect) {
-        this.syncPendingDelivery().catch((error) => {
-          console.error("[SocketReceiver] syncPendingDelivery error:", error);
-        });
-      }
+      this.syncPendingDelivery().catch((error) => {
+        console.error("[SocketReceiver] syncPendingDelivery error:", error);
+      });
     });
 
     // -------------------------------------------------------
