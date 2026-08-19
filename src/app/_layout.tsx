@@ -12,6 +12,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
+import { messageStore } from "@/db/MessageStore";
 import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
 import { addNotification as addNotificationToStore, incrementUnreadCount } from "@/store/slices/notificationsSlice";
@@ -100,7 +101,23 @@ function SocketProvider() {
         dispatch(incrementUnreadCount());
       }
     });
-    return unsub;
+
+    const unsubDelivered = mediaService.socket.on("message:delivered", async (payload: any) => {
+      try {
+        const messageId = payload?.messageId;
+        const conversationId = payload?.conversationId;
+        if (messageId && conversationId) {
+          await messageStore.markDelivered(messageId, conversationId);
+        }
+      } catch (error) {
+        console.warn("[SocketProvider] global delivery persist failed:", error);
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubDelivered();
+    };
   }, [dispatch]);
 
   return null;

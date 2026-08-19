@@ -591,10 +591,26 @@ export function useChat({
          */
         if (currentUser.token) {
           try {
-            await mediaService.message.syncFromServer(
+            const synced = await mediaService.message.syncFromServer(
               conversationId,
               currentUser.id,
             );
+
+            if (!cancelled && mountedRef.current && synced && Array.isArray(synced)) {
+              for (const msg of synced) {
+                const senderId = String(msg.senderId ?? "");
+                const status = String(msg.status ?? "").toUpperCase();
+                const messageId = String(msg.id ?? msg.localId ?? "");
+
+                if (
+                  senderId !== currentUser.id &&
+                  status === "SENT" &&
+                  messageId
+                ) {
+                  socketReceiver.emitMessageDelivered(conversationId, messageId);
+                }
+              }
+            }
 
             if (cancelled || !mountedRef.current) {
               return;

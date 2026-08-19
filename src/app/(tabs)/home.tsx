@@ -35,6 +35,10 @@ export default function FeedScreen() {
         onComment={(postId) => {
           commentSheetRef.current?.open(postId);
         }}
+        onShare={(postId) => {
+          const post = posts.find(p => p.id === postId);
+          if (post) sharePost(post);
+        }}
         onUserPress={(username) => {
           router.push(`/user/${username}`);
         }}
@@ -55,7 +59,7 @@ export default function FeedScreen() {
         }}
       />
     );
-  }, [like, unlike, save, unsave, commentSheetRef]);
+  }, [like, unlike, save, unsave, commentSheetRef, sharePost, posts]);
 
   const skeletonData = useMemo(() => Array.from({ length: 3 }), []);
 

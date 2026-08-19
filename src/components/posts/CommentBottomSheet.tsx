@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Platform } from "react-native";
+import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { router } from "expo-router";
@@ -120,7 +120,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
 
   React.useImperativeHandle(ref, () => ({ open, close }));
 
-  const snapPoints = useMemo(() => ["60%"], []);
+  const snapPoints = useMemo(() => ["70%", "90%"], []);
 
   const renderBackdrop = useCallback(
     (props: any) => (
@@ -168,50 +168,56 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
       keyboardBehavior="extend"
       android_keyboardInputMode="adjustResize"
     >
-      <View style={styles.sheetContainer}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Comments</Text>
-          <TouchableOpacity onPress={close}>
-            <Ionicons name="close" size={24} color={theme.COLORS.textPrimary} />
-          </TouchableOpacity>
-        </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={styles.sheetContainer}>
+          <View style={styles.handle} />
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Comments</Text>
+            <TouchableOpacity onPress={close}>
+              <Ionicons name="close" size={24} color={theme.COLORS.textPrimary} />
+            </TouchableOpacity>
+          </View>
 
-        <BottomSheetFlatList
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          data={comments}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          ListEmptyComponent={ListEmptyComponent}
-          showsVerticalScrollIndicator={false}
-          keyboardDismissMode="on-drag"
-        />
-
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="Add a comment..."
-            placeholderTextColor={theme.COLORS.textMuted}
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-            editable={!sending}
+          <FlatList
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            data={comments}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            ListEmptyComponent={ListEmptyComponent}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
           />
-          <TouchableOpacity
-            style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={!input.trim() || sending}
-          >
-            {sending ? (
-              <ActivityIndicator size="small" color={theme.COLORS.white} />
-            ) : (
-              <Ionicons name="send" size={20} color={theme.COLORS.white} />
-            )}
-          </TouchableOpacity>
+
+          <View style={styles.inputRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Add a comment..."
+              placeholderTextColor={theme.COLORS.textMuted}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+              editable={!sending}
+            />
+            <TouchableOpacity
+              style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
+              onPress={handleSend}
+              disabled={!input.trim() || sending}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color={theme.COLORS.white} />
+              ) : (
+                <Ionicons name="send" size={20} color={theme.COLORS.white} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </BottomSheetModal>
   );
 });
