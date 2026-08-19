@@ -34,7 +34,7 @@ function mapPostResponse(post: PostResponse): SocialPost {
     tags: [],
     likeCount: post._count.likes,
     commentCount: post._count.comments,
-    shareCount: 0,
+    shareCount: post.shareCount ?? 0,
     isLiked: post.isLiked,
     isBookmarked: post.isSaved,
   };

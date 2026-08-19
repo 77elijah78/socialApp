@@ -208,6 +208,7 @@ export interface PostResponse {
   _count: PostCounts;
   isLiked: boolean;
   isSaved: boolean;
+  shareCount: number;
   comments?: Comment[];
 }
 
@@ -221,7 +222,6 @@ export interface SocialPost extends PostResponse {
   tags?: string[];
   likeCount: number;
   commentCount: number;
-  shareCount: number;
   isBookmarked?: boolean;
 }
 

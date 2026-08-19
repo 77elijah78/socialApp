@@ -330,13 +330,20 @@ export class MessageService extends BaseUploader {
     }
   }
 
-  async sendSharedPost(postId: string, meta: SendMeta) {
+  async sendSharedPost(data: { postId: string; content: string; authorName: string; authorAvatarUrl: string | null; imageUrl?: string | null }, meta: SendMeta) {
     const localId = uid();
+    const payload = {
+      sharedPostId: data.postId,
+      content: data.content,
+      authorName: data.authorName,
+      authorAvatarUrl: data.authorAvatarUrl,
+      imageUrl: data.imageUrl ?? null,
+    };
 
     const optimistic: NewMessageRow = {
       localId,
       id: localId,
-      content: JSON.stringify({ sharedPostId: postId }),
+      content: JSON.stringify(payload),
       mediaUrl: null,
       thumbnailUrl: null,
       type: "SHARED_POST",
@@ -364,7 +371,7 @@ export class MessageService extends BaseUploader {
       const resp = await api.post<{ data: { id: string; createdAt: string } }>(
         `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
         {
-          content: JSON.stringify({ sharedPostId: postId }),
+          content: JSON.stringify(payload),
           type: "SHARED_POST",
           receiverId: meta.receiverId,
         },
@@ -382,13 +389,21 @@ export class MessageService extends BaseUploader {
     }
   }
 
-  async sendSharedStory(storyId: string, meta: SendMeta) {
+  async sendSharedStory(data: { storyId: string; mediaUrl: string; mediaType: string; caption: string | null; authorName: string; authorAvatarUrl: string | null }, meta: SendMeta) {
     const localId = uid();
+    const payload = {
+      sharedStoryId: data.storyId,
+      mediaUrl: data.mediaUrl,
+      mediaType: data.mediaType,
+      caption: data.caption,
+      authorName: data.authorName,
+      authorAvatarUrl: data.authorAvatarUrl,
+    };
 
     const optimistic: NewMessageRow = {
       localId,
       id: localId,
-      content: JSON.stringify({ sharedStoryId: storyId }),
+      content: JSON.stringify(payload),
       mediaUrl: null,
       thumbnailUrl: null,
       type: "SHARED_STORY",
@@ -416,7 +431,7 @@ export class MessageService extends BaseUploader {
       const resp = await api.post<{ data: { id: string; createdAt: string } }>(
         `/messages/conversations/${encodeURIComponent(meta.conversationId)}/messages`,
         {
-          content: JSON.stringify({ sharedStoryId: storyId }),
+          content: JSON.stringify(payload),
           type: "SHARED_STORY",
           receiverId: meta.receiverId,
         },
