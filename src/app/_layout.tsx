@@ -18,6 +18,7 @@ import { addNotification as addNotificationToStore, incrementUnreadCount } from 
 import ActionMenu, { registerActionMenu } from "@/components/ui/ActionMenu";
 import AppAlert, { registerAppAlert } from "@/components/ui/AppAlert";
 import ShareSheet, { registerShareSheet } from "@/components/ui/ShareSheet";
+import ShareToUserSheet, { registerShareToUserSheet } from "@/components/ui/ShareToUserSheet";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking } from "react-native";
 
@@ -164,6 +165,7 @@ export default function RootLayout() {
                 <ActionMenu />
                 <AppAlert />
                 <ShareSheet />
+                <ShareToUserSheet />
                 <Stack
                   screenOptions={{
                     contentStyle: {

@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { useAppSelector } from "@/store/hooks";
-import { shareService } from "@/services/ShareService";
+import { shareService, FollowedUser } from "@/services/ShareService";
 import { mediaService } from "@/services/MediaService";
 import { presentShareSheet, ShareItem } from "@/components/ui/ShareSheet";
+import { presentShareToUserSheet } from "@/components/ui/ShareToUserSheet";
 import { getPostDeepLink, getStoryDeepLink, copyToClipboard } from "@/utils/deepLinks";
 import { SocialPost } from "@/types";
 import { router } from "expo-router";
@@ -26,6 +27,7 @@ interface ShareOptions {
 
 export function useShare() {
   const [sharing, setSharing] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
 
@@ -37,10 +39,45 @@ export function useShare() {
 
     setSharing(true);
     try {
-      const result = await shareService.sharePost(token, post.id, "");
-
       const deepLink = getPostDeepLink(post.id);
       const message = `Check out this post by ${post.author.displayName ?? post.author.username}`;
+
+      const shareToUser = async () => {
+        setLoadingUsers(true);
+        try {
+          const { users } = await shareService.getMyFollowing(token);
+          presentShareToUserSheet({
+            users,
+            loading: false,
+            onSelect: async (user: FollowedUser) => {
+              try {
+                const conversation = await shareService.startConversation(token, user.id);
+                await shareService.sharePost(token, post.id, conversation.conversationId);
+                await mediaService.message.sendSharedPost(
+                  {
+                    postId: post.id,
+                    content: post.content,
+                    authorName: post.author.displayName ?? post.author.username,
+                    authorAvatarUrl: post.author.avatarUrl ?? null,
+                    imageUrl: post.imageUrl ?? post.imageUrls?.[0] ?? null,
+                  },
+                  {
+                    senderId: currentUserId,
+                    receiverId: user.id,
+                    conversationId: conversation.conversationId,
+                  },
+                );
+              } catch (err) {
+                console.error("Failed to share post to user:", err);
+              }
+            },
+          });
+        } catch (err) {
+          console.error("Failed to load followed users:", err);
+        } finally {
+          setLoadingUsers(false);
+        }
+      };
 
       const items: ShareItem[] = [
         {
@@ -50,6 +87,12 @@ export function useShare() {
           onPress: async () => {
             await copyToClipboard(deepLink);
           },
+        },
+        {
+          key: "share-to-user",
+          icon: "person-outline",
+          label: "Share to user",
+          onPress: shareToUser,
         },
       ];
 
@@ -80,28 +123,68 @@ export function useShare() {
         return;
       }
 
-      await shareService.shareStory(token, story.id, "");
-
       const deepLink = getStoryDeepLink(story.id);
       const message = `Check out this story by ${story.user.displayName ?? story.user.username}`;
 
-      const items: ShareItem[] = [
-        {
-          key: "copy-link",
-          icon: "link-outline",
-          label: "Copy link",
-          onPress: async () => {
-            await copyToClipboard(deepLink);
-          },
-        },
-      ];
+      const shareToUser = async () => {
+        setLoadingUsers(true);
+        try {
+          const { users } = await shareService.getMyFollowing(token);
+          presentShareToUserSheet({
+            users,
+            loading: false,
+            onSelect: async (user: FollowedUser) => {
+              try {
+                const conversation = await shareService.startConversation(token, user.id);
+                await shareService.shareStory(token, story.id, conversation.conversationId);
+                await mediaService.message.sendSharedStory(
+                  {
+                    storyId: story.id,
+                    mediaUrl: story.mediaUrl,
+                    mediaType: story.mediaType,
+                    caption: story.caption,
+                    authorName: story.user.displayName ?? story.user.username,
+                    authorAvatarUrl: story.user.avatarUrl ?? null,
+                  },
+                  {
+                    senderId: currentUserId,
+                    receiverId: user.id,
+                    conversationId: conversation.conversationId,
+                  },
+                );
+              } catch (err) {
+                console.error("Failed to share story to user:", err);
+              }
+            },
+          });
+        } catch (err) {
+          console.error("Failed to load followed users:", err);
+        } finally {
+          setLoadingUsers(false);
+        }
+      };
 
       presentShareSheet({
         title: "Share story",
         message,
         url: deepLink,
         canExternalShare: true,
-        items,
+        items: [
+          {
+            key: "copy-link",
+            icon: "link-outline",
+            label: "Copy link",
+            onPress: async () => {
+              await copyToClipboard(deepLink);
+            },
+          },
+          {
+            key: "share-to-user",
+            icon: "person-outline",
+            label: "Share to user",
+            onPress: shareToUser,
+          },
+        ],
       });
     } catch (err) {
       console.error("Share story failed:", err);
@@ -112,6 +195,7 @@ export function useShare() {
 
   return {
     sharing,
+    loadingUsers,
     sharePost,
     shareStory,
   };

@@ -163,6 +163,17 @@ const ShareSheetComponent = () => {
               </TouchableOpacity>
             </React.Fragment>
           ))}
+          <TouchableOpacity
+            style={styles.actionItem}
+            onPress={() => {
+              dismiss();
+              setTimeout(() => items.find(i => i.key === 'share-to-user')?.onPress(), 250);
+            }}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="person-outline" size={22} color={theme.COLORS.textPrimary} />
+            <Text style={styles.actionLabel}>Share to user</Text>
+          </TouchableOpacity>
         </View>
 
         {canExternalShare ? (
