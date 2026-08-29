@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { View, Text, FlatList, RefreshControl, Pressable, TouchableOpacity } from "react-native";
+import { View, Text, FlatList, RefreshControl, Pressable, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import PostCard from "@/components/feed/PostCard";
@@ -16,7 +16,7 @@ import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useShare } from "@/hooks/useShare";
 
 export default function FeedScreen() {
-  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore, error } = usePosts({ limit: 20 });
+  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore, error, paginating, paginationError } = usePosts({ limit: 20 });
   const { isOffline } = useNetworkStatus();
   const { sharePost, sharing } = useShare();
   const commentSheetRef = useRef<CommentBottomSheetRef>(null);
@@ -140,9 +140,16 @@ export default function FeedScreen() {
         ListHeaderComponent={showSkeletons ? null : <StoriesBar />}
         ListEmptyComponent={showSkeletons ? null : renderEmpty}
         ListFooterComponent={
-          loading && !showSkeletons ? (
+          paginating ? (
             <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
-              <Text style={{ color: theme.COLORS.textMuted }}>Loading...</Text>
+              <ActivityIndicator size="small" color={theme.COLORS.primary} />
+            </View>
+          ) : paginationError ? (
+            <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
+              <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.sm }}>{paginationError.message}</Text>
+              <TouchableOpacity onPress={loadMore} style={{ padding: theme.SPACING.sm, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
+                <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={{ height: theme.SPACING.xxxxl }} />

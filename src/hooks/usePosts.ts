@@ -18,8 +18,10 @@ interface UsePostsReturn {
   refreshing: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
-  loadMore: () => void;
+  loadMore: () => Promise<void>;
   hasMore: boolean;
+  paginating: boolean;
+  paginationError: Error | null;
   like: (postId: string) => Promise<void>;
   unlike: (postId: string) => Promise<void>;
   save: (postId: string) => Promise<void>;
@@ -49,6 +51,8 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [paginating, setPaginating] = useState(false);
+  const [paginationError, setPaginationError] = useState<Error | null>(null);
   const [page, setPage] = useState(initialPage);
   const postsRef = useRef<SocialPost[]>([]);
   const hydratedRef = useRef(false);
@@ -147,11 +151,30 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     }
   }, [token, limit]);
 
-  const loadMore = useCallback(() => {
-    if (!loading && hasMore) {
-      setPage((prev) => prev + 1);
+  const loadMore = useCallback(async () => {
+    if (paginating || !hasMore || loading) {
+      return;
     }
-  }, [loading, hasMore]);
+
+    setPaginating(true);
+    setPaginationError(null);
+
+    try {
+      const data = await api.get<PaginatedResponse<PostResponse>>(
+        `/posts/feed?page=${page + 1}&limit=${limit}`,
+        token ?? undefined,
+      );
+
+      const mapped = data.data.map(mapPostResponse);
+      setPosts((prev) => [...prev, ...mapped]);
+      setHasMore(data.page * data.pageSize < data.total);
+      setPage((prev) => prev + 1);
+    } catch (err) {
+      setPaginationError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setPaginating(false);
+    }
+  }, [paginating, hasMore, loading, page, limit, token]);
 
   const like = useCallback(async (postId: string) => {
     await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
@@ -189,6 +212,8 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     refresh,
     loadMore,
     hasMore,
+    paginating,
+    paginationError,
     like,
     unlike,
     save,
