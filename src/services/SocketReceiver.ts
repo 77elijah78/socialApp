@@ -227,7 +227,7 @@ export class SocketReceiver {
 
             this.socket?.emit("message:delivered", {
               conversationId: message.conversationId,
-              messageIds: [messageId],
+              messageId,
             });
 
             await messageStore.markDelivered(messageId, message.conversationId);
@@ -693,7 +693,7 @@ export class SocketReceiver {
   emitMessageDelivered(conversationId: string, messageId: string): void {
     this.socket?.emit("message:delivered", {
       conversationId,
-      messageIds: [messageId],
+      messageId,
     });
   }
 
@@ -769,7 +769,7 @@ export class SocketReceiver {
 
               this.socket.emit("message:delivered", {
                 conversationId: message.conversationId,
-                messageIds: [messageId],
+                messageId,
               });
 
               await messageStore.markDelivered(messageId, message.conversationId);
