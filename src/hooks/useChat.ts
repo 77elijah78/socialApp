@@ -73,14 +73,67 @@ export function useChat({
 
   const flatListRef = useRef<FlatList | null>(null);
 
+  /**
+   * ---------------------------------------------------------
+   * DEDUPE
+   * ---------------------------------------------------------
+   *
+   * This protects the React list from displaying the same
+   * database row more than once.
+   *
+   * Prefer serverId/messageId if your MessageRow has one.
+   * Otherwise fall back to id/localId.
+   */
+  const getMessageKey = useCallback((message: MessageRow): string => {
+    return (
+      (message as MessageRow & {
+        serverId?: string;
+        messageId?: string;
+        id?: string;
+        localId?: string;
+      }).serverId ??
+      (message as MessageRow & {
+        serverId?: string;
+        messageId?: string;
+        id?: string;
+        localId?: string;
+      }).messageId ??
+      message.id ??
+      message.localId ??
+      ""
+    );
+  }, []);
+
+  const dedupeMessages = useCallback((rows: MessageRow[]): MessageRow[] => {
+    const seen = new Set<string>();
+    const result: MessageRow[] = [];
+
+    for (const row of rows) {
+      const key = getMessageKey(row);
+
+      if (!key) {
+        result.push(row);
+        continue;
+      }
+
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      result.push(row);
+    }
+
+    return result;
+  }, [getMessageKey]);
+
   const updateMessageStatus = useCallback(
     (messageId: string, status: "DELIVERED" | "READ") => {
       setMessages((previousMessages) =>
         previousMessages.map((message) => {
-          const matches =
-            message.id === messageId || message.localId === messageId;
+          const key = getMessageKey(message);
 
-          if (!matches) {
+          if (!key || key !== messageId) {
             return message;
           }
 
@@ -92,7 +145,7 @@ export function useChat({
         }),
       );
     },
-    [],
+    [getMessageKey],
   );
 
   const updateAllOwnMessagesAsRead = useCallback(() => {
@@ -137,51 +190,6 @@ export function useChat({
   useEffect(() => {
     currentUserIdRef.current = currentUser.id;
   }, [currentUser.id]);
-
-  /**
-   * ---------------------------------------------------------
-   * DEDUPE
-   * ---------------------------------------------------------
-   *
-   * This protects the React list from displaying the same
-   * database row more than once.
-   *
-   * Prefer serverId/messageId if your MessageRow has one.
-   * Otherwise fall back to id/localId.
-   */
-  const dedupeMessages = useCallback((rows: MessageRow[]): MessageRow[] => {
-    const seen = new Set<string>();
-    const result: MessageRow[] = [];
-
-    for (const row of rows) {
-      const item = row as MessageRow & {
-        id?: string;
-        localId?: string;
-        messageId?: string;
-        serverId?: string;
-      };
-
-      const uniqueId =
-        item.serverId ?? item.messageId ?? item.id ?? item.localId;
-
-      /**
-       * If there is no usable ID, keep the row.
-       */
-      if (!uniqueId) {
-        result.push(row);
-        continue;
-      }
-
-      if (seen.has(uniqueId)) {
-        continue;
-      }
-
-      seen.add(uniqueId);
-      result.push(row);
-    }
-
-    return result;
-  }, []);
 
   /**
    * ---------------------------------------------------------
@@ -289,21 +297,20 @@ export function useChat({
        * SocketReceiver.
        */
       setMessages((prev) => {
-        const exists = prev.some(
-          (m) => m.id === msg.id || m.localId === msg.localId
-        );
+        const msgKey = getMessageKey(msg);
+        const exists = prev.some((m) => getMessageKey(m) === msgKey);
 
-        if (exists) {
-          return prev.map((m) => {
-            if (m.id !== msg.id && m.localId !== msg.localId) {
-              return m;
-            }
-
-            return { ...m, ...msg };
-          });
+        if (!exists) {
+          return [...prev, msg];
         }
 
-        return [...prev, msg];
+        return prev.map((m) => {
+          if (getMessageKey(m) !== msgKey) {
+            return m;
+          }
+
+          return { ...m, ...msg };
+        });
       });
 
       if (cancelled || !mountedRef.current) {
