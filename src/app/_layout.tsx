@@ -98,7 +98,6 @@ function SocketProvider() {
     const unsub = mediaService.socket.on("notification:new", (payload: any) => {
       if (payload) {
         dispatch(addNotificationToStore(payload));
-        dispatch(incrementUnreadCount());
       }
     });
 
