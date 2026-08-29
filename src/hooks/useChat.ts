@@ -165,6 +165,7 @@ export function useChat({
   }, []);
 
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingActiveRef = useRef(false);
 
   /**
    * Prevent old async work from updating the new screen.
@@ -683,6 +684,8 @@ export function useChat({
         typingTimer.current = null;
       }
 
+      typingActiveRef.current = false;
+
       setTyping(null);
     };
   }, [
@@ -969,6 +972,21 @@ export function useChat({
    * ---------------------------------------------------------
    */
   const onTyping = useCallback(() => {
+    if (typingActiveRef.current) {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+
+      typingTimer.current = setTimeout(() => {
+        socketReceiver.emitTypingStop(conversationId, currentUser.id);
+        typingActiveRef.current = false;
+        typingTimer.current = null;
+      }, 2000);
+
+      return;
+    }
+
+    typingActiveRef.current = true;
     socketReceiver.emitTypingStart(conversationId, currentUser.id);
 
     if (typingTimer.current) {
@@ -977,7 +995,7 @@ export function useChat({
 
     typingTimer.current = setTimeout(() => {
       socketReceiver.emitTypingStop(conversationId, currentUser.id);
-
+      typingActiveRef.current = false;
       typingTimer.current = null;
     }, 2000);
   }, [conversationId, currentUser.id]);
