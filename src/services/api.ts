@@ -192,22 +192,23 @@ async function request<T>(
 }
 
 export const api = {
-  get: <T>(path: string, token?: string) => request<T>(path, { method: "GET" }, token),
-  post: <T>(path: string, body: unknown, token?: string) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(body) }, token),
-  patch: <T>(path: string, body: unknown, token?: string) =>
-    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, token),
-  delete: <T>(path: string, token?: string) => request<T>(path, { method: "DELETE" }, token),
+  get: <T>(path: string, token?: string, options?: RequestInit) =>
+    request<T>(path, { method: "GET", ...options }, token),
+  post: <T>(path: string, body: unknown, token?: string, options?: RequestInit) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body), ...options }, token),
+  patch: <T>(path: string, body: unknown, token?: string, options?: RequestInit) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body), ...options }, token),
+  delete: <T>(path: string, token?: string, options?: RequestInit) => request<T>(path, { method: "DELETE", ...options }, token),
    upload: (path: string, formData: FormData, token?: string): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
     _uploadFile(path, formData, token),
    uploadFile: (
-    path: string,
-    uri: string,
-    mimeType: string,
-    fieldName: string = "file",
-    filename?: string,
-    token?: string,
-  ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
+     path: string,
+     uri: string,
+     mimeType: string,
+     fieldName: string = "file",
+     filename?: string,
+     token?: string,
+   ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
     _uploadFile(path, _buildFormData(uri, mimeType, fieldName, filename), token),
 };
 

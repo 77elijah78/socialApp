@@ -69,24 +69,34 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
   const [loading, setLoading] = useState(false);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
 
   const bottomSheetRef = React.useRef<BottomSheetModal>(null);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   const fetchComments = useCallback(async (pid: string) => {
     if (!token) return;
     setLoading(true);
+    setFetchError(null);
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
        const resp = await api.get<{
         success: boolean;
         data: PostOneResponse;
-      }>(`/posts/${pid}`, token);
+      }>(`/posts/${pid}`, token, { signal: controller.signal });
       setComments(resp.data.comments ?? []);
     } catch (err) {
-      console.error("Failed to load comments:", err);
+      if ((err as any)?.name !== "AbortError") {
+        setFetchError(err instanceof Error ? err.message : "Failed to load comments");
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   }, [token]);
 
@@ -112,11 +122,13 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
     setPostId(pid);
     setComments([]);
     setLoading(true);
+    setFetchError(null);
     fetchComments(pid);
     bottomSheetRef.current?.present();
   }, [fetchComments]);
 
   const close = useCallback(() => {
+    abortControllerRef.current?.abort();
     bottomSheetRef.current?.dismiss();
   }, []);
 
@@ -149,12 +161,22 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
         </View>
       );
     }
+    if (fetchError) {
+      return (
+        <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
+          <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.sm }}>{fetchError}</Text>
+          <TouchableOpacity onPress={() => postId && fetchComments(postId)} style={{ padding: theme.SPACING.sm, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
+            <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     return (
       <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
         <Text style={{ color: theme.COLORS.textMuted }}>No comments yet</Text>
       </View>
     );
-  }, [loading]);
+  }, [loading, fetchError, postId, fetchComments]);
 
   return (
     <BottomSheetModal
