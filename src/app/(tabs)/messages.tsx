@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { mediaService } from "@/services/MediaService";
 import { useFocusEffect } from "expo-router";
-import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 import { ConversationRowSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 

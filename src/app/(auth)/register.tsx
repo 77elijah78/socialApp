@@ -15,7 +15,7 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { appAlert } from "@/components/ui/AppAlert";
+import AppAlert, { appAlert } from "@/components/ui/AppAlert";
 
 export default function RegisterScreen() {
   const [form, setForm] = useState({

@@ -34,7 +34,9 @@ import {
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 import { mediaService } from "@/services/MediaService";
-import { presentActionMenu, ActionMenuItem, OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
+import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
+import AppAlert, { appAlert } from "@/components/ui/AppAlert";
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -46,6 +48,10 @@ function getMessageType(type: string): string {
       return "video/mp4";
     case "AUDIO":
       return "audio/mpeg";
+    case "SHARED_POST":
+      return "SHARED_POST";
+    case "SHARED_STORY":
+      return "SHARED_STORY";
     default:
       return "text";
   }

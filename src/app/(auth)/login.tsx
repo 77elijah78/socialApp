@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { appAlert } from "@/components/ui/AppAlert";
+import AppAlert, { appAlert } from "@/components/ui/AppAlert";
 
 export default function LoginScreen() {
   const [blinded, setBlinded] = useState(true);

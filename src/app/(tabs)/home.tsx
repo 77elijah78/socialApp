@@ -1,87 +1,248 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { View, Text, FlatList, RefreshControl, Pressable, TouchableOpacity, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  RefreshControl,
+  Pressable,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import PostCard from "@/components/feed/PostCard";
-import StoriesBar from '@/components/feed/StoriesBar';
-import { CommentBottomSheet } from '@/components/posts/CommentBottomSheet';
-import type { CommentBottomSheetRef } from '@/components/posts/CommentBottomSheet';
-import { SocialPost } from '@/types';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import theme from '@/constants/theme';
-import { usePosts } from '@/hooks/usePosts';
-import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import StoriesBar from "@/components/feed/StoriesBar";
+
+import { CommentBottomSheet } from "@/components/posts/CommentBottomSheet";
+import type { CommentBottomSheetRef } from "@/components/posts/CommentBottomSheet";
+
+import { SocialPost } from "@/types";
+import theme from "@/constants/theme";
+
+import { usePosts } from "@/hooks/usePosts";
+import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { useShare } from "@/hooks/useShare";
 
 export default function FeedScreen() {
-  const { posts, loading, refreshing, refresh, like, unlike, save, unsave, loadMore, hasMore, error, paginating, paginationError } = usePosts({ limit: 20 });
+  const {
+    posts,
+    loading,
+    refreshing,
+    refresh,
+    like,
+    unlike,
+    save,
+    unsave,
+    loadMore,
+    hasMore,
+    error,
+    paginating,
+    paginationError,
+  } = usePosts({
+    limit: 20,
+  });
+
   const { isOffline } = useNetworkStatus();
-  const { sharePost, sharing } = useShare();
+
+  /*
+   * Bottom sheet refs
+   */
   const commentSheetRef = useRef<CommentBottomSheetRef>(null);
 
+  /*
+   * Pull to refresh
+   */
   const onRefresh = useCallback(() => {
     refresh();
   }, [refresh]);
 
-  const renderItem = useCallback(({ item }: { item: SocialPost }) => {
-    return (
-      <PostCard
-        post={item}
-        onLike={(postId, liked) => {
-          if (liked) like(postId); else unlike(postId);
-        }}
-        onComment={(postId) => {
-          commentSheetRef.current?.open(postId);
-        }}
-        onShare={(postId) => {
-          const post = posts.find(p => p.id === postId);
-          if (post) sharePost(post);
-        }}
-        onUserPress={(username) => {
-          router.push(`/user/${username}`);
-        }}
-        onBookmark={(postId, bookmarked) => {
-          if (bookmarked) save(postId); else unsave(postId);
-        }}
-        onMenuPress={(postId) => {
-          const post = posts.find(p => p.id === postId);
-          const actions: ActionMenuItem[] = [
-            { key: 'save', icon: 'bookmark-outline', label: 'Save post', onPress: () => save(postId) },
-            { key: 'share', icon: 'share-outline', label: 'Share', onPress: () => post && sharePost(post) },
-            { key: 'report', icon: 'flag-outline', label: 'Report', onPress: () => {} },
-            { key: 'hide', icon: 'eye-off-outline', label: 'Hide post', onPress: () => {} },
-            { key: 'unfollow', icon: 'person-remove-outline', label: 'Unfollow', onPress: () => {} },
-            { key: 'delete', icon: 'trash-outline', label: 'Delete', destructive: true, onPress: () => {} },
-          ];
-          presentActionMenu(actions);
-        }}
-      />
-    );
-  }, [like, unlike, save, unsave, commentSheetRef, sharePost, posts]);
+  /*
+   * Handle sharing a post.
+   */
+  const handleShare = useCallback(
+    (postId: string) => {
+      router.push({
+        pathname: "/share",
+        params: {
+          postId,
+          title: "Share post",
+          message: "Check out this post",
+          url: `https://yourapp.com/post/${postId}`,
+        },
+      });
+    },
+    [],
+  );
 
+  /*
+   * Render normal feed post
+   */
+  const renderItem = useCallback(
+    ({ item }: { item: SocialPost }) => {
+      return (
+        <View style={styles.feedItem}>
+          <PostCard
+            post={item}
+            /*
+             * LIKE
+             */
+            onLike={(postId, liked) => {
+              if (liked) {
+                like(postId);
+              } else {
+                unlike(postId);
+              }
+            }}
+            /*
+             * COMMENTS
+             */
+            onComment={(postId) => {
+              commentSheetRef.current?.open(postId);
+            }}
+            /*
+             * SHARE
+             */
+            onShare={(postId) => {
+              handleShare(postId);
+            }}
+            /*
+             * USER PROFILE
+             */
+            onUserPress={(username) => {
+              router.push(`/user/${username}`);
+            }}
+            /*
+             * BOOKMARK
+             */
+            onBookmark={(postId, bookmarked) => {
+              if (bookmarked) {
+                save(postId);
+              } else {
+                unsave(postId);
+              }
+            }}
+            /*
+             * POST MENU
+             */
+            onMenuPress={(postId) => {
+              const post = posts.find((item) => item.id === postId);
+
+              const actions: ActionMenuItem[] = [
+                {
+                  key: "save",
+                  icon: "bookmark-outline",
+                  label: "Save post",
+                  onPress: () => {
+                    save(postId);
+                  },
+                },
+
+                {
+                  key: "share",
+                  icon: "share-outline",
+                  label: "Share",
+                  onPress: () => {
+                    handleShare(postId);
+                  },
+                },
+
+                {
+                  key: "report",
+                  icon: "flag-outline",
+                  label: "Report",
+                  onPress: () => {
+                    // TODO:
+                    // implement report
+                  },
+                },
+
+                {
+                  key: "hide",
+                  icon: "eye-off-outline",
+                  label: "Hide post",
+                  onPress: () => {
+                    // TODO:
+                    // implement hide
+                  },
+                },
+
+                {
+                  key: "unfollow",
+                  icon: "person-remove-outline",
+                  label: "Unfollow",
+                  onPress: () => {
+                    // TODO:
+                    // implement unfollow
+                  },
+                },
+
+                {
+                  key: "delete",
+                  icon: "trash-outline",
+                  label: "Delete",
+                  destructive: true,
+                  onPress: () => {
+                    // TODO:
+                    // implement delete
+                  },
+                },
+              ];
+
+              presentActionMenu(actions);
+            }}
+          />
+        </View>
+      );
+    },
+    [posts, like, unlike, save, unsave],
+  );
+
+  /*
+   * Loading skeletons
+   */
   const skeletonData = useMemo(() => Array.from({ length: 3 }), []);
 
-  const renderSkeleton = useCallback((info: { item: any; index: number }) => (
-    <FeedPostSkeleton key={`skeleton-${info.index}`} testID="feed-skeleton" />
-  ), []);
+  const renderSkeleton = useCallback(
+    ({ index }: { item: any; index: number }) => {
+      return (
+        <View style={styles.feedItem}>
+          <FeedPostSkeleton key={`skeleton-${index}`} testID="feed-skeleton" />
+        </View>
+      );
+    },
+    [],
+  );
 
+  /*
+   * Empty/error state
+   */
   const renderEmpty = useCallback(() => {
-    if (loading) return null;
+    if (loading) {
+      return null;
+    }
+
     if (error && posts.length === 0) {
       return (
-        <View style={{ alignItems: "center", marginTop: theme.SPACING.xxxxxl, paddingHorizontal: theme.LAYOUT.contentPadding }}>
-          <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.md }}>{error.message}</Text>
-          <TouchableOpacity onPress={refresh} style={{ padding: theme.SPACING.md, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
-            <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.errorText}>{error.message}</Text>
+
+          <TouchableOpacity
+            onPress={refresh}
+            style={styles.retryButton}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
       );
     }
+
     return (
-      <View style={{ alignItems: "center", marginTop: theme.SPACING.xxxxxl }}>
-        <Text style={{ color: theme.COLORS.textMuted }}>No posts yet</Text>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>No posts yet</Text>
       </View>
     );
   }, [loading, error, posts.length, refresh]);
@@ -89,74 +250,112 @@ export default function FeedScreen() {
   const showSkeletons = loading && posts.length === 0;
 
   return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: theme.COLORS.bgLight,
-      }}
-    >
+    <SafeAreaView style={styles.safeArea}>
+      {/* Offline banner */}
       <OfflineBanner isOffline={isOffline} onRetry={refresh} />
 
       {/* Header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: theme.LAYOUT.contentPadding,
-          paddingTop: theme.SPACING.md,
-          paddingBottom: theme.SPACING.sm,
-          backgroundColor: theme.COLORS.bgLight,
-          ...theme.SHADOWS.xl,
-          zIndex: 10,
-        }}
-      >
+      <View style={styles.header}>
         <Text style={styles.headerTitle}>Feed</Text>
+
         <View style={styles.headerActions}>
-          <Pressable style={styles.headerIconBtn}>
-            <Ionicons name="search" size={22} color={theme.COLORS.textPrimary} />
+          {/* Search */}
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => {
+              // TODO:
+              // router.push("/search");
+            }}
+          >
+            <Ionicons
+              name="search"
+              size={22}
+              color={theme.COLORS.textPrimary}
+            />
           </Pressable>
-          <Pressable style={styles.headerIconBtn}>
-            <Ionicons name="notifications-outline" size={22} color={theme.COLORS.textPrimary} />
+
+          {/* Notifications */}
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => {
+              // TODO:
+              // router.push("/notifications");
+            }}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={22}
+              color={theme.COLORS.textPrimary}
+            />
           </Pressable>
+
+          {/* Create post */}
           <Pressable
             style={styles.headerIconBtn}
             onPress={() => router.push("/posts/create")}
           >
-            <Ionicons name="add-circle-outline" size={24} color={theme.COLORS.primary} />
+            <Ionicons
+              name="add-circle-outline"
+              size={24}
+              color={theme.COLORS.primary}
+            />
           </Pressable>
         </View>
       </View>
 
+      {/* Feed */}
       <FlatList
-        style={{
-          flex: 1,
-          backgroundColor: theme.COLORS.bgLight,
-        }}
-        data={showSkeletons ? skeletonData as any : posts}
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={showSkeletons ? (skeletonData as any) : posts}
         showsVerticalScrollIndicator={false}
         numColumns={1}
-        keyExtractor={(item, index) => showSkeletons ? `skeleton-${index}` : item.id}
+        keyExtractor={(item, index) => {
+          if (showSkeletons) {
+            return `skeleton-${index}`;
+          }
+
+          return String(item.id);
+        }}
+        /*
+         * Stories appear above feed posts
+         */
         ListHeaderComponent={showSkeletons ? null : <StoriesBar />}
+        /*
+         * Empty feed
+         */
         ListEmptyComponent={showSkeletons ? null : renderEmpty}
+        /*
+         * Pagination
+         */
         ListFooterComponent={
           paginating ? (
-            <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
+            <View style={styles.footerLoader}>
               <ActivityIndicator size="small" color={theme.COLORS.primary} />
             </View>
           ) : paginationError ? (
-            <View style={{ paddingVertical: theme.SPACING.xxxxl, alignItems: "center" }}>
-              <Text style={{ color: theme.COLORS.textMuted, marginBottom: theme.SPACING.sm }}>{paginationError.message}</Text>
-              <TouchableOpacity onPress={loadMore} style={{ padding: theme.SPACING.sm, backgroundColor: theme.COLORS.primaryGhost, borderRadius: theme.BORDER_RADIUS.full }}>
-                <Text style={{ color: theme.COLORS.primary, fontWeight: theme.TYPOGRAPHY.fontWeight.semibold }}>Retry</Text>
+            <View style={styles.paginationError}>
+              <Text style={styles.paginationErrorText}>
+                {paginationError.message}
+              </Text>
+
+              <TouchableOpacity
+                onPress={loadMore}
+                style={styles.paginationRetryButton}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.paginationRetryText}>Retry</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={{ height: theme.SPACING.xxxxl }} />
+            <View style={styles.footerSpace} />
           )
         }
         onEndReached={hasMore && !showSkeletons ? loadMore : undefined}
         onEndReachedThreshold={0.5}
+        /*
+         * Pull to refresh
+         */
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -165,33 +364,162 @@ export default function FeedScreen() {
             colors={[theme.COLORS.primary]}
           />
         }
+        /*
+         * Render posts
+         */
         renderItem={showSkeletons ? renderSkeleton : renderItem}
       />
+
+      {/* Comment bottom sheet */}
       <CommentBottomSheet ref={commentSheetRef} />
     </SafeAreaView>
   );
 }
 
 const styles = {
+  safeArea: {
+    flex: 1,
+    backgroundColor: theme.COLORS.bgLight,
+  },
+
+  header: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+
+    paddingTop: theme.SPACING.md,
+
+    paddingBottom: theme.SPACING.sm,
+
+    backgroundColor: theme.COLORS.bgLight,
+
+    ...theme.SHADOWS.xl,
+
+    zIndex: 10,
+  },
+
   headerTitle: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+
     color: theme.COLORS.textPrimary,
+
     letterSpacing: theme.TYPOGRAPHY.letterSpacing.xs,
   } as const,
+
   headerActions: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     gap: theme.SPACING.sm,
   } as const,
+
   headerIconBtn: {
     width: 36,
     height: 36,
+
     borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+
     backgroundColor: theme.COLORS.bgWhite,
+
     borderWidth: theme.BORDER.width.xs,
+
     borderColor: theme.COLORS.borderDivider,
   } as const,
+
+  list: {
+    flex: 1,
+    backgroundColor: theme.COLORS.bgLight,
+  },
+
+  listContent: {
+    paddingBottom: theme.SPACING.xxxxl,
+  },
+
+  feedItem: {
+    width: "100%" as const,
+
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+
+    paddingTop: theme.SPACING.sm,
+  },
+
+  emptyContainer: {
+    alignItems: "center" as const,
+
+    marginTop: theme.SPACING.xxxxxl,
+
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+  },
+
+  emptyText: {
+    color: theme.COLORS.textMuted,
+  },
+
+  errorText: {
+    color: theme.COLORS.textMuted,
+
+    marginBottom: theme.SPACING.md,
+
+    textAlign: "center" as const,
+  },
+
+  retryButton: {
+    padding: theme.SPACING.md,
+
+    backgroundColor: theme.COLORS.primaryGhost,
+
+    borderRadius: theme.BORDER_RADIUS.full,
+  },
+
+  retryText: {
+    color: theme.COLORS.primary,
+
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+
+  footerLoader: {
+    paddingVertical: theme.SPACING.xxxxl,
+
+    alignItems: "center" as const,
+  },
+
+  paginationError: {
+    paddingVertical: theme.SPACING.xxxxl,
+
+    alignItems: "center" as const,
+
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+  },
+
+  paginationErrorText: {
+    color: theme.COLORS.textMuted,
+
+    marginBottom: theme.SPACING.sm,
+
+    textAlign: "center" as const,
+  },
+
+  paginationRetryButton: {
+    padding: theme.SPACING.sm,
+
+    backgroundColor: theme.COLORS.primaryGhost,
+
+    borderRadius: theme.BORDER_RADIUS.full,
+  },
+
+  paginationRetryText: {
+    color: theme.COLORS.primary,
+
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+
+  footerSpace: {
+    height: theme.SPACING.xxxxl,
+  },
 };
