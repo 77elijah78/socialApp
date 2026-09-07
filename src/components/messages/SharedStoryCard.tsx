@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
-import { shareService } from "@/services/ShareService";
 
 interface SharedStoryCardProps {
   mediaUrl: string;
@@ -16,12 +15,11 @@ interface SharedStoryCardProps {
 
 export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorName, authorAvatarUrl, expiresAt, onPress }: SharedStoryCardProps) {
   const [imageError, setImageError] = useState(false);
-  const isExpired = expiresAt ? shareService.isStoryExpired(expiresAt) : false;
 
   return (
-    <TouchableOpacity style={styles.container} onPress={isExpired ? undefined : onPress} activeOpacity={isExpired ? 1 : 0.9}>
+    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
       <View style={styles.mediaWrapper}>
-        {!imageError && !isExpired ? (
+        {!imageError ? (
           <Image
             source={{ uri: mediaUrl }}
             style={styles.media}
@@ -30,9 +28,9 @@ export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorNa
           />
         ) : (
           <View style={styles.mediaPlaceholder}>
-            <Ionicons name={isExpired ? "time-outline" : "image-outline"} size={32} color={theme.COLORS.textMuted} />
+            <Ionicons name="image-outline" size={32} color={theme.COLORS.textMuted} />
             <Text style={styles.unavailableText}>
-              {isExpired ? "Story expired" : "Media unavailable"}
+              Media unavailable
             </Text>
           </View>
         )}
@@ -49,14 +47,14 @@ export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorNa
               {authorName}
             </Text>
           </View>
-          <View style={[styles.storyBadge, isExpired && styles.storyBadgeExpired]}>
+          <View style={styles.storyBadge}>
             <Ionicons name="share-social-outline" size={14} color={theme.COLORS.textWhite} />
-            <Text style={styles.storyBadgeText}>{isExpired ? "Expired" : "Story"}</Text>
+            <Text style={styles.storyBadgeText}>Story</Text>
           </View>
         </View>
       </View>
 
-      {caption && !isExpired ? (
+      {caption ? (
         <View style={styles.captionContainer}>
           <Text style={styles.caption} numberOfLines={2}>
             {caption}
@@ -145,9 +143,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.SPACING.sm,
     paddingVertical: theme.SPACING.xs,
     borderRadius: theme.BORDER_RADIUS.full,
-  },
-  storyBadgeExpired: {
-    backgroundColor: "rgba(255,71,87,0.8)",
   },
   storyBadgeText: {
     fontSize: theme.TYPOGRAPHY.fontSize.xs,

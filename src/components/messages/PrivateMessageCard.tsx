@@ -72,6 +72,8 @@ function getLastMessageText(message: string, type: string, isSent: boolean): str
   if (type === "voice" || type === "audio") return isSent ? "You sent a voice message" : "Voice message";
   if (type === "document") return isSent ? "You sent a document" : "Document";
   if (type === "media") return isSent ? "You sent a media" : "Media";
+  if (type === "SHARED_POST") return isSent ? "You shared a post" : "Shared a post";
+  if (type === "SHARED_STORY") return isSent ? "You shared a story" : "Shared a story";
   if (message && message.trim().length > 0) return message;
   return isSent ? "You sent a message" : "Message";
 }

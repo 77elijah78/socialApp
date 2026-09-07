@@ -60,7 +60,12 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
   const receiverId = otherParticipant?.user.id;
 
   const lastMessageContent = lastMessage?.content || "";
-  const lastMessageType = lastMessage?.mediaUrl ? "media" : lastMessage?.type?.toLowerCase() || "text";
+  const type = lastMessage?.type;
+  const lastMessageType = lastMessage?.mediaUrl
+    ? "media"
+    : type === "SHARED_POST" || type === "SHARED_STORY"
+    ? type
+    : type?.toLowerCase() || "text";
   const lastMessageStatus = lastMessage?.status || "DELIVERED";
   const lastMessageTimestamp = lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now();
   
@@ -150,7 +155,11 @@ export function useRooms() {
         setRooms((prev) => {
           const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
           const lastMessageContent = msg.content ?? "";
-          const lastMessageType = msg.type === "TEXT" ? "text" : "media";
+          const lastMessageType = msg.type === "TEXT"
+            ? "text"
+            : msg.type === "SHARED_POST" || msg.type === "SHARED_STORY"
+            ? msg.type
+            : "media";
 
           if (existingIdx >= 0) {
             const updated = [...prev];
@@ -182,7 +191,11 @@ export function useRooms() {
         setRooms((prev) => {
           const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
           const lastMessageContent = msg.content ?? "";
-          const lastMessageType = msg.type === "TEXT" ? "text" : "media";
+          const lastMessageType = msg.type === "TEXT"
+            ? "text"
+            : msg.type === "SHARED_POST" || msg.type === "SHARED_STORY"
+            ? msg.type
+            : "media";
 
           if (existingIdx >= 0) {
             const updated = [...prev];

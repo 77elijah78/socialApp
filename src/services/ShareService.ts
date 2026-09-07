@@ -1,13 +1,4 @@
-import { api } from "./api";
-
-export interface SharePostResponse {
-  postId: string;
-  shareCount: number;
-}
-
-export interface ShareStoryResponse {
-  storyId: string;
-}
+import { api } from "@/services/api";
 
 export interface FollowedUser {
   id: string;
@@ -16,48 +7,54 @@ export interface FollowedUser {
   avatarUrl: string | null;
 }
 
-export interface StartConversationResponse {
+export interface ConversationResponse {
   conversationId: string;
 }
 
 export class ShareService {
-  async sharePost(token: string, postId: string, conversationId: string): Promise<SharePostResponse> {
-    const resp = await api.post<{ success: boolean; data: SharePostResponse }>(
-      `/posts/${postId}/share`,
-      { conversationId },
-      token,
-    );
-    return resp.data;
+  async getMyFollowing(token: string): Promise<{ users: FollowedUser[]; total: number }> {
+    const resp = await api.get<{
+      success: boolean;
+      data: FollowedUser[];
+      meta?: { total: number };
+    }>("/users/me/following?page=1&limit=50", token);
+    return {
+      users: resp.data ?? [],
+      total: resp.meta?.total ?? 0,
+    };
   }
 
-  async shareStory(token: string, storyId: string, conversationId: string): Promise<ShareStoryResponse> {
-    const resp = await api.post<{ success: boolean; data: ShareStoryResponse }>(
-      `/stories/${storyId}/share`,
-      { conversationId },
+  async getSuggestedUsers(token: string): Promise<{ users: FollowedUser[]; total: number }> {
+    const resp = await api.get<{
+      success: boolean;
+      data: FollowedUser[];
+      meta?: { total: number };
+    }>("/users/me/suggested?page=1&limit=50", token);
+    return {
+      users: resp.data ?? [],
+      total: resp.meta?.total ?? 0,
+    };
+  }
+
+  async startConversation(token: string, otherUserId: string): Promise<ConversationResponse> {
+    const resp = await api.post<{ success: boolean; data: { id: string } }>(
+      "/conversations",
+      { userId: otherUserId },
       token,
     );
-    return resp.data;
+    return { conversationId: resp.data.id };
+  }
+
+  async sharePost(token: string, postId: string, conversationId: string): Promise<void> {
+    await api.post(`/posts/${postId}/share`, { conversationId }, token);
+  }
+
+  async shareStory(token: string, storyId: string, conversationId: string): Promise<void> {
+    await api.post(`/posts/stories/${storyId}/share`, { conversationId }, token);
   }
 
   isStoryExpired(expiresAt: string | Date): boolean {
     return new Date(expiresAt).getTime() < Date.now();
-  }
-
-  async getMyFollowing(token: string, page = 1, limit = 50): Promise<{ users: FollowedUser[]; total: number }> {
-    const resp = await api.get<{
-      success: boolean;
-      data: { following: FollowedUser[]; total: number };
-    }>(`/users/me/following?page=${page}&limit=${limit}`, token);
-    return { users: resp.data.following ?? [], total: resp.data.total ?? 0 };
-  }
-
-  async startConversation(token: string, userId: string): Promise<StartConversationResponse> {
-    const resp = await api.post<{ success: boolean; data: StartConversationResponse }>(
-      `/messages/conversations`,
-      { userId },
-      token,
-    );
-    return resp.data;
   }
 }
 
