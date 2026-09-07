@@ -62,12 +62,13 @@ const ActionMenuComponent = () => {
       snapPoints={snapPoints}
       enablePanDownToClose
       enableOverDrag
+      enableContentScrollings
       backdropComponent={renderBackdrop}
       handleIndicatorStyle={{ backgroundColor: theme.COLORS.borderGray, width: 36 }}
       handleStyle={{ backgroundColor: theme.COLORS.bgLight, paddingTop: 12 }}
       backgroundStyle={{ backgroundColor: theme.COLORS.bgLight }}
     >
-      <View style={styles.container}>
+      <View style={styles.sheetContainer}>
         <View style={styles.handle} />
 
         {actions.map((item, index) => (
@@ -114,9 +115,9 @@ export function presentActionMenu(items: ActionMenuItem[]) {
 export default ActionMenuComponent;
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: theme.SPACING.md,
-    paddingBottom: theme.SPACING.xxl,
+  sheetContainer: {
+    flex: 1,
+    backgroundColor: theme.COLORS.bgLight,
   },
   handle: {
     width: 36,

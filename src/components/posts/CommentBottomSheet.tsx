@@ -222,6 +222,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
             onSubmitEditing={handleSend}
             returnKeyType="send"
             editable={!sending}
+            multiline
+            textAlignVertical="top"
           />
           <TouchableOpacity
             style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
@@ -279,7 +281,7 @@ const styles = StyleSheet.create({
   },
   inputRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
     backgroundColor: theme.COLORS.bgWhite,
@@ -289,12 +291,14 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     backgroundColor: theme.COLORS.bgAuthInput,
-    borderRadius: theme.BORDER_RADIUS.full,
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.md,
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     color: theme.COLORS.textPrimary,
     maxHeight: 120,
+    textAlignVertical: "top",
+    minHeight: 40,
   },
   sendBtn: {
     marginLeft: theme.SPACING.sm,

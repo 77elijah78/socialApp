@@ -69,12 +69,14 @@ const AppAlertComponent = () => {
       index={0}
       snapPoints={snapPoints}
       enablePanDownToClose={false}
+      enableOverDrag
+      enableContentScrollings
       backdropComponent={renderBackdrop}
       handleIndicatorStyle={{ backgroundColor: theme.COLORS.borderGray, width: 36 }}
       handleStyle={{ backgroundColor: theme.COLORS.bgLight, paddingTop: 12 }}
       backgroundStyle={{ backgroundColor: theme.COLORS.bgLight }}
     >
-      <View style={styles.container}>
+      <View style={styles.sheetContainer}>
         <View style={styles.handle} />
 
         <View style={styles.iconContainer}>
@@ -126,10 +128,9 @@ export function appAlert(options: { title: string; message?: string; buttons: Ap
 export default AppAlertComponent;
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: theme.SPACING.lg,
-    paddingBottom: theme.SPACING.xxl,
-    alignItems: "center",
+  sheetContainer: {
+    flex: 1,
+    backgroundColor: theme.COLORS.bgLight,
   },
   handle: {
     width: 36,
