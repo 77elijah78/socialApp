@@ -34,9 +34,8 @@ import {
 import { PickedFile } from "@/types";
 import MediaPickerModal from "@/components/messages/MediaPickerModal";
 import { mediaService } from "@/services/MediaService";
-import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
-import AppAlert, { appAlert } from "@/components/ui/AppAlert";
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -172,7 +171,9 @@ export default function PrivateRoom() {
     }
   }, [receiverName, router]);
 
-  const handleMenuPress = useCallback(() => {
+  const { openActionMenu } = useOverlay();
+
+  const handleMenuPress = useCallback((anchor?: { x: number; y: number; width: number; height: number }) => {
     const actions: ActionMenuItem[] = [
       { key: 'search', icon: 'search', label: 'Search', onPress: () => {} },
       { key: 'mute', icon: 'notifications-off-outline', label: 'Mute notifications', onPress: () => {} },
@@ -182,12 +183,12 @@ export default function PrivateRoom() {
           await mediaService.message.deleteConversation(conversationId);
           router.back();
         } catch (err) {
-          presentActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
+          openActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
         }
       }},
     ];
-    presentActionMenu(actions);
-  }, [conversationId, router]);
+    openActionMenu(actions, anchor);
+  }, [conversationId, router, openActionMenu]);
 
   const handleMessageAction = useCallback(
     (message: any) => {
@@ -199,12 +200,12 @@ export default function PrivateRoom() {
             { key: 'forme', icon: 'close-circle-outline', label: 'Delete for me', onPress: () => mediaService.message.delete(message.id) },
             { key: 'everyone', icon: 'people-outline', label: 'Delete for everyone', destructive: true, onPress: () => mediaService.message.delete(message.id, "everyone") },
           ];
-          presentActionMenu(deleteOptions);
+          openActionMenu(deleteOptions);
         }} : { key: 'cannot', icon: 'lock-closed-outline', label: 'Cannot delete others messages', onPress: () => {} },
       ];
-      presentActionMenu(actions);
+      openActionMenu(actions);
     },
-    [currentUserId],
+    [currentUserId, openActionMenu],
   );
 
   const handleSend = useCallback(async () => {

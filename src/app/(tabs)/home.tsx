@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,14 +15,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import PostCard from "@/components/feed/PostCard";
 import StoriesBar from "@/components/feed/StoriesBar";
 
-import { CommentBottomSheet } from "@/components/posts/CommentBottomSheet";
-import type { CommentBottomSheetRef } from "@/components/posts/CommentBottomSheet";
-
 import { SocialPost } from "@/types";
 import theme from "@/constants/theme";
 
 import { usePosts } from "@/hooks/usePosts";
-import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
@@ -46,11 +43,7 @@ export default function FeedScreen() {
   });
 
   const { isOffline } = useNetworkStatus();
-
-  /*
-   * Bottom sheet refs
-   */
-  const commentSheetRef = useRef<CommentBottomSheetRef>(null);
+  const { openActionMenu, openComments } = useOverlay();
 
   /*
    * Pull to refresh
@@ -100,7 +93,7 @@ export default function FeedScreen() {
              * COMMENTS
              */
             onComment={(postId) => {
-              commentSheetRef.current?.open(postId);
+              openComments(postId);
             }}
             /*
              * SHARE
@@ -127,7 +120,7 @@ export default function FeedScreen() {
             /*
              * POST MENU
              */
-            onMenuPress={(postId) => {
+            onMenuPress={(postId, anchor) => {
               const post = posts.find((item) => item.id === postId);
 
               const actions: ActionMenuItem[] = [
@@ -191,13 +184,13 @@ export default function FeedScreen() {
                 },
               ];
 
-              presentActionMenu(actions);
+               openActionMenu(actions, anchor);
             }}
           />
         </View>
       );
     },
-    [posts, like, unlike, save, unsave],
+    [posts, like, unlike, save, unsave, openActionMenu, openComments, handleShare],
   );
 
   /*
@@ -369,9 +362,6 @@ export default function FeedScreen() {
          */
         renderItem={showSkeletons ? renderSkeleton : renderItem}
       />
-
-      {/* Comment bottom sheet */}
-      <CommentBottomSheet ref={commentSheetRef} />
     </SafeAreaView>
   );
 }

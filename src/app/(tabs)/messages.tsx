@@ -8,13 +8,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { mediaService } from "@/services/MediaService";
 import { useFocusEffect } from "expo-router";
-import ActionMenu, { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { ConversationRowSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 export default function Messages() {
   const { rooms, loading, error, reload, deleteRoom } = useRooms();
   const { isOffline } = useNetworkStatus();
+  const { openActionMenu } = useOverlay();
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   const [searchQuery, setSearchQuery] = useState("");
@@ -23,7 +24,7 @@ export default function Messages() {
     reload();
   }, [reload]);
 
-  const handleDeleteRoom = useCallback(async (roomId: string, receiverName: string) => {
+  const handleDeleteRoom = useCallback(async (roomId: string, receiverName: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     const actions: ActionMenuItem[] = [
       { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
       { key: 'delete', icon: 'trash-outline', label: `Delete conversation with ${receiverName}`, destructive: true, onPress: async () => {
@@ -31,12 +32,12 @@ export default function Messages() {
           await mediaService.message.deleteConversation(roomId);
           await deleteRoom(roomId);
         } catch (err) {
-          presentActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
+          openActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
         }
       }},
     ];
-    presentActionMenu(actions);
-  }, [deleteRoom]);
+    openActionMenu(actions, anchor);
+  }, [deleteRoom, openActionMenu]);
 
   const filteredRooms = rooms.filter((room) =>
     (room.name ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -139,7 +140,7 @@ export default function Messages() {
               newMessages={item.unreadCount > 0}
               unreadCount={item.unreadCount}
               lastMessageStatus="DELIVERED"
-              onLongPress={() => handleDeleteRoom(item.id, item.name)}
+              onLongPress={(e) => handleDeleteRoom(item.id, item.name, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, width: 0, height: 0 })}
               onPress={() =>
                 router.push({
                   pathname: "/(chatRoom)/privateRoom",
