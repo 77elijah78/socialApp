@@ -1,1 +1,1 @@
-export { OverlayProvider, useOverlay, type ActionMenuItem, type AlertOptions } from "./OverlayProvider";
+export { OverlayProvider, useOverlay, type ActionMenuItem, type AlertOptions, type ShareOptions } from "./OverlayProvider";

@@ -55,19 +55,13 @@ export default function FeedScreen() {
   /*
    * Handle sharing a post.
    */
+  const { openShare } = useOverlay();
+
   const handleShare = useCallback(
     (postId: string) => {
-      router.push({
-        pathname: "/share",
-        params: {
-          postId,
-          title: "Share post",
-          message: "Check out this post",
-          url: `https://yourapp.com/post/${postId}`,
-        },
-      });
+      openShare({ postId });
     },
-    [],
+    [openShare],
   );
 
   /*

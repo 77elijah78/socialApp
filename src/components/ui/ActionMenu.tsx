@@ -28,8 +28,18 @@ interface ActionMenuProps {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const ActionMenuComponent = ({ visible, items, anchor, onClose }: ActionMenuProps) => {
-  const [menuLayout, setMenuLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+const ActionMenuComponent = ({
+  visible,
+  items,
+  anchor,
+  onClose,
+}: ActionMenuProps) => {
+  const [menuLayout, setMenuLayout] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
 
   const handleLayout = (event: any) => {
     const { width, height } = event.nativeEvent.layout;
@@ -87,10 +97,7 @@ const ActionMenuComponent = ({ visible, items, anchor, onClose }: ActionMenuProp
         </Pressable>
 
         <View
-          style={[
-            styles.menuContainer,
-            getMenuPosition(),
-          ]}
+          style={[styles.menuContainer, getMenuPosition()]}
           onLayout={handleLayout}
         >
           <View style={styles.menuCard}>
@@ -183,10 +190,9 @@ const styles = StyleSheet.create({
   actionItem: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
     gap: theme.SPACING.lg,
     paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.md,
     borderRadius: theme.BORDER_RADIUS.md,
     marginHorizontal: theme.SPACING.xs,
   },

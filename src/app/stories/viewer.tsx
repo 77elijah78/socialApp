@@ -5,6 +5,7 @@ import StoryViewer from "@/components/stories/StoryViewer";
 import { StoryItem } from "@/types";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import { useOverlay } from "@/providers/OverlayProvider";
 
 interface BackendStory {
   id: string;
@@ -88,6 +89,8 @@ export default function StoryViewerScreen() {
     };
   }, [token, stories.length, currentUserId]);
 
+  const { openShare } = useOverlay();
+
   const handleClose = useCallback(() => {
     router.back();
   }, []);
@@ -118,15 +121,7 @@ export default function StoryViewerScreen() {
         onStoryViewed={handleStoryViewed}
         onClose={handleClose}
         onShare={(story) => {
-          router.push({
-            pathname: "/share",
-            params: {
-              storyId: story.id,
-              title: "Share story",
-              message: "Check out this story",
-              url: `https://yourapp.com/story/${story.id}`,
-            },
-          });
+          openShare({ storyId: story.id });
         }}
       />
     </View>
