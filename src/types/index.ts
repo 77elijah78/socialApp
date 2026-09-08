@@ -347,7 +347,7 @@ export interface PrivateMessageCardProps {
   isBookmarked?: boolean;
   onPress?: () => void;
   onBookmarkPress?: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (e: { nativeEvent: { pageX: number; pageY: number } }) => void;
   avatar: ImageSourcePropType;
   type: string;
   duration?: string;

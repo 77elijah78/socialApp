@@ -9,14 +9,14 @@ import {
   TouchableOpacity,
   Linking,
 } from "react-native";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import SharedPostCard from "./SharedPostCard";
 import SharedStoryCard from "./SharedStoryCard";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { presentActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
+import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 
 function StatusCheckmarks({
   status,
@@ -64,9 +64,11 @@ export default function MessageCard({
   repliedTo,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
+  const { openActionMenu } = useOverlay();
   const maxContentWidth = width * 0.7;
   const maxContentHeight = width * 0.55;
   const [aspectRatio, setAspectRatio] = useState(1);
+  const downloadButtonRef = useRef<any>(null);
 
   const safeTime = useMemo(() => {
     if (time == null) return null;
@@ -79,7 +81,9 @@ export default function MessageCard({
       { key: 'open', icon: 'open-outline', label: 'Open in browser', onPress: () => Linking.openURL(uri) },
       { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
     ];
-    presentActionMenu(items);
+    downloadButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+      openActionMenu(items, { x, y, width, height });
+    });
   };
 
   const sentBubble = {
@@ -172,6 +176,7 @@ export default function MessageCard({
                 </View>
               </TouchableOpacity>
               <TouchableOpacity
+                ref={downloadButtonRef}
                 style={styles.downloadButton}
                 onPress={handleDownload}
               >
@@ -191,11 +196,12 @@ export default function MessageCard({
                 uri={uri}
                 thumbnail=""
                 borderRadius={theme.BORDER_RADIUS.lg}
-              />
-              <TouchableOpacity
-                style={styles.downloadButtonOverlay}
-                onPress={handleDownload}
-              >
+               />
+               <TouchableOpacity
+                 ref={downloadButtonRef}
+                 style={styles.downloadButtonOverlay}
+                 onPress={handleDownload}
+               >
                 <Ionicons
                   name="download-outline"
                   size={22}

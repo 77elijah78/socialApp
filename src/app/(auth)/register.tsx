@@ -15,7 +15,7 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AppAlert, { appAlert } from "@/components/ui/AppAlert";
+import { useOverlay } from "@/providers/OverlayProvider";
 
 export default function RegisterScreen() {
   const [form, setForm] = useState({
@@ -24,6 +24,7 @@ export default function RegisterScreen() {
     password: "",
   });
   const dispatch = useAppDispatch();
+  const { showAlert } = useOverlay();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -99,7 +100,7 @@ export default function RegisterScreen() {
               );
               router.replace("/(tabs)/home");
             } catch (err: any) {
-              appAlert({
+               showAlert({
                 title: "Registration Failed",
                 message: err.message || "Something went wrong. Please try again.",
                 buttons: [

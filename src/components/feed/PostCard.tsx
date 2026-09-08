@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Animated,
   ActivityIndicator,
   Dimensions,
+  findNodeHandle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import theme from '@/constants/theme';
@@ -18,7 +19,7 @@ export interface SocialPostCardProps {
   onComment?: (postId: string) => void;
   onShare?: (postId: string) => void;
   onBookmark?: (postId: string, bookmarked: boolean) => void;
-  onMenuPress?: (postId: string) => void;
+  onMenuPress?: (postId: string, anchor?: { x: number; y: number; width: number; height: number }) => void;
   onTagPress?: (tag: string) => void;
   onUserPress?: (username: string) => void;
 }
@@ -46,6 +47,14 @@ export default function PostCard({
   const [imageLoading, setImageLoading] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [fadeAnim] = useState(new Animated.Value(1));
+
+  const menuButtonRef = useRef<any>(null);
+
+  const handleMenuPress = () => {
+    menuButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+      onMenuPress?.(post.id, { x, y, width, height });
+    });
+  };
 
   const mediaUrls = post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls : (post.imageUrl ? [post.imageUrl] : []);
   const currentMedia = mediaUrls[mediaIndex] ?? '';
@@ -137,7 +146,8 @@ export default function PostCard({
         </View>
 
         <TouchableOpacity
-          onPress={() => onMenuPress?.(post.id)}
+          ref={menuButtonRef}
+          onPress={handleMenuPress}
           style={styles.menuBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >

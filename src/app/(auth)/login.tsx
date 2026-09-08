@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AppAlert, { appAlert } from "@/components/ui/AppAlert";
+import { useOverlay } from "@/providers/OverlayProvider";
 
 export default function LoginScreen() {
   const [blinded, setBlinded] = useState(true);
@@ -30,6 +30,7 @@ export default function LoginScreen() {
   });
 
   const dispatch = useAppDispatch();
+  const { showAlert } = useOverlay();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -97,7 +98,7 @@ export default function LoginScreen() {
               await authService.login(form.email, form.password, dispatch);
               router.replace("/(tabs)/home");
             } catch (err: any) {
-              appAlert({
+               showAlert({
                 title: "Login Failed",
                 message: err.message || "Please check your credentials and try again.",
                 buttons: [

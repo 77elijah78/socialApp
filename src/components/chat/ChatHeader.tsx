@@ -1,6 +1,6 @@
 // components/chat/ChatHeader.tsx
 /* eslint-disable import/no-named-as-default-member */
-import React from "react";
+import React, { useRef } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { icons } from "@/constants";
 import theme from "@/constants/theme";
@@ -12,7 +12,7 @@ interface ChatHeaderProps {
   isTyping?: boolean;
   onBack: () => void;
   onProfilePress?: () => void;
-  onMenuPress?: () => void;
+  onMenuPress?: (anchor?: { x: number; y: number; width: number; height: number }) => void;
 }
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -24,6 +24,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   onProfilePress,
   onMenuPress,
 }) => {
+  const menuButtonRef = useRef<any>(null);
+
+  const handleMenuPress = () => {
+    menuButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+      onMenuPress?.({ x, y, width, height });
+    });
+  };
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={onBack} style={styles.backButton}>
@@ -47,7 +54,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={onMenuPress} style={styles.menuButton}>
+      <TouchableOpacity ref={menuButtonRef} onPress={handleMenuPress} style={styles.menuButton}>
         <Image
           source={icons.dots}
           style={[styles.menuIcon, { tintColor: theme.COLORS.textSecondary }]}

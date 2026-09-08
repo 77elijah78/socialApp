@@ -119,15 +119,18 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
   };
 
   const open = useCallback((pid: string) => {
+    console.log('[CommentBottomSheet] open called with postId:', pid);
     setPostId(pid);
     setComments([]);
     setLoading(true);
     setFetchError(null);
     fetchComments(pid);
-    bottomSheetRef.current?.present();
+    const result = bottomSheetRef.current?.present();
+    console.log('[CommentBottomSheet] BottomSheet present result:', result, 'ref current:', !!bottomSheetRef.current);
   }, [fetchComments]);
 
   const close = useCallback(() => {
+    console.log('[CommentBottomSheet] close called');
     abortControllerRef.current?.abort();
     bottomSheetRef.current?.dismiss();
   }, []);
@@ -191,6 +194,15 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>((_, re
       backgroundStyle={{ backgroundColor: theme.COLORS.bgLight }}
       keyboardBehavior="extend"
       android_keyboardInputMode="adjustResize"
+      onChange={(index) => {
+        console.log('[CommentBottomSheet] BottomSheetModal onChange:', index);
+      }}
+      onDismiss={() => {
+        console.log('[CommentBottomSheet] BottomSheetModal dismissed');
+      }}
+      onPresent={() => {
+        console.log('[CommentBottomSheet] BottomSheetModal presented');
+      }}
     >
       <View style={styles.sheetContainer}>
         <View style={styles.handle} />
