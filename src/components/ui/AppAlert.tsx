@@ -1,13 +1,13 @@
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  useWindowDimensions,
+  Modal,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { BottomSheetModal, BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
 
 export interface AppAlertButton {
@@ -18,127 +18,113 @@ export interface AppAlertButton {
   bold?: boolean;
 }
 
-export interface AppAlertRef {
-  show: (options: { title: string; message?: string; buttons: AppAlertButton[] }) => void;
+interface AppAlertProps {
+  visible: boolean;
+  title: string;
+  message?: string;
+  buttons: AppAlertButton[];
+  onClose: () => void;
 }
 
-const AppAlertComponent = () => {
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const [title, setTitle] = React.useState("");
-  const [message, setMessage] = React.useState("");
-  const [buttons, setButtons] = React.useState<AppAlertButton[]>([]);
-
-  const snapPoints = useMemo(() => ["30%"], []);
-
-  const show = useCallback((options: { title: string; message?: string; buttons: AppAlertButton[] }) => {
-    setTitle(options.title);
-    setMessage(options.message ?? "");
-    setButtons(options.buttons);
-    bottomSheetRef.current?.present();
-  }, []);
-
-  const dismiss = useCallback(() => {
-    bottomSheetRef.current?.dismiss();
-  }, []);
-
-  React.useEffect(() => {
-    registerAppAlert(show);
-  }, [show]);
-
-  const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnDemand
-        onPress={dismiss}
-        enablePanThroughBackdrop
-        opacity={0.5}
-      />
-    ),
-    [dismiss],
-  );
-
+const AppAlertComponent = ({ visible, title, message, buttons, onClose }: AppAlertProps) => {
   const handlePress = (item: AppAlertButton) => {
-    dismiss();
+    onClose();
     setTimeout(() => item.onPress(), 250);
   };
 
   return (
-    <BottomSheetModal
-      ref={bottomSheetRef}
-      index={0}
-      snapPoints={snapPoints}
-      enablePanDownToClose={false}
-      enableOverDrag
-      enableContentScrollings
-      backdropComponent={renderBackdrop}
-      handleIndicatorStyle={{ backgroundColor: theme.COLORS.borderGray, width: 36 }}
-      handleStyle={{ backgroundColor: theme.COLORS.bgLight, paddingTop: 12 }}
-      backgroundStyle={{ backgroundColor: theme.COLORS.bgLight }}
+    <Modal
+      visible={visible}
+      transparent
+      statusBarTranslucent
+      animationType="fade"
+      onRequestClose={onClose}
     >
-      <View style={styles.sheetContainer}>
-        <View style={styles.handle} />
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.backdrop}>
+          <View style={styles.backdropFill} />
+        </Pressable>
 
-        <View style={styles.iconContainer}>
-          <Ionicons name="alert-circle" size={48} color={theme.COLORS.primary} />
-        </View>
+        <View style={styles.centeredContainer}>
+          <View style={styles.dialogCard}>
+            <View style={styles.iconContainer}>
+              <Ionicons
+                name="alert-circle"
+                size={48}
+                color={theme.COLORS.primary}
+              />
+            </View>
 
-        <Text style={styles.title}>{title}</Text>
-        {message ? <Text style={styles.message}>{message}</Text> : null}
+            <Text style={styles.title}>{title}</Text>
+            {message ? <Text style={styles.message}>{message}</Text> : null}
 
-        <View style={styles.buttonContainer}>
-          {buttons.map((item, index) => (
-            <React.Fragment key={item.key}>
-              {index > 0 && <View style={styles.separator} />}
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => handlePress(item)}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.buttonLabel,
-                    item.destructive && styles.buttonLabelDestructive,
-                    item.bold && styles.buttonLabelBold,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            </React.Fragment>
-          ))}
+            <View style={styles.buttonContainer}>
+              {buttons.map((item, index) => (
+                <React.Fragment key={item.key}>
+                  {index > 0 && <View style={styles.separator} />}
+                  <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => handlePress(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.buttonLabel,
+                        item.destructive && styles.buttonLabelDestructive,
+                        item.bold && styles.buttonLabelBold,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                </React.Fragment>
+              ))}
+            </View>
+          </View>
         </View>
       </View>
-    </BottomSheetModal>
+    </Modal>
   );
 };
 
-let globalShow: ((options: { title: string; message?: string; buttons: AppAlertButton[] }) => void) | null = null;
-
-export function registerAppAlert(showFn: (options: { title: string; message?: string; buttons: AppAlertButton[] }) => void) {
-  globalShow = showFn;
-}
-
-export function appAlert(options: { title: string; message?: string; buttons: AppAlertButton[] }) {
-  if (globalShow) {
-    globalShow(options);
-  }
-}
+AppAlertComponent.displayName = "AppAlert";
 
 export default AppAlertComponent;
 
 const styles = StyleSheet.create({
-  sheetContainer: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
   },
-  handle: {
-    width: 36,
-    height: 5,
-    backgroundColor: theme.COLORS.borderGray,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignSelf: "center",
-    marginBottom: 16,
+  backdrop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  backdropFill: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  },
+  centeredContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.SPACING.xl,
+  },
+  dialogCard: {
+    backgroundColor: theme.COLORS.bgLight,
+    borderRadius: theme.BORDER_RADIUS.lg,
+    paddingVertical: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.lg,
+    width: "100%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 12,
+    alignItems: "center",
   },
   iconContainer: {
     width: 64,
@@ -162,7 +148,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
     marginBottom: theme.SPACING.lg,
-    paddingHorizontal: theme.SPACING.md,
   },
   buttonContainer: {
     width: "100%",
