@@ -13,15 +13,22 @@ import theme from "@/constants/theme";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { mediaService } from "@/services/MediaService";
 import { messageStore } from "@/db/MessageStore";
-import api, { setTokens as setApiTokens, setTokenRefreshCallback } from "@/services/api";
+import api, {
+  setTokens as setApiTokens,
+  setTokenRefreshCallback,
+} from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
-import { addNotification as addNotificationToStore, incrementUnreadCount } from "@/store/slices/notificationsSlice";
-import ActionMenu, { registerActionMenu } from "@/components/ui/ActionMenu";
-import AppAlert, { registerAppAlert } from "@/components/ui/AppAlert";
+import {
+  addNotification as addNotificationToStore,
+  incrementUnreadCount,
+} from "@/store/slices/notificationsSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking } from "react-native";
+import { OverlayProvider } from "@/providers/OverlayProvider";
 
-  function PersistGate({ children }: { children: React.ReactNode }) {
+const TAG = "[RootLayout]";
+
+function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -99,17 +106,23 @@ function SocketProvider() {
       }
     });
 
-    const unsubDelivered = mediaService.socket.on("message:delivered", async (payload: any) => {
-      try {
-        const messageId = payload?.messageId;
-        const conversationId = payload?.conversationId;
-        if (messageId && conversationId) {
-          await messageStore.markDelivered(messageId, conversationId);
+    const unsubDelivered = mediaService.socket.on(
+      "message:delivered",
+      async (payload: any) => {
+        try {
+          const messageId = payload?.messageId;
+          const conversationId = payload?.conversationId;
+          if (messageId && conversationId) {
+            await messageStore.markDelivered(messageId, conversationId);
+          }
+        } catch (error) {
+          console.warn(
+            "[SocketProvider] global delivery persist failed:",
+            error,
+          );
         }
-      } catch (error) {
-        console.warn("[SocketProvider] global delivery persist failed:", error);
-      }
-    });
+      },
+    );
 
     return () => {
       unsub();
@@ -136,7 +149,10 @@ export default function RootLayout() {
         );
         setApiTokens(token, refreshToken ?? null);
       } catch (err: any) {
-        console.warn("[layout] onTokenRefresh callback error:", err?.message ?? err);
+        console.warn(
+          "[layout] onTokenRefresh callback error:",
+          err?.message ?? err,
+        );
       }
     });
 
@@ -166,8 +182,6 @@ export default function RootLayout() {
     };
   }, []);
 
-  const actionMenuRef = React.useRef<{ present: (items: any[]) => void }>(null);
-
   return (
     <KeyboardProvider>
       <Provider store={store}>
@@ -175,32 +189,38 @@ export default function RootLayout() {
           <PaperProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
-                <SocketProvider />
-                <ActionMenu />
-                <AppAlert />
-                <Stack
-                  screenOptions={{
-                    contentStyle: {
-                      backgroundColor: theme.COLORS.bgLight,
-                      borderColor: theme.COLORS.bgLight,
-                    },
-                  }}
-                >
-                  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen
-                    name="(chatRoom)"
-                    options={{ headerShown: false }}
-                  />
-                  <Stack.Screen
-                    name="stories/viewer"
-                    options={{
-                      headerShown: false,
-                      presentation: "modal",
-                      animation: "fade",
+                <OverlayProvider>
+                  <SocketProvider />
+                  <Stack
+                    screenOptions={{
+                      contentStyle: {
+                        backgroundColor: theme.COLORS.bgLight,
+                        borderColor: theme.COLORS.bgLight,
+                      },
                     }}
-                  />
-                </Stack>
+                  >
+                    <Stack.Screen
+                      name="(auth)"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="(tabs)"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="(chatRoom)"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="stories/viewer"
+                      options={{
+                        headerShown: false,
+                        presentation: "modal",
+                        animation: "fade",
+                      }}
+                    />
+                  </Stack>
+                </OverlayProvider>
               </BottomSheetModalProvider>
             </GestureHandlerRootView>
           </PaperProvider>

@@ -7,5 +7,4 @@ const chatRoomLayout = () => (
   </Stack>
 );
 
-
 export default chatRoomLayout;
