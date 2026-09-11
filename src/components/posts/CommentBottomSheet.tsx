@@ -820,20 +820,20 @@ const styles = StyleSheet.create({
 
   userAvatarText: {
     color: COLORS.textWhite,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
 
   input: {
     flex: 1,
     minWidth: 0,
-    height: 48,
-    maxHeight: 96,
+    height: 44,
+    maxHeight: 88,
     backgroundColor: COLORS.bgInput,
     borderRadius: theme.BORDER_RADIUS.full,
-    paddingHorizontal: 17,
+    paddingHorizontal: 16,
     paddingVertical: 0,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
     color: COLORS.textPrimary,
     borderWidth: 1,
     borderColor: COLORS.primaryGhostBorder,
@@ -841,7 +841,7 @@ const styles = StyleSheet.create({
 
   inputCompact: {
     paddingHorizontal: 14,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
 
   postButton: {
