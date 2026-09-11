@@ -140,6 +140,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const [isOpen, setIsOpen] = useState(false);
 
+    const [showInput, setShowInput] = useState(false);
+
+    const inputFadeAnim = useRef(new Animated.Value(0)).current;
+
     const keyboardHeight = useRef(new Animated.Value(0)).current;
 
     const token = useAppSelector((s) => s.auth.token);
@@ -292,9 +296,20 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
         bottomSheetRef.current?.present();
 
+        // Instagram-style: input appears ~200ms after sheet opens
+        setTimeout(() => {
+          setShowInput(true);
+          Animated.timing(inputFadeAnim, {
+            toValue: 1,
+            duration: 200,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
+        }, 200);
+
         fetchComments(pid);
       },
-      [fetchComments],
+      [fetchComments, inputFadeAnim],
     );
 
     /* =====================================================
@@ -302,14 +317,20 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
        ===================================================== */
 
     const close = useCallback(() => {
+      setShowInput(false);
       setIsOpen(false);
 
+      Animated.timing(inputFadeAnim, {
+        toValue: 0,
+        duration: 150,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+
       abortControllerRef.current?.abort();
-
       Keyboard.dismiss();
-
       bottomSheetRef.current?.dismiss();
-    }, []);
+    }, [inputFadeAnim]);
 
     /* =====================================================
            IMPERATIVE HANDLE
@@ -434,12 +455,28 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         bottomInset={0}
         onChange={(index) => {
           if (index < 0) {
+            setShowInput(false);
             setIsOpen(false);
+
+            Animated.timing(inputFadeAnim, {
+              toValue: 0,
+              duration: 150,
+              easing:Easing.in(Easing.cubic),
+              useNativeDriver: true,
+            }).start();
           }
         }}
         onDismiss={() => {
           abortControllerRef.current?.abort();
+          setShowInput(false);
           setIsOpen(false);
+
+          Animated.timing(inputFadeAnim, {
+            toValue: 0,
+            duration: 150,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
 
           setComments([]);
           setCommentCount(0);
@@ -503,11 +540,14 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
            * INPUT BAR — floating inside sheet, lifts above keyboard
            * =========================================================
            */}
-          {isOpen && (
+          {showInput && (
             <Animated.View
               style={[
                 styles.floatingInputWrapper,
-                { transform: [{ translateY: inputTranslateY }] },
+                {
+                  opacity: inputFadeAnim,
+                  transform: [{ translateY: inputTranslateY }],
+                },
               ]}
               pointerEvents="box-none"
             >
