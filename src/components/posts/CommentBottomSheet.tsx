@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,10 @@ import {
   ActivityIndicator,
   StyleSheet,
   Platform,
+  Animated,
+  Easing,
+  Keyboard,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -22,7 +26,7 @@ import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { router } from "expo-router";
 import { Comment, PostOneResponse } from "@/types";
-import theme from "@/constants/theme";
+import theme, { BORDER_RADIUS, COLORS } from "@/constants/theme";
 
 /* =========================================================
    REF
@@ -32,6 +36,14 @@ export interface CommentBottomSheetRef {
   open: (postId: string) => void;
   close: () => void;
 }
+
+/* =========================================================
+   RESPONSIVE SCALING
+   Scale based on screen width relative to a reference
+   (393px = iPhone 15 Pro width).
+========================================================= */
+
+const REFERENCE_WIDTH = 393;
 
 /* =========================================================
    COMMENT ITEM
@@ -53,13 +65,9 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
 
   const timeLabel = useMemo(() => {
     const now = new Date();
-
     const diffMs = now.getTime() - createdAt.getTime();
-
     const diffMins = Math.floor(diffMs / 60000);
-
     const diffHours = Math.floor(diffMs / 3600000);
-
     const diffDays = Math.floor(diffMs / 86400000);
 
     if (diffMins < 1) return "Just now";
@@ -94,7 +102,6 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
         >
           <Text style={styles.authorName}>
             {authorName}
-
             {isOwn && <Text style={styles.youBadge}> (you)</Text>}
           </Text>
         </TouchableOpacity>
@@ -113,6 +120,10 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
 
 export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
   (_, ref) => {
+    const { width: screenWidth } = useWindowDimensions();
+    const isCompact = screenWidth < 375;
+    const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
+
     const [postId, setPostId] = useState<string | null>(null);
 
     const [comments, setComments] = useState<Comment[]>([]);
@@ -127,6 +138,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const [commentCount, setCommentCount] = useState(0);
 
+    const [isOpen, setIsOpen] = useState(false);
+
+    const keyboardHeight = useRef(new Animated.Value(0)).current;
+
     const token = useAppSelector((s) => s.auth.token);
 
     const currentUserId = useAppSelector((s) => s.auth.user?.id);
@@ -136,14 +151,52 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     const abortControllerRef = React.useRef<AbortController | null>(null);
 
     /* =====================================================
-         SNAP POINTS
-      ===================================================== */
+           SNAP POINTS
+       ===================================================== */
 
-    const snapPoints = useMemo(() => ["70%", "90%"], []);
+    const snapPoints = useMemo(() => ["92%"], []);
 
     /* =====================================================
-         FETCH COMMENTS
-      ===================================================== */
+           KEYBOARD LISTENERS
+        ===================================================== */
+
+    useEffect(() => {
+      const showEvent =
+        Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+      const hideEvent =
+        Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+      const showSub = Keyboard.addListener(showEvent, (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: e.endCoordinates.height,
+          duration: e.duration ?? 250,
+          useNativeDriver: true,
+        }).start();
+      });
+
+      const hideSub = Keyboard.addListener(hideEvent, (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: 0,
+          duration: e.duration ?? 250,
+          useNativeDriver: true,
+        }).start();
+      });
+
+      return () => {
+        showSub.remove();
+        hideSub.remove();
+      };
+    }, [keyboardHeight]);
+
+    const inputTranslateY = keyboardHeight.interpolate({
+      inputRange: [0, 400],
+      outputRange: [0, -420],
+      extrapolate: "clamp",
+    });
+
+    /* =====================================================
+           FETCH COMMENTS
+       ===================================================== */
 
     const fetchComments = useCallback(
       async (pid: string) => {
@@ -188,8 +241,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     /* =====================================================
-         SEND COMMENT
-      ===================================================== */
+           SEND COMMENT
+       ===================================================== */
 
     const handleSend = useCallback(async () => {
       const trimmed = input.trim();
@@ -217,11 +270,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         setCommentCount((prev) => prev + 1);
 
         setInput("");
-
-        /*
-         * Keep keyboard open after sending.
-         * This feels much better for consecutive comments.
-         */
       } catch (err) {
         console.error("Failed to send comment:", err);
       } finally {
@@ -230,8 +278,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     }, [input, token, postId, sending]);
 
     /* =====================================================
-         OPEN
-      ===================================================== */
+           OPEN
+       ===================================================== */
 
     const open = useCallback(
       (pid: string) => {
@@ -240,6 +288,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         setCommentCount(0);
         setInput("");
         setFetchError(null);
+        setIsOpen(true);
 
         bottomSheetRef.current?.present();
 
@@ -249,10 +298,12 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     /* =====================================================
-         CLOSE
-      ===================================================== */
+           CLOSE
+       ===================================================== */
 
     const close = useCallback(() => {
+      setIsOpen(false);
+
       abortControllerRef.current?.abort();
 
       Keyboard.dismiss();
@@ -261,8 +312,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     }, []);
 
     /* =====================================================
-         IMPERATIVE HANDLE
-      ===================================================== */
+           IMPERATIVE HANDLE
+       ===================================================== */
 
     React.useImperativeHandle(
       ref,
@@ -274,8 +325,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     /* =====================================================
-         BACKDROP
-      ===================================================== */
+           BACKDROP
+       ===================================================== */
 
     const renderBackdrop = useCallback(
       (props: any) => (
@@ -291,8 +342,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     /* =====================================================
-         COMMENT ITEM
-      ===================================================== */
+           COMMENT ITEM
+       ===================================================== */
 
     const renderItem = useCallback(
       ({ item }: { item: Comment }) => (
@@ -302,8 +353,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     /* =====================================================
-         EMPTY STATE
-      ===================================================== */
+           EMPTY STATE
+       ===================================================== */
 
     const ListEmptyComponent = useCallback(() => {
       if (loading) {
@@ -353,8 +404,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     }, [loading, fetchError, postId, fetchComments]);
 
     /* =====================================================
-         RENDER
-      ===================================================== */
+           RENDER
+       ===================================================== */
 
     return (
       <BottomSheetModal
@@ -365,59 +416,67 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         enableOverDrag={false}
         backdropComponent={renderBackdrop}
         handleIndicatorStyle={{
-          backgroundColor: theme.COLORS.borderGray,
+          backgroundColor: COLORS.borderGray,
           width: 36,
         }}
         handleStyle={{
-          backgroundColor: theme.COLORS.bgLight,
+          backgroundColor: COLORS.bgCard,
           paddingTop: 12,
         }}
         backgroundStyle={{
-          backgroundColor: theme.COLORS.bgLight,
+          backgroundColor: COLORS.bgCard,
+          borderTopLeftRadius: BORDER_RADIUS.lg,
+          borderTopRightRadius: BORDER_RADIUS.lg,
         }}
-        /*
-         * Important:
-         * Let Gorhom handle the keyboard.
-         */
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
-        bottomInset={Platform.OS === "ios" ? 20 : 16}
+        bottomInset={0}
+        onChange={(index) => {
+          if (index < 0) {
+            setIsOpen(false);
+          }
+        }}
         onDismiss={() => {
           abortControllerRef.current?.abort();
+          setIsOpen(false);
 
           setComments([]);
           setCommentCount(0);
           setInput("");
           setPostId(null);
         }}
->
+      >
         <View style={styles.sheetContent}>
+          {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>
-              Comments
-              {commentCount > 0 && (
-                <Text style={styles.headerCount}> {commentCount}</Text>
-              )}
-            </Text>
+            <View style={styles.pullBar} />
+
+            <View style={styles.headerCenter}>
+              <Text
+                style={[
+                  styles.headerTitle,
+                  isCompact && styles.headerTitleCompact,
+                ]}
+              >
+                Comments
+              </Text>
+              <Text style={styles.headerCount}>
+                {commentCount} {commentCount === 1 ? "comment" : "comments"}
+              </Text>
+            </View>
 
             <TouchableOpacity
+              style={styles.closeButton}
               onPress={close}
-              hitSlop={{
-                top: 8,
-                bottom: 8,
-                left: 8,
-                right: 8,
-              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons
-                name="close"
-                size={24}
-                color={theme.COLORS.textPrimary}
-              />
+              <Ionicons name="close" size={24} color={COLORS.textDark} />
             </TouchableOpacity>
           </View>
 
+          {/* List */}
           <View style={styles.listWrapper}>
             <BottomSheetFlatList
               data={comments}
@@ -427,65 +486,79 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
               showsVerticalScrollIndicator={false}
               keyboardDismissMode="on-drag"
               keyboardShouldPersistTaps="handled"
+              style={styles.listWrapper}
               contentContainerStyle={
                 comments.length === 0
                   ? styles.emptyListContent
-                  : styles.listContent
+                  : [
+                      styles.listContent,
+                      { paddingHorizontal: horizontalPadding, paddingBottom: 80 },
+                    ]
               }
             />
           </View>
+
+          {/*
+           * =========================================================
+           * INPUT BAR — floating inside sheet, lifts above keyboard
+           * =========================================================
+           */}
+          {isOpen && (
+            <Animated.View
+              style={[
+                styles.floatingInputWrapper,
+                { transform: [{ translateY: inputTranslateY }] },
+              ]}
+              pointerEvents="box-none"
+            >
+              <SafeAreaView edges={["bottom"]}>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    { paddingHorizontal: horizontalPadding },
+                  ]}
+                >
+                  <View style={styles.inputRow}>
+                    <View style={styles.userAvatar}>
+                      <Text style={styles.userAvatarText}>E</Text>
+                    </View>
+
+                    <TextInput
+                      style={[styles.input, isCompact && styles.inputCompact]}
+                      placeholder="Add a comment..."
+                      placeholderTextColor={COLORS.textMuted}
+                      value={input}
+                      onChangeText={setInput}
+                      onSubmitEditing={handleSend}
+                      returnKeyType="send"
+                      editable={!sending}
+                      multiline
+                      maxLength={1000}
+                      textAlignVertical="center"
+                      blurOnSubmit={false}
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.postButton,
+                        (!input.trim() || sending) && styles.postButtonDisabled,
+                      ]}
+                      onPress={handleSend}
+                      disabled={!input.trim() || sending}
+                      activeOpacity={0.8}
+                    >
+                      {sending ? (
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                      ) : (
+                        <Ionicons name="send" size={18} color={COLORS.primary} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </SafeAreaView>
+            </Animated.View>
+          )}
         </View>
-
-        {/*
-         * =========================================================
-         * INPUT
-         *
-         * SIBLING of the sheet content, positioned absolute at
-         * the SCREEN BOTTOM. Gorhom's BottomSheetModal renders
-         * children in a relative container, so this input NEVER
-         * moves when the sheet resizes, scrolls, or changes
-         * snap points.
-         * =========================================================
-         */}
-        <SafeAreaView
-          edges={["bottom"]}
-          style={styles.pinnedInput}
-        >
-          <View style={styles.inputContainer}>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                placeholder="Add a comment..."
-                placeholderTextColor={theme.COLORS.textMuted}
-                value={input}
-                onChangeText={setInput}
-                onSubmitEditing={handleSend}
-                returnKeyType="send"
-                editable={!sending}
-                multiline
-                maxLength={1000}
-                textAlignVertical="top"
-                blurOnSubmit={false}
-              />
-
-              <TouchableOpacity
-                style={[
-                  styles.sendBtn,
-                  (!input.trim() || sending) && styles.sendBtnDisabled,
-                ]}
-                onPress={handleSend}
-                disabled={!input.trim() || sending}
-                activeOpacity={0.8}
-              >
-                {sending ? (
-                  <ActivityIndicator size="small" color={theme.COLORS.white} />
-                ) : (
-                  <Ionicons name="send" size={18} color={theme.COLORS.white} />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </SafeAreaView>
       </BottomSheetModal>
     );
   },
@@ -498,147 +571,107 @@ CommentBottomSheet.displayName = "CommentBottomSheet";
 ========================================================= */
 
 const styles = StyleSheet.create({
-  /* =======================================================
-     SHEET CONTENT
-     Plain View (NOT BottomSheetView) — BottomSheetView
-     uses position: absolute internally and would cover the
-     sibling input bar. A plain View keeps the input visible.
-   ======================================================= */
-
+  /* =========================================================
+   * SHEET CONTENT
+   * ========================================================= */
   sheetContent: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
+    backgroundColor: COLORS.bgCard,
     flexDirection: "column",
     minHeight: 0,
   },
 
-  /* =======================================================
-     INPUT — pinned to SCREEN BOTTOM
-     SIBLING of the sheet content. Gorhom's BottomSheetModal
-     positions children in a relative container, so this input
-     NEVER moves when the sheet resizes, scrolls, or changes
-     snap points.
-   ======================================================= */
-
-  pinnedInput: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderTopWidth: 1,
-    borderTopColor: theme.COLORS.borderDivider,
-    /*
-     * On top of the sheet content.
-     */
-    zIndex: 10,
-    /*
-     * Never let the input be squeezed.
-     */
-    flexShrink: 0,
-  },
-
-  /* =======================================================
-     HEADER
-  ======================================================= */
-
+  /* =========================================================
+   * HEADER
+   * ========================================================= */
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-
     paddingHorizontal: theme.SPACING.md,
-
     paddingVertical: theme.SPACING.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.borderDivider,
+    backgroundColor: COLORS.bgWhite,
+  },
 
-    borderBottomWidth: 1,
+  pullBar: {
+    position: "absolute",
+    top: 9,
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.borderGray,
+    opacity: 0.35,
+  },
 
-    borderBottomColor: theme.COLORS.borderDivider,
-
-    backgroundColor: theme.COLORS.bgWhite,
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
   },
 
   headerTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-
+    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.textPrimary,
+  },
 
-    color: theme.COLORS.textPrimary,
+  headerTitleCompact: {
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
   },
 
   headerCount: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
-
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-
-    color: theme.COLORS.textMuted,
+    color: COLORS.textMuted,
   },
 
-  /* =======================================================
-     LIST
-  ======================================================= */
+  closeButton: {
+    padding: 4,
+  },
 
+  /* =========================================================
+   * LIST
+   * ========================================================= */
   listWrapper: {
     flex: 1,
-    /*
-     * Allow the list to shrink below its content height
-     * so the input always has room at the bottom.
-     */
     minHeight: 0,
   },
 
   listContent: {
-    paddingHorizontal: theme.SPACING.sm,
-
     paddingTop: theme.SPACING.sm,
-
-    /*
-     * Enough bottom padding so the last comment isn't hidden
-     * behind the absolutely-positioned input bar.
-     */
     paddingBottom: 90,
   },
 
   emptyListContent: {
     flexGrow: 1,
-
-    paddingHorizontal: theme.SPACING.sm,
-
     justifyContent: "center",
   },
 
-  /* =======================================================
-     COMMENT
-  ======================================================= */
-
+  /* =========================================================
+   * COMMENT ITEM
+   * ========================================================= */
   commentItem: {
     flexDirection: "row",
-
     paddingVertical: theme.SPACING.sm,
-
     gap: theme.SPACING.sm,
   },
 
   avatarContainer: {
     width: 32,
     height: 32,
-
     borderRadius: 16,
-
-    backgroundColor: theme.COLORS.bgInput,
-
+    backgroundColor: COLORS.bgInput,
     alignItems: "center",
     justifyContent: "center",
-
     flexShrink: 0,
   },
 
   avatarText: {
     fontSize: 12,
-
     fontWeight: "700",
-
-    color: theme.COLORS.primary,
+    color: COLORS.primary,
   },
 
   commentBody: {
@@ -648,183 +681,138 @@ const styles = StyleSheet.create({
 
   authorName: {
     fontWeight: "600",
-
-    color: theme.COLORS.textPrimary,
-
+    color: COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
-
-    marginBottom: 2,
   },
 
   youBadge: {
-    color: theme.COLORS.primary,
-
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    color: COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
 
   commentText: {
-    color: theme.COLORS.textPrimary,
-
+    color: COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
-
     lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
   },
 
   commentTime: {
     fontSize: theme.TYPOGRAPHY.fontSize.xs,
-
-    color: theme.COLORS.textMuted,
-
+    color: COLORS.textMuted,
     marginTop: 4,
   },
 
-  /* =======================================================
-     EMPTY / LOADING
-  ======================================================= */
-
+  /* =========================================================
+   * EMPTY / LOADING / ERROR STATES
+   * ========================================================= */
   stateContainer: {
     alignItems: "center",
-
     paddingVertical: theme.SPACING.xxxxl,
   },
 
   stateText: {
-    color: theme.COLORS.textMuted,
-
+    color: COLORS.textMuted,
     marginTop: theme.SPACING.sm,
-
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
   },
 
   stateSubtext: {
-    color: theme.COLORS.textMuted,
-
+    color: COLORS.textMuted,
     marginTop: theme.SPACING.xs,
-
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
   },
 
   retryButton: {
     marginTop: theme.SPACING.md,
-
     paddingHorizontal: theme.SPACING.lg,
-
     paddingVertical: theme.SPACING.sm,
-
-    backgroundColor: theme.COLORS.primaryGhost,
-
+    backgroundColor: COLORS.primaryGhost,
     borderRadius: theme.BORDER_RADIUS.full,
   },
 
   retryButtonText: {
-    color: theme.COLORS.primary,
-
+    color: COLORS.primary,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
   },
 
-  /* =======================================================
-     INPUT
-  ======================================================= */
-
-  inputContainer: {
-    backgroundColor: theme.COLORS.bgWhite,
-
-    borderTopWidth: 1,
-
-    borderTopColor: theme.COLORS.borderDivider,
-
-    paddingHorizontal: theme.SPACING.md,
-
-    paddingTop: theme.SPACING.sm,
-
-    paddingBottom: Platform.OS === "ios" ? theme.SPACING.sm : theme.SPACING.sm,
-
-    /*
-     * CRITICAL: never let the input be squeezed.
-     * It must always stay at the bottom of the sheet.
-     */
-    flexShrink: 0,
-  },
-
-inputSafeArea: {
-    backgroundColor: theme.COLORS.bgWhite,
-
-    borderTopWidth: 1,
-
-    borderTopColor: theme.COLORS.borderDivider,
-
-    /*
-     * CRITICAL: absolute positioning pins the input to the
-     * BOTTOM of the sheet, so it never moves when the sheet
-     * resizes, scrolls, or changes snap points.
-     */
+  /* =========================================================
+   * FLOATING INPUT BAR
+   * ========================================================= */
+  floatingInputWrapper: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-
-    /*
-     * Never let the input be squeezed.
-     */
-    flexShrink: 0,
-
-    /*
-     * SafeAreaView already adds the bottom inset, so keep
-     * this container's own padding minimal.
-     */
-    paddingTop: theme.SPACING.sm,
-    paddingBottom: 0,
+    backgroundColor: COLORS.bgWhite,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.borderDivider,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
   },
 
-  keyboardAvoid: {
-    flex: 1,
+  inputContainer: {
+    paddingVertical: 10,
+    flexShrink: 0,
   },
 
   inputRow: {
     flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 50,
+  },
 
-    alignItems: "flex-end",
+  userAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
 
-    gap: theme.SPACING.sm,
+  userAvatarText: {
+    color: COLORS.textWhite,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
 
   input: {
     flex: 1,
-
-    minHeight: 40,
-
-    maxHeight: 120,
-
-    backgroundColor: theme.COLORS.bgAuthInput,
-
-    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
-
-    paddingHorizontal: theme.SPACING.lg,
-
-    paddingVertical: theme.SPACING.md,
-
+    minWidth: 0,
+    height: 48,
+    maxHeight: 96,
+    backgroundColor: COLORS.bgInput,
+    borderRadius: theme.BORDER_RADIUS.full,
+    paddingHorizontal: 17,
+    paddingVertical: 0,
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
-
-    color: theme.COLORS.textPrimary,
-
-    textAlignVertical: "top",
+    color: COLORS.textPrimary,
+    borderWidth: 1,
+    borderColor: COLORS.primaryGhostBorder,
   },
 
-  sendBtn: {
-    width: 40,
-    height: 40,
+  inputCompact: {
+    paddingHorizontal: 14,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+  },
 
-    borderRadius: 20,
-
-    backgroundColor: theme.COLORS.primary,
-
+  postButton: {
+    minWidth: 39,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
 
-  sendBtnDisabled: {
-    backgroundColor: theme.COLORS.textMuted,
+  postButtonDisabled: {
+    opacity: 0.4,
   },
 });
