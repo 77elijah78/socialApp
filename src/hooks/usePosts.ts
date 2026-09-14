@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { PostResponse, PaginatedResponse, SocialPost } from "@/types";
@@ -42,6 +42,10 @@ function mapPostResponse(post: PostResponse): SocialPost {
   };
 }
 
+// In-flight request deduplication
+const pendingLikeRequests = new Map<string, Promise<void>>();
+const pendingSaveRequests = new Map<string, Promise<void>>();
+
 export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
   const { page: initialPage = 1, limit = 20 } = options;
   const token = useAppSelector((s) => s.auth.token);
@@ -57,9 +61,13 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
   const postsRef = useRef<SocialPost[]>([]);
   const hydratedRef = useRef(false);
 
+  // Keep ref in sync for optimistic updates
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
+
+  // Memoize map function
+  const mapPost = useMemo(() => mapPostResponse, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +104,7 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
         );
 
         if (!cancelled) {
-          const mapped = data.data.map(mapPostResponse);
+          const mapped = data.data.map(mapPost);
           if (page === 1) {
             setPosts(mapped);
             setCached(FEED_CACHE_KEY, mapped, FEED_CACHE_TTL);
@@ -126,7 +134,7 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     return () => {
       cancelled = true;
     };
-  }, [token, page, limit]);
+  }, [token, page, limit, mapPost]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -137,7 +145,7 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
         token ?? undefined,
       );
 
-      const mapped = data.data.map(mapPostResponse);
+      const mapped = data.data.map(mapPost);
       setPosts(mapped);
       setPage(1);
       setHasMore(data.page * data.pageSize < data.total);
@@ -149,7 +157,7 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     } finally {
       setRefreshing(false);
     }
-  }, [token, limit]);
+  }, [token, limit, mapPost]);
 
   const loadMore = useCallback(async () => {
     if (paginating || !hasMore || loading) {
@@ -165,7 +173,7 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
         token ?? undefined,
       );
 
-      const mapped = data.data.map(mapPostResponse);
+      const mapped = data.data.map(mapPost);
       setPosts((prev) => [...prev, ...mapped]);
       setHasMore(data.page * data.pageSize < data.total);
       setPage((prev) => prev + 1);
@@ -174,35 +182,131 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     } finally {
       setPaginating(false);
     }
-  }, [paginating, hasMore, loading, page, limit, token]);
+  }, [paginating, hasMore, loading, page, limit, token, mapPost]);
 
-  const like = useCallback(async (postId: string) => {
-    await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
-    setPosts((prev) => prev.map((p) =>
-      p.id === postId ? { ...p, isLiked: true, likeCount: p.likeCount + 1 } : p
-    ));
-  }, [token]);
+  // Helper to update a single post optimistically using ref
+  const updatePostOptimistic = useCallback(
+    (postId: string, updater: (post: SocialPost) => SocialPost) => {
+      const currentPosts = postsRef.current;
+      const index = currentPosts.findIndex((p) => p.id === postId);
+      if (index !== -1) {
+        const newPosts = [...currentPosts];
+        newPosts[index] = updater(newPosts[index]);
+        postsRef.current = newPosts;
+        setPosts(newPosts);
+      }
+    },
+    [],
+  );
 
-  const unlike = useCallback(async (postId: string) => {
-    await api.delete(`/posts/${postId}/like`, token ?? undefined);
-    setPosts((prev) => prev.map((p) =>
-      p.id === postId ? { ...p, isLiked: false, likeCount: p.likeCount - 1 } : p
-    ));
-  }, [token]);
+  // Deduplicated like
+  const like = useCallback(
+    async (postId: string) => {
+      // Return existing pending request if any
+      const existing = pendingLikeRequests.get(postId);
+      if (existing) return existing;
 
-  const save = useCallback(async (postId: string) => {
-    await api.post(`/posts/${postId}/save`, {}, token ?? undefined);
-    setPosts((prev) => prev.map((p) =>
-      p.id === postId ? { ...p, isBookmarked: true } : p
-    ));
-  }, [token]);
+      const promise = (async () => {
+        try {
+          await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
+          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: true, likeCount: p.likeCount + 1 }));
+        } catch (err) {
+          // Rollback on error
+          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: false, likeCount: p.likeCount - 1 }));
+          throw err;
+        }
+      })();
 
-  const unsave = useCallback(async (postId: string) => {
-    await api.delete(`/posts/${postId}/save`, token ?? undefined);
-    setPosts((prev) => prev.map((p) =>
-      p.id === postId ? { ...p, isBookmarked: false } : p
-    ));
-  }, [token]);
+      pendingLikeRequests.set(postId, promise);
+      try {
+        await promise;
+      } finally {
+        pendingLikeRequests.delete(postId);
+      }
+    },
+    [token, updatePostOptimistic],
+  );
+
+  // Deduplicated unlike
+  const unlike = useCallback(
+    async (postId: string) => {
+      const existing = pendingLikeRequests.get(postId);
+      if (existing) return existing;
+
+      const promise = (async () => {
+        try {
+          await api.delete(`/posts/${postId}/like`, token ?? undefined);
+          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: false, likeCount: p.likeCount - 1 }));
+        } catch (err) {
+          // Rollback on error
+          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: true, likeCount: p.likeCount + 1 }));
+          throw err;
+        }
+      })();
+
+      pendingLikeRequests.set(postId, promise);
+      try {
+        await promise;
+      } finally {
+        pendingLikeRequests.delete(postId);
+      }
+    },
+    [token, updatePostOptimistic],
+  );
+
+  // Deduplicated save
+  const save = useCallback(
+    async (postId: string) => {
+      const existing = pendingSaveRequests.get(postId);
+      if (existing) return existing;
+
+      const promise = (async () => {
+        try {
+          await api.post(`/posts/${postId}/save`, {}, token ?? undefined);
+          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: true }));
+        } catch (err) {
+          // Rollback on error
+          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: false }));
+          throw err;
+        }
+      })();
+
+      pendingSaveRequests.set(postId, promise);
+      try {
+        await promise;
+      } finally {
+        pendingSaveRequests.delete(postId);
+      }
+    },
+    [token, updatePostOptimistic],
+  );
+
+  // Deduplicated unsave
+  const unsave = useCallback(
+    async (postId: string) => {
+      const existing = pendingSaveRequests.get(postId);
+      if (existing) return existing;
+
+      const promise = (async () => {
+        try {
+          await api.delete(`/posts/${postId}/save`, token ?? undefined);
+          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: false }));
+        } catch (err) {
+          // Rollback on error
+          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: true }));
+          throw err;
+        }
+      })();
+
+      pendingSaveRequests.set(postId, promise);
+      try {
+        await promise;
+      } finally {
+        pendingSaveRequests.delete(postId);
+      }
+    },
+    [token, updatePostOptimistic],
+  );
 
   return {
     posts,
