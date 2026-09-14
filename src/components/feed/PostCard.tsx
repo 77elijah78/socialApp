@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,18 @@ import {
   TouchableOpacity,
   Animated,
   ActivityIndicator,
-  Dimensions,
-  findNodeHandle,
+  StyleSheet,
 } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import theme from '@/constants/theme';
 import { SocialPost } from '@/types';
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
 
 export interface SocialPostCardProps {
   post: SocialPost;
@@ -24,13 +30,7 @@ export interface SocialPostCardProps {
   onUserPress?: (username: string) => void;
 }
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
-}
-
-export default function PostCard({
+function PostCard({
   post,
   onLike,
   onComment,
@@ -50,28 +50,27 @@ export default function PostCard({
 
   const menuButtonRef = useRef<any>(null);
 
-  const handleMenuPress = () => {
-    menuButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-      onMenuPress?.(post.id, { x, y, width, height });
-    });
-  };
-
-  const mediaUrls = post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls : (post.imageUrl ? [post.imageUrl] : []);
+  const mediaUrls = useMemo(
+    () => (post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls : (post.imageUrl ? [post.imageUrl] : [])),
+    [post.imageUrls, post.imageUrl],
+  );
   const currentMedia = mediaUrls[mediaIndex] ?? '';
   const hasMultipleMedia = mediaUrls.length > 1;
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLiked(post.isLiked ?? false);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLikeCount(post.likeCount);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBookmarked(post.isBookmarked ?? false);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMediaIndex(0);
   }, [post.id, post.isLiked, post.likeCount, post.isBookmarked]);
 
-  const goToNextMedia = () => {
+  const handleMenuPress = useCallback(() => {
+    menuButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+      onMenuPress?.(post.id, { x, y, width, height });
+    });
+  }, [onMenuPress, post.id]);
+
+  const goToNextMedia = useCallback(() => {
     if (mediaIndex < mediaUrls.length - 1) {
       Animated.sequence([
         Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
@@ -79,9 +78,9 @@ export default function PostCard({
       ]).start();
       setMediaIndex((i) => i + 1);
     }
-  };
+  }, [mediaIndex, mediaUrls.length, fadeAnim]);
 
-  const goToPrevMedia = () => {
+  const goToPrevMedia = useCallback(() => {
     if (mediaIndex > 0) {
       Animated.sequence([
         Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
@@ -89,9 +88,9 @@ export default function PostCard({
       ]).start();
       setMediaIndex((i) => i - 1);
     }
-  };
+  }, [mediaIndex, fadeAnim]);
 
-  const handleLike = () => {
+  const handleLike = useCallback(() => {
     const next = !liked;
     setLiked(next);
     setLikeCount((c) => (next ? c + 1 : c - 1));
@@ -110,13 +109,18 @@ export default function PostCard({
         useNativeDriver: true,
       }),
     ]).start();
-  };
+  }, [liked, onLike, post.id, likeScale]);
 
-  const handleBookmark = () => {
+  const handleBookmark = useCallback(() => {
     const next = !bookmarked;
     setBookmarked(next);
     onBookmark?.(post.id, next);
-  };
+  }, [bookmarked, onBookmark, post.id]);
+
+  const fadeStyle = useMemo(
+    () => ({ opacity: fadeAnim, width: '100%' }),
+    [fadeAnim],
+  ) as ViewStyle;
 
   return (
     <View style={styles.card}>
@@ -179,7 +183,7 @@ export default function PostCard({
       {/* Post Image */}
       {currentMedia ? (
         <TouchableOpacity activeOpacity={0.95} style={styles.imageWrapper}>
-          <Animated.View style={{ opacity: fadeAnim, width: '100%' }}>
+          <Animated.View style={fadeStyle}>
             <Image
               source={{ uri: currentMedia }}
               style={styles.postImage}
@@ -280,7 +284,11 @@ export default function PostCard({
   );
 }
 
-const styles = {
+const MemoizedPostCard = React.memo(PostCard);
+
+export default MemoizedPostCard;
+
+const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.xxxxxxl,
@@ -289,24 +297,24 @@ const styles = {
     marginBottom: theme.SPACING.lg,
     overflow: 'hidden',
     ...theme.SHADOWS.sm,
-  } as const,
+  },
   header: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: theme.SPACING.xl,
     paddingTop: theme.SPACING.xl,
     paddingBottom: theme.SPACING.md,
     gap: theme.SPACING.lg,
-  } as const,
+  },
   avatarWrapper: {
     position: 'relative',
-  } as const,
+  },
   avatar: {
     width: theme.SIZING.avatarLg,
     height: theme.SIZING.avatarLg,
     borderRadius: theme.SIZING.avatarLg / 2,
     backgroundColor: theme.COLORS.bgLight,
-  } as const,
+  },
   verifiedBadge: {
     position: 'absolute',
     bottom: -2,
@@ -314,40 +322,40 @@ const styles = {
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.full,
     padding: 2,
-  } as const,
+  },
   userMeta: {
     flex: 1,
-  } as const,
+  },
   userName: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     color: theme.COLORS.textDark,
     lineHeight: 20,
-  } as const,
+  },
   userHandle: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     color: theme.COLORS.textMuted,
     marginTop: theme.SPACING.xs,
-  } as const,
+  },
   menuBtn: {
     padding: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.full,
-  } as const,
+  },
   body: {
     paddingHorizontal: theme.SPACING.xl,
     paddingBottom: theme.SPACING.lg,
     gap: theme.SPACING.md,
-  } as const,
+  },
   content: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     color: theme.COLORS.textPrimary,
     lineHeight: theme.TYPOGRAPHY.lineHeight.xxl,
-  } as const,
+  },
   tags: {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: theme.SPACING.sm,
-  } as const,
+  },
   tagPill: {
     backgroundColor: theme.COLORS.primaryGhost,
     paddingHorizontal: theme.SPACING.md,
@@ -355,23 +363,23 @@ const styles = {
     borderRadius: theme.BORDER_RADIUS.full,
     borderWidth: theme.BORDER.width.xs,
     borderColor: theme.COLORS.primaryGhostBorder,
-  } as const,
+  },
   tag: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     color: theme.COLORS.tagText,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  } as const,
+  },
   imageWrapper: {
     marginHorizontal: theme.SPACING.xl,
     marginBottom: theme.SPACING.lg,
     borderRadius: theme.BORDER_RADIUS.xxxl,
     overflow: 'hidden',
     backgroundColor: theme.COLORS.bgImageWrapper,
-  } as const,
+  },
   postImage: {
     width: '100%',
     height: theme.SIZING.postImage,
-  } as const,
+  },
   imageLoadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -380,7 +388,7 @@ const styles = {
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-  } as const,
+  },
   mediaNavContainer: {
     position: 'absolute',
     top: 0,
@@ -389,7 +397,7 @@ const styles = {
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-  } as const,
+  },
   mediaNavBtn: {
     position: 'absolute',
     left: 8,
@@ -399,11 +407,11 @@ const styles = {
     backgroundColor: 'rgba(0,0,0,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-  } as const,
+  },
   mediaNavBtnRight: {
     left: undefined,
     right: 8,
-  } as const,
+  },
   mediaCounter: {
     position: 'absolute',
     top: 8,
@@ -412,49 +420,49 @@ const styles = {
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
-  } as const,
+  },
   mediaCounterText: {
     color: theme.COLORS.white,
     fontSize: 11,
     fontWeight: '600',
-  } as const,
+  },
   divider: {
     height: theme.BORDER.width.xs,
     marginHorizontal: theme.SPACING.xl,
     backgroundColor: theme.COLORS.bgDivider,
-  } as const,
+  },
   actions: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: theme.SPACING.xl,
     paddingVertical: theme.SPACING.md,
-  } as const,
+  },
   actionsLeft: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: theme.SPACING.xs,
-  } as const,
+  },
   actionBtn: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: theme.SPACING.sm,
     paddingHorizontal: theme.SPACING.lg,
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.xl,
-  } as const,
+  },
   actionBtnLiked: {
     backgroundColor: theme.COLORS.likedActionBg,
-  } as const,
+  },
   actionBtnBookmarked: {
     backgroundColor: theme.COLORS.bookmarkedActionBg,
-  } as const,
+  },
   actionCount: {
     fontSize: theme.TYPOGRAPHY.fontSize.lg,
     color: theme.COLORS.textDark,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  } as const,
+  },
   actionCountLiked: {
     color: theme.COLORS.secondary,
-  } as const,
-};
+  },
+});
