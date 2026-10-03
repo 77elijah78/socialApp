@@ -314,9 +314,25 @@ export function FeedPostSkeleton({ testID }: { testID?: string }) {
   );
 }
 
-export function StorySkeleton({ size = 64 }: { size?: number }) {
+/* -------------------------------------------------------------------------- */
+/* Stories -> StoriesBar                                                      */
+/* -------------------------------------------------------------------------- */
+
+export function StorySkeleton({
+  size = theme.SIZING.storyItem,
+  variant = "unviewed",
+  labelWidth = 56,
+}: {
+  size?: number;
+  variant?: "unviewed" | "viewed" | "me";
+  labelWidth?: number;
+}) {
+  const ringInset = variant === "me" ? theme.BORDER.width.sm * 2 : theme.BORDER.width.sm * 2 + 4;
+  const ringColor =
+    variant === "unviewed" ? theme.STORY.gradientStart : theme.COLORS.borderGray;
+
   return (
-    <View style={{ alignItems: "center", marginRight: theme.SPACING.md }}>
+    <View style={styles.storyItem}>
       <View
         style={[
           styles.storyRing,
@@ -324,14 +340,48 @@ export function StorySkeleton({ size = 64 }: { size?: number }) {
             width: size,
             height: size,
             borderRadius: size / 2,
-            padding: 3,
+            borderColor: ringColor,
+            borderStyle: variant === "me" ? "dashed" : "solid",
           },
         ]}
       >
-        <SkeletonBox width={size - 6} height={size - 6} borderRadius={(size - 6) / 2} />
+        <SkeletonBox
+          width={size - ringInset}
+          height={size - ringInset}
+          borderRadius={(size - ringInset) / 2}
+        />
+        {variant === "me" ? (
+          <View style={styles.storyPlusBadge}>
+            <SkeletonBox
+              width={10}
+              height={10}
+              borderRadius={theme.BORDER_RADIUS.full}
+              color={SKELETON_ON_PRIMARY_HIGHLIGHT}
+              shimmer={false}
+            />
+          </View>
+        ) : null}
       </View>
-      <SkeletonText width={size} height={12} borderRadius={theme.BORDER_RADIUS.xs} style={{ marginTop: 6 }} />
+      <SkeletonText
+        width={labelWidth}
+        height={12}
+        style={{ marginTop: theme.SPACING.sm }}
+      />
     </View>
+  );
+}
+
+export function StoriesBarSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <SkeletonRoot label="Loading stories" style={styles.storiesBar}>
+      {Array.from({ length: count }).map((_, index) => (
+        <StorySkeleton
+          key={index}
+          variant={index === 0 ? "me" : "unviewed"}
+          labelWidth={index === 0 ? 62 : 54}
+        />
+      ))}
+    </SkeletonRoot>
   );
 }
 
@@ -495,9 +545,31 @@ const styles = StyleSheet.create({
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.xl,
   },
+  storiesBar: {
+    flexDirection: "row",
+    backgroundColor: theme.COLORS.bgWhite,
+    paddingVertical: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.lg,
+    marginBottom: theme.SPACING.sm,
+  },
+  storyItem: {
+    alignItems: "center",
+    width: theme.SIZING.storyItem + 20,
+  },
   storyRing: {
-    borderWidth: 2,
-    borderColor: theme.COLORS.primary,
+    borderWidth: theme.BORDER.width.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgWhite,
+  },
+  storyPlusBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.COLORS.primary,
+    borderRadius: theme.BORDER_RADIUS.full,
+    width: 20,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
   },
