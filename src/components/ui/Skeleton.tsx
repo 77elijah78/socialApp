@@ -1,22 +1,118 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Animated,
   Easing,
   AccessibilityInfo,
+  type LayoutChangeEvent,
+  type DimensionValue,
+  type ViewStyle,
 } from "react-native";
 import theme from "@/constants/theme";
 
-const SKELETON_BASE = theme.COLORS.borderDivider;
+const SKELETON_BASE = theme.COLORS.bgInput;
 const SKELETON_HIGHLIGHT = theme.COLORS.bgWhite;
+const SKELETON_ON_PRIMARY = "rgba(255,255,255,0.32)";
+const SKELETON_ON_PRIMARY_HIGHLIGHT = "rgba(255,255,255,0.5)";
+const SHIMMER_DURATION = 1300;
+const SHIMMER_MIN_WIDTH = 24;
+const SHIMMER_MAX_WIDTH = 110;
+
+/* -------------------------------------------------------------------------- */
+/* Shared shimmer driver                                                      */
+/* One native-driven loop for every box on screen instead of one loop each.    */
+/* -------------------------------------------------------------------------- */
+
+const driver = new Animated.Value(0);
+let driverLoop: Animated.CompositeAnimation | null = null;
+let activeBoxes = 0;
+let reduceMotionEnabled = false;
+let motionSubscription: { remove: () => void } | null = null;
+const reduceMotionListeners = new Set<() => void>();
+
+function notifyReduceMotion() {
+  reduceMotionListeners.forEach((listener) => listener());
+}
+
+function trackReduceMotion() {
+  if (motionSubscription) return;
+  AccessibilityInfo.isReduceMotionEnabled()
+    .then((enabled) => {
+      reduceMotionEnabled = enabled;
+      notifyReduceMotion();
+    })
+    .catch(() => undefined);
+  motionSubscription = AccessibilityInfo.addEventListener(
+    "reduceMotionChanged",
+    (enabled) => {
+      reduceMotionEnabled = enabled;
+      notifyReduceMotion();
+    },
+  );
+}
+
+function startDriver() {
+  if (driverLoop) return;
+  driver.setValue(0);
+  driverLoop = Animated.loop(
+    Animated.timing(driver, {
+      toValue: 1,
+      duration: SHIMMER_DURATION,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }),
+  );
+  driverLoop.start();
+}
+
+function stopDriver() {
+  if (!driverLoop) return;
+  driverLoop.stop();
+  driverLoop = null;
+}
+
+function useShimmer(enabled: boolean) {
+  const [reduced, setReduced] = useState(reduceMotionEnabled);
+
+  useEffect(() => {
+    trackReduceMotion();
+    const listener = () => setReduced(reduceMotionEnabled);
+    reduceMotionListeners.add(listener);
+    return () => {
+      reduceMotionListeners.delete(listener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || reduced) return;
+    activeBoxes += 1;
+    startDriver();
+    return () => {
+      activeBoxes -= 1;
+      if (activeBoxes <= 0) {
+        activeBoxes = 0;
+        stopDriver();
+      }
+    };
+  }, [enabled, reduced]);
+
+  return { value: driver, reduced };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Primitives                                                                 */
+/* -------------------------------------------------------------------------- */
 
 type SkeletonProps = {
-  width?: number | string;
+  width?: DimensionValue;
   height?: number;
   borderRadius?: number;
-  style?: any;
+  /** Overrides the placeholder fill, e.g. for lines drawn on a filled bubble. */
+  color?: string;
+  /** Set false for tiny glyph-sized placeholders where a sweep only adds noise. */
+  shimmer?: boolean;
+  style?: ViewStyle | ViewStyle[];
   testID?: string;
   accessibilityLabel?: string;
 };
@@ -25,56 +121,52 @@ export function SkeletonBox({
   width = "100%",
   height = 16,
   borderRadius = theme.BORDER_RADIUS.md,
+  color = SKELETON_BASE,
+  shimmer = true,
   style,
   testID,
-  accessibilityLabel = "Loading content",
+  accessibilityLabel,
 }: SkeletonProps) {
-  const shimmerAnim = useRef(new Animated.Value(-1)).current;
+  const { value, reduced } = useShimmer(true);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
 
-  const startAnimation = useCallback(async () => {
-    const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled();
-    if (reduceMotion) return;
-    Animated.loop(
-      Animated.timing(shimmerAnim, {
-        toValue: 1,
-        duration: 1200,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: true,
-      }),
-    ).start();
-  }, [shimmerAnim]);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const next = event.nativeEvent.layout.width;
+    setMeasuredWidth((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+  }, []);
 
-  useEffect(() => {
-    startAnimation();
-    return () => {
-      shimmerAnim.stopAnimation();
-      shimmerAnim.setValue(-1);
-    };
-  }, [shimmerAnim, startAnimation]);
+  const shimmerWidth =
+    measuredWidth > 0
+      ? Math.min(Math.max(measuredWidth * 0.5, SHIMMER_MIN_WIDTH), SHIMMER_MAX_WIDTH)
+      : 0;
 
-  const shimmerTranslate = shimmerAnim.interpolate({
-    inputRange: [-1, 1],
-    outputRange: [-200, 400],
+  const translateX = value.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-shimmerWidth - 12, measuredWidth + 12],
   });
+
+  const isLabelled = accessibilityLabel != null;
+  const isOnPrimary = color === SKELETON_ON_PRIMARY;
 
   return (
     <View
       testID={testID}
+      onLayout={handleLayout}
+      accessible={isLabelled}
+      accessibilityRole={isLabelled ? "progressbar" : undefined}
       accessibilityLabel={accessibilityLabel}
-      accessibilityRole="progressbar"
-      style={[
-        styles.base,
-        { width, height, borderRadius },
-        style,
-      ]}
+      style={[styles.base, { width, height, borderRadius, backgroundColor: color }, style]}
     >
-      <Animated.View
-        style={[
-          styles.shimmer,
-          { transform: [{ translateX: shimmerTranslate }] },
-        ]}
-        pointerEvents="none"
-      />
+      {shimmer && shimmerWidth > 0 && !reduced ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.shimmer,
+            isOnPrimary && styles.shimmerOnPrimary,
+            { width: shimmerWidth, transform: [{ translateX }] },
+          ]}
+        />
+      ) : null}
     </View>
   );
 }
@@ -82,19 +174,48 @@ export function SkeletonBox({
 export function SkeletonText({
   width = "80%",
   height = 14,
-  borderRadius = theme.BORDER_RADIUS.sm,
+  borderRadius = theme.BORDER_RADIUS.xs,
+  color,
+  shimmer,
   style,
   testID,
-}: Omit<SkeletonProps, "accessibilityLabel"> & { testID?: string }) {
+  accessibilityLabel,
+}: SkeletonProps) {
   return (
     <SkeletonBox
       width={width}
       height={height}
       borderRadius={borderRadius}
+      color={color}
+      shimmer={shimmer}
       style={style}
       testID={testID}
-      accessibilityLabel="Loading text"
+      accessibilityLabel={accessibilityLabel}
     />
+  );
+}
+
+function SkeletonRoot({
+  label,
+  testID,
+  style,
+  children,
+}: {
+  label: string;
+  testID?: string;
+  style?: ViewStyle;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      testID={testID}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+      style={style}
+    >
+      {children}
+    </View>
   );
 }
 
@@ -226,9 +347,12 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    right: 0,
     backgroundColor: SKELETON_HIGHLIGHT,
-    opacity: 0.5,
+    opacity: 0.65,
+  },
+  shimmerOnPrimary: {
+    backgroundColor: SKELETON_ON_PRIMARY_HIGHLIGHT,
+    opacity: 1,
   },
   postCard: {
     backgroundColor: theme.COLORS.bgWhite,
