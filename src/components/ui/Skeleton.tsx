@@ -5,11 +5,24 @@ import {
   Animated,
   Easing,
   AccessibilityInfo,
+  Dimensions,
   type LayoutChangeEvent,
   type DimensionValue,
   type ViewStyle,
 } from "react-native";
 import theme from "@/constants/theme";
+
+/*
+ * Every skeleton in this file mirrors the exact layout of the real component
+ * it stands in for, so the screen does not visibly reflow when data lands:
+ *   FeedPostSkeleton          -> components/feed/PostCard
+ *   StorySkeleton             -> components/feed/StoriesBar (StoryRing)
+ *   ProfileSkeleton           -> app/user/[username] (profile header)
+ *   ProfileGridSkeleton       -> app/user/[username] (post grid)
+ *   ConversationRowSkeleton   -> components/messages/PrivateMessageCard
+ *   ChatBubbleSkeleton        -> components/chat/MessageBubble
+ *   CommentsSkeleton          -> app/posts/[id]/comments (CommentItem)
+ */
 
 const SKELETON_BASE = theme.COLORS.bgInput;
 const SKELETON_HIGHLIGHT = theme.COLORS.bgWhite;
@@ -18,6 +31,13 @@ const SKELETON_ON_PRIMARY_HIGHLIGHT = "rgba(255,255,255,0.5)";
 const SHIMMER_DURATION = 1300;
 const SHIMMER_MIN_WIDTH = 24;
 const SHIMMER_MAX_WIDTH = 110;
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const GRID_COLUMNS = 3;
+const GRID_GAP = theme.SPACING.sm;
+const GRID_ITEM_SIZE =
+  (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
+  GRID_COLUMNS;
 
 /* -------------------------------------------------------------------------- */
 /* Shared shimmer driver                                                      */
@@ -373,7 +393,10 @@ export function StorySkeleton({
 
 export function StoriesBarSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <SkeletonRoot label="Loading stories" style={styles.storiesBar}>
+    <SkeletonRoot
+      label="Loading stories"
+      style={styles.storiesBar}
+    >
       {Array.from({ length: count }).map((_, index) => (
         <StorySkeleton
           key={index}
@@ -385,77 +408,205 @@ export function StoriesBarSkeleton({ count = 4 }: { count?: number }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Profile -> app/user/[username]                                             */
+/* -------------------------------------------------------------------------- */
+
 export function ProfileSkeleton() {
   return (
-    <View style={styles.profileContainer}>
-      <View style={styles.profileHeader}>
-        <SkeletonBox width={theme.SIZING.avatarXl} height={theme.SIZING.avatarXl} borderRadius={theme.BORDER_RADIUS.full} />
-        <View style={styles.profileStats}>
-          {[1, 2, 3].map((i) => (
-            <View key={i} style={{ alignItems: "center", marginHorizontal: theme.SPACING.md }}>
-              <SkeletonText width={40} height={20} />
-              <SkeletonText width={30} height={12} borderRadius={theme.BORDER_RADIUS.xs} />
-            </View>
-          ))}
+    <SkeletonRoot label="Loading profile" testID="profile-skeleton">
+      {/* Cover */}
+      <SkeletonBox width="100%" height={120} borderRadius={0} />
+
+      {/* Avatar */}
+      <View style={styles.profileAvatarContainer}>
+        <View style={styles.profileAvatarWrapper}>
+          <SkeletonBox
+            width={theme.SIZING.avatarXl - 4}
+            height={theme.SIZING.avatarXl - 4}
+            borderRadius={theme.BORDER_RADIUS.full}
+          />
         </View>
       </View>
-      <SkeletonText width="60%" height={18} style={{ marginTop: theme.SPACING.md }} />
-      <SkeletonText width="40%" height={14} borderRadius={theme.BORDER_RADIUS.xs} />
-      <View style={{ flexDirection: "row", marginTop: theme.SPACING.lg, gap: theme.SPACING.md }}>
-        <SkeletonBox width={120} height={44} borderRadius={theme.BORDER_RADIUS.xl} />
-        <SkeletonBox width={120} height={44} borderRadius={theme.BORDER_RADIUS.xl} />
+
+      {/* Info */}
+      <View style={styles.profileInfoSection}>
+        <SkeletonText width={148} height={20} borderRadius={theme.BORDER_RADIUS.sm} />
+        <SkeletonText
+          width={92}
+          height={12}
+          style={{ marginTop: theme.SPACING.xs }}
+        />
+        <View style={styles.profileBio}>
+          <SkeletonText width="78%" height={12} />
+          <SkeletonText width="54%" height={12} style={{ marginTop: theme.SPACING.xs }} />
+        </View>
+
+        {/* Stats */}
+        <View style={styles.profileStatsRow}>
+          <View style={styles.profileStatItem}>
+            <SkeletonText width={44} height={20} borderRadius={theme.BORDER_RADIUS.sm} />
+            <SkeletonText width={46} height={11} style={{ marginTop: theme.SPACING.xs }} />
+          </View>
+          <View style={styles.profileStatDivider} />
+          <View style={styles.profileStatItem}>
+            <SkeletonText width={54} height={20} borderRadius={theme.BORDER_RADIUS.sm} />
+            <SkeletonText width={54} height={11} style={{ marginTop: theme.SPACING.xs }} />
+          </View>
+          <View style={styles.profileStatDivider} />
+          <View style={styles.profileStatItem}>
+            <SkeletonText width={48} height={20} borderRadius={theme.BORDER_RADIUS.sm} />
+            <SkeletonText width={56} height={11} style={{ marginTop: theme.SPACING.xs }} />
+          </View>
+        </View>
+
+        {/* Actions */}
+        <View style={styles.profileButtonRow}>
+          <SkeletonBox
+            width="100%"
+            height={theme.SIZING.buttonHeight}
+            borderRadius={theme.BORDER_RADIUS.lg}
+            style={styles.profileButton}
+          />
+          <SkeletonBox
+            width="100%"
+            height={theme.SIZING.buttonHeight}
+            borderRadius={theme.BORDER_RADIUS.lg}
+            style={styles.profileButton}
+          />
+        </View>
+
+        {/* Tabs */}
+        <View style={styles.profileTabBar}>
+          <SkeletonBox
+            width={22}
+            height={22}
+            borderRadius={theme.BORDER_RADIUS.sm}
+            shimmer={false}
+          />
+        </View>
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: theme.SPACING.xl, gap: theme.SPACING.sm }}>
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <SkeletonBox key={i} width="30%" height={120} borderRadius={theme.BORDER_RADIUS.lg} />
-        ))}
-      </View>
-    </View>
+    </SkeletonRoot>
   );
 }
+
+export function ProfileGridItemSkeleton() {
+  return (
+    <SkeletonBox
+      width={GRID_ITEM_SIZE}
+      height={GRID_ITEM_SIZE}
+      borderRadius={theme.BORDER_RADIUS.sm}
+    />
+  );
+}
+
+export function ProfileGridSkeleton({ count = 9 }: { count?: number }) {
+  return (
+    <SkeletonRoot label="Loading posts" style={styles.profileGrid}>
+      {Array.from({ length: count }).map((_, index) => (
+        <ProfileGridItemSkeleton key={index} />
+      ))}
+    </SkeletonRoot>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Conversations -> PrivateMessageCard                                        */
+/* -------------------------------------------------------------------------- */
 
 export function ConversationRowSkeleton({ testID }: { testID?: string }) {
   return (
-    <View testID={testID} style={styles.conversationRow}>
-      <SkeletonBox width={theme.SIZING.avatarXl} height={theme.SIZING.avatarXl} borderRadius={theme.BORDER_RADIUS.full} />
-      <View style={{ flex: 1, marginLeft: theme.SPACING.md }}>
-        <SkeletonText width="50%" height={16} />
-        <SkeletonText width="70%" height={14} borderRadius={theme.BORDER_RADIUS.xs} style={{ marginTop: 6 }} />
+    <SkeletonRoot
+      label="Loading conversation"
+      testID={testID}
+      style={styles.conversationRow}
+    >
+      <SkeletonBox
+        width={theme.SIZING.avatarXl}
+        height={theme.SIZING.avatarXl}
+        borderRadius={theme.BORDER_RADIUS.xxxxxxxxxxl}
+      />
+
+      <View style={styles.conversationContent}>
+        <View style={styles.conversationSenderRow}>
+          <SkeletonText width={112} height={16} />
+          <SkeletonText width={34} height={11} />
+        </View>
+        <SkeletonText width="70%" height={14} />
       </View>
-      <SkeletonText width={50} height={12} borderRadius={theme.BORDER_RADIUS.xs} />
+    </SkeletonRoot>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Chat -> MessageBubble                                                      */
+/* -------------------------------------------------------------------------- */
+
+export function ChatBubbleSkeleton({ isOwn = false }: { isOwn?: boolean }) {
+  const lineColor = isOwn ? SKELETON_ON_PRIMARY : undefined;
+
+  return (
+    <View
+      style={isOwn ? styles.chatWrapperSent : styles.chatWrapperReceived}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View
+        style={[
+          styles.chatBubble,
+          { width: isOwn ? "44%" : "64%" },
+          isOwn ? styles.chatBubbleSent : styles.chatBubbleReceived,
+        ]}
+      >
+        <SkeletonText width="100%" height={15} color={lineColor} />
+        <View style={styles.chatMetaRow}>
+          <SkeletonText width={36} height={11} color={lineColor} />
+          {isOwn ? (
+            <SkeletonBox
+              width={12}
+              height={11}
+              borderRadius={theme.BORDER_RADIUS.xs}
+              color={lineColor}
+            />
+          ) : null}
+        </View>
+      </View>
     </View>
   );
 }
 
-export function ChatBubbleSkeleton({ isOwn = false }: { isOwn?: boolean }) {
-  return (
-    <View
-      style={[
-        styles.chatBubble,
-        isOwn ? styles.chatBubbleOwn : styles.chatBubbleOther,
-      ]}
-    >
-      <SkeletonText width={isOwn ? "70%" : "85%"} height={14} />
-      <SkeletonText width={isOwn ? "30%" : "40%"} height={10} borderRadius={theme.BORDER_RADIUS.xs} style={{ marginTop: 6 }} />
-    </View>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/* Comments -> app/posts/[id]/comments (CommentItem)                          */
+/* -------------------------------------------------------------------------- */
 
 export function CommentsSkeleton({ count = 5 }: { count?: number }) {
   return (
-    <View style={styles.commentsContainer}>
-      {Array.from({ length: count }).map((_, i) => (
-        <View key={i} style={styles.commentRow}>
-          <SkeletonBox width={32} height={32} borderRadius={theme.BORDER_RADIUS.full} />
-          <View style={{ flex: 1, marginLeft: theme.SPACING.md }}>
-            <SkeletonText width="35%" height={13} />
-            <SkeletonText width="90%" height={13} borderRadius={theme.BORDER_RADIUS.xs} style={{ marginTop: 4 }} />
+    <SkeletonRoot label="Loading comments" testID="comments-skeleton">
+      {Array.from({ length: count }).map((_, index) => (
+        <View key={index} style={styles.commentRow}>
+          <SkeletonBox width={32} height={32} borderRadius={16} />
+          <View style={styles.commentContent}>
+            <SkeletonText width={74} height={11} />
+            <SkeletonText
+              width="92%"
+              height={13}
+              style={{ marginTop: theme.SPACING.xs }}
+            />
+            <SkeletonText
+              width={36}
+              height={10}
+              style={{ marginTop: theme.SPACING.xs }}
+            />
           </View>
         </View>
       ))}
-    </View>
+    </SkeletonRoot>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Styles — copied from the real components so geometry matches exactly        */
+/* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   base: {
@@ -474,6 +625,8 @@ const styles = StyleSheet.create({
     backgroundColor: SKELETON_ON_PRIMARY_HIGHLIGHT,
     opacity: 1,
   },
+
+  /* PostCard */
   postCard: {
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.xxxxxxl,
@@ -545,6 +698,8 @@ const styles = StyleSheet.create({
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.xl,
   },
+
+  /* StoriesBar */
   storiesBar: {
     flexDirection: "row",
     backgroundColor: theme.COLORS.bgWhite,
@@ -573,51 +728,139 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  profileContainer: {
-    flex: 1,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
+
+  /* User profile header */
+  profileAvatarContainer: {
+    marginTop: -theme.SIZING.avatarXl / 2,
+    alignSelf: "center",
   },
-  profileHeader: {
+  profileAvatarWrapper: {
+    width: theme.SIZING.avatarXl,
+    height: theme.SIZING.avatarXl,
+    borderRadius: theme.BORDER_RADIUS.full,
+    borderWidth: 4,
+    backgroundColor: theme.COLORS.bgWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  profileInfoSection: {
+    alignItems: "center",
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingTop: theme.SPACING.lg,
+  },
+  profileBio: {
+    alignItems: "center",
+    marginTop: theme.SPACING.sm,
+  },
+  profileStatsRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: theme.SPACING.lg,
+    justifyContent: "center",
+    marginTop: theme.SPACING.lg,
+    width: "100%",
   },
-  profileStats: {
-    flexDirection: "row",
+  profileStatItem: {
     flex: 1,
-    justifyContent: "space-around",
+    alignItems: "center",
   },
+  profileStatDivider: {
+    width: theme.BORDER.width.xs,
+    height: 32,
+    backgroundColor: theme.COLORS.borderDivider,
+    marginHorizontal: theme.SPACING.lg,
+  },
+  profileButtonRow: {
+    flexDirection: "row",
+    gap: theme.SPACING.md,
+    width: "100%",
+    marginTop: theme.SPACING.md,
+  },
+  profileButton: {
+    flex: 1,
+  },
+  profileTabBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: theme.SPACING.md,
+    borderBottomWidth: theme.BORDER.width.xs,
+    borderBottomColor: theme.COLORS.borderDivider,
+  },
+  profileGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: GRID_GAP,
+    marginTop: theme.SPACING.md,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+  },
+
+  /* PrivateMessageCard */
   conversationRow: {
     flexDirection: "row",
+    backgroundColor: theme.COLORS.white,
     alignItems: "center",
-    paddingVertical: theme.SPACING.md,
+    paddingVertical: 10,
     paddingHorizontal: theme.LAYOUT.contentPadding,
-    backgroundColor: theme.COLORS.bgWhite,
+    height: theme.SIZING.privateMessageCard,
     borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    marginBottom: theme.SPACING.sm,
+  },
+  conversationContent: {
+    flex: 1,
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+  conversationSenderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 4,
+  },
+
+  /* MessageBubble */
+  chatWrapperSent: {
+    marginVertical: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    alignItems: "flex-end",
+  },
+  chatWrapperReceived: {
+    marginVertical: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    alignItems: "flex-start",
   },
   chatBubble: {
-    maxWidth: "75%",
-    padding: theme.SPACING.md,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
-    marginBottom: theme.SPACING.md,
+    maxWidth: "78%",
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xl,
   },
-  chatBubbleOwn: {
-    alignSelf: "flex-end",
+  chatBubbleSent: {
     backgroundColor: theme.COLORS.primary,
-    borderBottomRightRadius: theme.BORDER_RADIUS.sm,
+    borderBottomRightRadius: theme.SPACING.xs,
+    ...theme.SHADOWS.primary,
   },
-  chatBubbleOther: {
-    alignSelf: "flex-start",
+  chatBubbleReceived: {
     backgroundColor: theme.COLORS.bgWhite,
-    borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
+    borderBottomLeftRadius: theme.SPACING.xs,
+    ...theme.SHADOWS.sm,
   },
-  commentsContainer: {
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    gap: theme.SPACING.md,
+  chatMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    marginTop: theme.SPACING.xs,
+    gap: theme.SPACING.xs,
   },
+
+  /* CommentItem */
   commentRow: {
     flexDirection: "row",
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
     alignItems: "flex-start",
+  },
+  commentContent: {
+    flex: 1,
+    marginLeft: theme.SPACING.sm,
   },
 });
