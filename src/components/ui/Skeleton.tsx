@@ -219,28 +219,98 @@ function SkeletonRoot({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Feed post -> PostCard                                                      */
+/* -------------------------------------------------------------------------- */
+
+function PostActionSkeleton({
+  iconSize,
+  countWidth,
+}: {
+  iconSize: number;
+  countWidth: number;
+}) {
+  return (
+    <View style={styles.postActionBtn}>
+      <SkeletonBox
+        width={iconSize}
+        height={iconSize}
+        borderRadius={theme.BORDER_RADIUS.sm}
+        shimmer={false}
+      />
+      <SkeletonBox width={countWidth} height={14} borderRadius={theme.BORDER_RADIUS.xs} />
+    </View>
+  );
+}
+
 export function FeedPostSkeleton({ testID }: { testID?: string }) {
   return (
-    <View testID={testID} style={styles.postCard}>
+    <SkeletonRoot label="Loading post" testID={testID} style={styles.postCard}>
+      {/* Header */}
       <View style={styles.postHeader}>
-        <SkeletonBox width={theme.SIZING.avatarLg} height={theme.SIZING.avatarLg} borderRadius={theme.BORDER_RADIUS.full} />
-        <View style={styles.postHeaderText}>
-          <SkeletonText width="40%" height={14} />
-          <SkeletonText width="25%" height={12} borderRadius={theme.BORDER_RADIUS.xs} />
+        <View style={styles.postAvatarWrapper}>
+          <SkeletonBox
+            width={theme.SIZING.avatarLg}
+            height={theme.SIZING.avatarLg}
+            borderRadius={theme.SIZING.avatarLg / 2}
+          />
+          <View style={styles.postVerifiedBadge}>
+            <SkeletonBox
+              width={10}
+              height={10}
+              borderRadius={theme.BORDER_RADIUS.full}
+              shimmer={false}
+            />
+          </View>
         </View>
+
+        <View style={styles.postUserMeta}>
+          <SkeletonText width={120} height={14} />
+          <SkeletonText width={92} height={11} style={{ marginTop: theme.SPACING.xs }} />
+        </View>
+
+        <SkeletonBox
+          width={20}
+          height={20}
+          borderRadius={theme.BORDER_RADIUS.full}
+          shimmer={false}
+        />
       </View>
+
+      {/* Body */}
       <View style={styles.postBody}>
         <SkeletonText width="100%" height={14} />
-        <SkeletonText width="90%" height={14} />
-        <SkeletonText width="60%" height={14} />
+        <SkeletonText width="92%" height={14} />
+        <SkeletonText width="54%" height={14} />
+        <View style={styles.postTags}>
+          <SkeletonBox width={62} height={16} borderRadius={theme.BORDER_RADIUS.full} />
+          <SkeletonBox width={48} height={16} borderRadius={theme.BORDER_RADIUS.full} />
+        </View>
       </View>
-      <SkeletonBox width="100%" height={theme.SIZING.postImage} borderRadius={theme.BORDER_RADIUS.xxxl} />
+
+      {/* Image */}
+      <View style={styles.postImageWrapper}>
+        <SkeletonBox width="100%" height={theme.SIZING.postImage} borderRadius={0} />
+      </View>
+
+      {/* Divider */}
+      <View style={styles.postDivider} />
+
+      {/* Actions */}
       <View style={styles.postActions}>
-        <SkeletonBox width={60} height={20} borderRadius={theme.BORDER_RADIUS.full} />
-        <SkeletonBox width={60} height={20} borderRadius={theme.BORDER_RADIUS.full} />
-        <SkeletonBox width={60} height={20} borderRadius={theme.BORDER_RADIUS.full} />
+        <View style={styles.postActionsLeft}>
+          <PostActionSkeleton iconSize={22} countWidth={26} />
+          <PostActionSkeleton iconSize={20} countWidth={20} />
+          <PostActionSkeleton iconSize={20} countWidth={20} />
+        </View>
+        <SkeletonBox
+          width={20}
+          height={20}
+          borderRadius={theme.BORDER_RADIUS.xs}
+          shimmer={false}
+        />
       </View>
-    </View>
+    </SkeletonRoot>
   );
 }
 
@@ -357,28 +427,73 @@ const styles = StyleSheet.create({
   postCard: {
     backgroundColor: theme.COLORS.bgWhite,
     borderRadius: theme.BORDER_RADIUS.xxxxxxl,
-    padding: theme.SPACING.xl,
+    borderWidth: theme.BORDER.width.xs,
+    borderColor: theme.COLORS.cardBorder,
     marginBottom: theme.SPACING.lg,
+    overflow: "hidden",
     ...theme.SHADOWS.sm,
   },
   postHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingTop: theme.SPACING.xl,
+    paddingBottom: theme.SPACING.md,
+    gap: theme.SPACING.lg,
   },
-  postHeaderText: {
-    marginLeft: theme.SPACING.md,
+  postAvatarWrapper: {
+    position: "relative",
+  },
+  postVerifiedBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderRadius: theme.BORDER_RADIUS.full,
+    padding: 2,
+  },
+  postUserMeta: {
     flex: 1,
-    gap: theme.SPACING.xs,
   },
   postBody: {
+    paddingHorizontal: theme.SPACING.xl,
+    paddingBottom: theme.SPACING.lg,
+    gap: theme.SPACING.md,
+  },
+  postTags: {
+    flexDirection: "row",
     gap: theme.SPACING.sm,
+  },
+  postImageWrapper: {
+    marginHorizontal: theme.SPACING.xl,
     marginBottom: theme.SPACING.lg,
+    borderRadius: theme.BORDER_RADIUS.xxxl,
+    overflow: "hidden",
+  },
+  postDivider: {
+    height: theme.BORDER.width.xs,
+    marginHorizontal: theme.SPACING.xl,
+    backgroundColor: theme.COLORS.borderDivider,
   },
   postActions: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: theme.SPACING.xl,
+    paddingVertical: theme.SPACING.md,
+  },
+  postActionsLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+  },
+  postActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
     paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.xl,
   },
   storyRing: {
     borderWidth: 2,
