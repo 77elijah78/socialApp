@@ -312,7 +312,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           borderTopLeftRadius: BORDER_RADIUS.lg,
           borderTopRightRadius: BORDER_RADIUS.lg,
         }}
-        keyboardBehavior="extend"
+        keyboardBehavior="fillParent"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
         bottomInset={0}
