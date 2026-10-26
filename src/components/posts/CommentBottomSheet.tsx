@@ -9,16 +9,13 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
   BottomSheetFlatList,
-  BottomSheetFooter,
   BottomSheetModal,
   BottomSheetTextInput,
-  BottomSheetView,
-  type BottomSheetFooterProps,
 } from "@gorhom/bottom-sheet";
 
 import { api } from "@/services/api";
@@ -106,7 +103,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     const { width: screenWidth } = useWindowDimensions();
     const isCompact = screenWidth < 375;
     const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
-    const insets = useSafeAreaInsets();
 
     const [postId, setPostId] = useState<string | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
@@ -132,8 +128,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     const bottomSheetRef = useRef<BottomSheetModal>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    // The sheet starts at a comfortable reading height and can expand nearly
-    // full-screen. The composer is a fixed footer, so only the list grows.
+    // Start at a comfortable reading height and allow the sheet to expand
+    // nearly full-screen. The composer stays outside the scrollable list.
     const snapPoints = useMemo(() => ["66%", "92%"], []);
 
     const fetchComments = useCallback(
@@ -293,91 +289,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       );
     }, [loading, fetchError, postId, fetchComments]);
 
-    const renderFooter = useCallback(
-      (footerProps: BottomSheetFooterProps) => (
-        <BottomSheetFooter
-          {...footerProps}
-          bottomInset={insets.bottom}
-          style={styles.footer}
-        >
-          <View
-            style={[
-              styles.inputContainer,
-              { paddingHorizontal: horizontalPadding },
-            ]}
-          >
-            <View style={styles.inputRow}>
-              <View style={styles.userAvatar}>
-                {currentUserAvatarUrl ? (
-                  <Image
-                    source={{ uri: currentUserAvatarUrl }}
-                    style={styles.userAvatarImage}
-                  />
-                ) : (
-                  <Text style={styles.userAvatarText}>{currentUserInitial}</Text>
-                )}
-              </View>
-
-              <BottomSheetTextInput
-                style={[
-                  styles.input,
-                  isCompact && styles.inputCompact,
-                  { height: inputHeight },
-                ]}
-                placeholder="Add a comment..."
-                placeholderTextColor={COLORS.textMuted}
-                value={input}
-                onChangeText={setInput}
-                onContentSizeChange={(event) => {
-                  const nextHeight = Math.min(
-                    88,
-                    Math.max(44, event.nativeEvent.contentSize.height),
-                  );
-                  setInputHeight(nextHeight);
-                }}
-                onSubmitEditing={() => void handleSend()}
-                returnKeyType="send"
-                editable={!sending}
-                multiline
-                maxLength={1000}
-                textAlignVertical="center"
-                blurOnSubmit={false}
-              />
-
-              <TouchableOpacity
-                style={[
-                  styles.postButton,
-                  (!input.trim() || sending) && styles.postButtonDisabled,
-                ]}
-                onPress={() => void handleSend()}
-                disabled={!input.trim() || sending}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Post comment"
-              >
-                {sending ? (
-                  <ActivityIndicator size="small" color={COLORS.primary} />
-                ) : (
-                  <Ionicons name="send" size={18} color={COLORS.primary} />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </BottomSheetFooter>
-      ),
-      [
-        insets.bottom,
-        horizontalPadding,
-        currentUserAvatarUrl,
-        currentUserInitial,
-        input,
-        inputHeight,
-        isCompact,
-        sending,
-        handleSend,
-      ],
-    );
-
     return (
       <BottomSheetModal
         ref={bottomSheetRef}
@@ -387,7 +298,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         enablePanDownToClose
         enableOverDrag={false}
         backdropComponent={renderBackdrop}
-        footerComponent={renderFooter}
         handleIndicatorStyle={{
           backgroundColor: COLORS.borderGray,
           width: 36,
@@ -417,7 +327,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           setPostId(null);
         }}
       >
-        <BottomSheetView style={styles.sheetContent}>
+        <View style={styles.sheetContent}>
           <View style={styles.header}>
             <View style={styles.headerCenter}>
               <Text
@@ -453,7 +363,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
-            enableFooterMarginAdjustment
             style={styles.listWrapper}
             contentContainerStyle={
               comments.length === 0
@@ -464,7 +373,75 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
                 : [styles.listContent, { paddingHorizontal: horizontalPadding }]
             }
           />
-        </BottomSheetView>
+
+          <SafeAreaView edges={["bottom"]} style={styles.footer}>
+            <View
+              style={[
+                styles.inputContainer,
+                { paddingHorizontal: horizontalPadding },
+              ]}
+            >
+              <View style={styles.inputRow}>
+                <View style={styles.userAvatar}>
+                  {currentUserAvatarUrl ? (
+                    <Image
+                      source={{ uri: currentUserAvatarUrl }}
+                      style={styles.userAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.userAvatarText}>
+                      {currentUserInitial}
+                    </Text>
+                  )}
+                </View>
+
+                <BottomSheetTextInput
+                  style={[
+                    styles.input,
+                    isCompact && styles.inputCompact,
+                    { height: inputHeight },
+                  ]}
+                  placeholder="Add a comment..."
+                  placeholderTextColor={COLORS.textMuted}
+                  value={input}
+                  onChangeText={setInput}
+                  onContentSizeChange={(event) => {
+                    const nextHeight = Math.min(
+                      88,
+                      Math.max(44, event.nativeEvent.contentSize.height),
+                    );
+                    setInputHeight(nextHeight);
+                  }}
+                  onSubmitEditing={() => void handleSend()}
+                  returnKeyType="send"
+                  editable={!sending}
+                  multiline
+                  maxLength={1000}
+                  textAlignVertical="center"
+                  blurOnSubmit={false}
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.postButton,
+                    (!input.trim() || sending) && styles.postButtonDisabled,
+                  ]}
+                  onPress={() => void handleSend()}
+                  disabled={!input.trim() || sending}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Post comment"
+                >
+                  {sending ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Ionicons name="send" size={18} color={COLORS.primary} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </SafeAreaView>
+        </View>
       </BottomSheetModal>
     );
   },
