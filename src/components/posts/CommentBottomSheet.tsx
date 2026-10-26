@@ -225,11 +225,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         const resp = await api.post<{
           success: boolean;
           data: Comment;
-        }>(
-          `/posts/${postId}/comments`,
-          { content: trimmed },
-          token,
-        );
+        }>(`/posts/${postId}/comments`, { content: trimmed }, token);
 
         setComments((previous) => [...previous, resp.data]);
         setCommentCount((previous) => previous + 1);
@@ -272,11 +268,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       bottomSheetRef.current?.dismiss();
     }, []);
 
-    React.useImperativeHandle(
-      ref,
-      () => ({ open, close }),
-      [open, close],
-    );
+    React.useImperativeHandle(ref, () => ({ open, close }), [open, close]);
 
     const renderBackdrop = useCallback(
       (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -420,7 +412,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             style={styles.listWrapper}
             contentContainerStyle={
               comments.length === 0
-                ? [styles.emptyListContent, { paddingHorizontal: horizontalPadding }]
+                ? [
+                    styles.emptyListContent,
+                    { paddingHorizontal: horizontalPadding },
+                  ]
                 : [styles.listContent, { paddingHorizontal: horizontalPadding }]
             }
           />
