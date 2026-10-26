@@ -20,7 +20,7 @@ import theme from "@/constants/theme";
 
 import { usePosts } from "@/hooks/usePosts";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
-import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
+import { FeedPostSkeleton, StoriesBarSkeleton, OfflineBanner } from "@/components/ui";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 export default function FeedScreen() {
@@ -307,7 +307,7 @@ export default function FeedScreen() {
         /*
          * Stories appear above feed posts
          */
-        ListHeaderComponent={showSkeletons ? null : <StoriesBar />}
+        ListHeaderComponent={showSkeletons ? <StoriesBarSkeleton count={4} /> : <StoriesBar />}
         /*
          * Empty feed
          */

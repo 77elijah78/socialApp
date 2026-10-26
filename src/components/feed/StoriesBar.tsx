@@ -24,6 +24,7 @@ import {
 } from "@/hooks/useImagePicker";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import { StoriesBarSkeleton } from "@/components/ui/Skeleton";
 import { Alert } from "react-native";
 
 const STORY_SIZE = theme.SIZING.storyItem;
@@ -227,16 +228,7 @@ export default function StoriesBar() {
   const displayItems = [meItem, ...groupedStories.filter((s) => s.userId !== currentUserId)];
 
   if (loading) {
-    return (
-      <View
-        style={[
-          styles.container,
-          { paddingVertical: theme.SPACING.lg, paddingHorizontal: theme.SPACING.lg },
-        ]}
-      >
-        <ActivityIndicator size="small" color={theme.COLORS.primary} />
-      </View>
-    );
+    return <StoriesBarSkeleton count={4} />;
   }
 
   return (

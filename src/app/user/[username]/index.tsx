@@ -16,7 +16,7 @@ import { api } from '@/services/api';
 import { useAppSelector } from '@/store/hooks';
 import theme from '@/constants/theme';
 import { PostResponse, SocialPost, Conversation } from '@/types';
-import { ProfileSkeleton, OfflineBanner } from '@/components/ui';
+import { ProfileGridItemSkeleton, ProfileSkeleton, OfflineBanner } from '@/components/ui';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { getCached, setCached } from '@/utils/queryCache';
 
@@ -26,6 +26,7 @@ const GRID_COLUMNS = 3;
 const GRID_ITEM_SIZE =
   (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
   GRID_COLUMNS;
+const GRID_SKELETON_DATA = Array.from({ length: 9 }, (_, index) => `grid-skeleton-${index}`);
 
 interface SearchedUserProfile {
   id: string;
@@ -203,6 +204,11 @@ export default function UserProfileScreen() {
 
   const isOwnProfile = profile?.id === currentUserId;
 
+  const showGridSkeletons = loadingPosts && posts.length === 0;
+  const listData: SocialPost[] = showGridSkeletons
+    ? (GRID_SKELETON_DATA as unknown as SocialPost[])
+    : posts;
+
   const renderHeader = () => {
     if (loading) {
       return <ProfileSkeleton />;
@@ -371,21 +377,21 @@ export default function UserProfileScreen() {
 
       <FlatList
         style={styles.list}
-        data={posts}
-        keyExtractor={(item) => item.id}
+        data={listData}
+        keyExtractor={(item, index) =>
+          showGridSkeletons
+            ? `grid-skeleton-${index}`
+            : String((item as SocialPost).id)
+        }
         numColumns={GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={!loadingPosts ? renderEmpty : null}
-        renderItem={renderGridItem}
+        renderItem={showGridSkeletons
+          ? () => <ProfileGridItemSkeleton />
+          : renderGridItem}
         contentContainerStyle={styles.listContent}
       />
-
-      {loadingPosts && posts.length === 0 && (
-        <View style={styles.postsLoading}>
-          <ProfileSkeleton />
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -620,10 +626,6 @@ const styles = StyleSheet.create({
     marginTop: theme.SPACING.xs,
     textAlign: 'center',
     lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
-  },
-  postsLoading: {
-    paddingVertical: theme.SPACING.md,
-    alignItems: 'center',
   },
   errorContainer: {
     flex: 1,
