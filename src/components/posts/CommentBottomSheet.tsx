@@ -8,21 +8,21 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Keyboard,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardState } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
   BottomSheetFlatList,
-  BottomSheetFooter,
   BottomSheetModal,
   BottomSheetTextInput,
   type BottomSheetFooterProps,
@@ -111,7 +111,6 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
 // The footer is rendered by the bottom-sheet portal, outside this component's
 // React subtree, so it reads its data through this small external-store bridge.
 type CommentFooterBridge = {
-  bottomInset: number;
   avatarUrl?: string;
   initial: string;
   resetKey: number;
@@ -119,9 +118,9 @@ type CommentFooterBridge = {
 };
 
 const noCommentSubmit = async (_content: string) => false;
+const commentSheetKeyboardHeight = new Animated.Value(0);
 
 let commentFooterBridge: CommentFooterBridge = {
-  bottomInset: 0,
   avatarUrl: undefined,
   initial: "Y",
   resetKey: 0,
@@ -144,25 +143,31 @@ function updateCommentFooterBridge(next: CommentFooterBridge) {
   commentFooterListeners.forEach((listener) => listener());
 }
 
-function CommentSheetFooter({
-  animatedFooterPosition,
-}: BottomSheetFooterProps) {
+const CommentSheetFooter: React.FC<BottomSheetFooterProps> = () => {
   const bridge = useSyncExternalStore(
     subscribeToCommentFooter,
     getCommentFooterBridge,
     getCommentFooterBridge,
   );
+  const inputTranslateY = commentSheetKeyboardHeight.interpolate({
+    inputRange: [0, 400],
+    outputRange: [0, -420],
+    extrapolate: "clamp",
+  });
 
   return (
-    <BottomSheetFooter
-      animatedFooterPosition={animatedFooterPosition}
-      bottomInset={bridge.bottomInset}
-      style={styles.footer}
+    <Animated.View
+      style={[
+        styles.footer,
+        {
+          transform: [{ translateY: inputTranslateY }],
+        },
+      ]}
     >
       <CommentComposer key={bridge.resetKey} bridge={bridge} />
-    </BottomSheetFooter>
+    </Animated.View>
   );
-}
+};
 
 function CommentComposer({ bridge }: { bridge: CommentFooterBridge }) {
   const [input, setInput] = useState("");
@@ -260,7 +265,6 @@ function CommentComposer({ bridge }: { bridge: CommentFooterBridge }) {
 export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
   (_, ref) => {
     const { width: screenWidth } = useWindowDimensions();
-    const insets = useSafeAreaInsets();
     const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
     const isCompact = screenWidth < 375;
     const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
@@ -287,6 +291,34 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const bottomSheetRef = useRef<BottomSheetModal>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    React.useEffect(() => {
+      const showEvent =
+        Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+      const hideEvent =
+        Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+      const showSubscription = Keyboard.addListener(showEvent, (event) => {
+        Animated.timing(commentSheetKeyboardHeight, {
+          toValue: event.endCoordinates.height,
+          duration: event.duration ?? 250,
+          useNativeDriver: true,
+        }).start();
+      });
+
+      const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+        Animated.timing(commentSheetKeyboardHeight, {
+          toValue: 0,
+          duration: event.duration ?? 250,
+          useNativeDriver: true,
+        }).start();
+      });
+
+      return () => {
+        showSubscription.remove();
+        hideSubscription.remove();
+      };
+    }, []);
 
     // Keep the sheet at its current detent while typing; the footer moves above
     // the keyboard without expanding the sheet to a larger snap point.
@@ -364,7 +396,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     useLayoutEffect(() => {
       updateCommentFooterBridge({
-        bottomInset: insets.bottom,
         avatarUrl: currentUserAvatarUrl ?? undefined,
         initial: currentUserInitial,
         resetKey: composerResetKey,
@@ -374,7 +405,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       composerResetKey,
       currentUserAvatarUrl,
       currentUserInitial,
-      insets.bottom,
       submitComment,
     ]);
 
@@ -550,15 +580,23 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
-            enableFooterMarginAdjustment
             style={styles.listWrapper}
             contentContainerStyle={
               comments.length === 0
                 ? [
                     styles.emptyListContent,
-                    { paddingHorizontal: horizontalPadding },
+                    {
+                      paddingHorizontal: horizontalPadding,
+                      paddingBottom: 118,
+                    },
                   ]
-                : [styles.listContent, { paddingHorizontal: horizontalPadding }]
+                : [
+                    styles.listContent,
+                    {
+                      paddingHorizontal: horizontalPadding,
+                      paddingBottom: 118,
+                    },
+                  ]
             }
           />
         </View>
@@ -718,6 +756,10 @@ const styles = StyleSheet.create({
   },
 
   footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 8,
     backgroundColor: COLORS.bgWhite,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.borderDivider,
