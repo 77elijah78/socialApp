@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -25,7 +18,6 @@ import {
   BottomSheetFlatList,
   BottomSheetModal,
   BottomSheetTextInput,
-  type BottomSheetFooterProps,
 } from "@gorhom/bottom-sheet";
 
 import { api } from "@/services/api";
@@ -108,160 +100,6 @@ function CommentItem({ comment, isOwn }: CommentItemProps) {
   );
 }
 
-// The footer is rendered by the bottom-sheet portal, outside this component's
-// React subtree, so it reads its data through this small external-store bridge.
-type CommentFooterBridge = {
-  avatarUrl?: string;
-  initial: string;
-  resetKey: number;
-  onSubmit: (content: string) => Promise<boolean>;
-};
-
-const noCommentSubmit = async (_content: string) => false;
-const commentSheetKeyboardHeight = new Animated.Value(0);
-
-let commentFooterBridge: CommentFooterBridge = {
-  avatarUrl: undefined,
-  initial: "Y",
-  resetKey: 0,
-  onSubmit: noCommentSubmit,
-};
-
-const commentFooterListeners = new Set<() => void>();
-
-function subscribeToCommentFooter(listener: () => void) {
-  commentFooterListeners.add(listener);
-  return () => commentFooterListeners.delete(listener);
-}
-
-function getCommentFooterBridge() {
-  return commentFooterBridge;
-}
-
-function updateCommentFooterBridge(next: CommentFooterBridge) {
-  commentFooterBridge = next;
-  commentFooterListeners.forEach((listener) => listener());
-}
-
-const CommentSheetFooter: React.FC<BottomSheetFooterProps> = () => {
-  const bridge = useSyncExternalStore(
-    subscribeToCommentFooter,
-    getCommentFooterBridge,
-    getCommentFooterBridge,
-  );
-  const inputTranslateY = commentSheetKeyboardHeight.interpolate({
-    inputRange: [0, 400],
-    outputRange: [0, -420],
-    extrapolate: "clamp",
-  });
-
-  return (
-    <Animated.View
-      style={[
-        styles.footer,
-        {
-          transform: [{ translateY: inputTranslateY }],
-        },
-      ]}
-    >
-      <CommentComposer key={bridge.resetKey} bridge={bridge} />
-    </Animated.View>
-  );
-};
-
-function CommentComposer({ bridge }: { bridge: CommentFooterBridge }) {
-  const [input, setInput] = useState("");
-  const [inputHeight, setInputHeight] = useState(44);
-  const [sending, setSending] = useState(false);
-  const { width: screenWidth } = useWindowDimensions();
-  const isCompact = screenWidth < 375;
-  const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
-  const { onSubmit } = bridge;
-
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
-    if (!trimmed || sending) return;
-
-    setSending(true);
-    try {
-      if (await onSubmit(trimmed)) {
-        setInput("");
-        setInputHeight(44);
-      }
-    } catch (error) {
-      console.error("Failed to send comment:", error);
-    } finally {
-      setSending(false);
-    }
-  }, [input, onSubmit, sending]);
-
-  return (
-    <View
-      style={[
-        styles.inputContainer,
-        { paddingHorizontal: horizontalPadding },
-      ]}
-    >
-      <View style={styles.inputRow}>
-        <View style={styles.userAvatar}>
-          {bridge.avatarUrl ? (
-            <Image
-              source={{ uri: bridge.avatarUrl }}
-              style={styles.userAvatarImage}
-            />
-          ) : (
-            <Text style={styles.userAvatarText}>{bridge.initial}</Text>
-          )}
-        </View>
-
-        <BottomSheetTextInput
-          style={[
-            styles.input,
-            isCompact && styles.inputCompact,
-            { height: inputHeight },
-          ]}
-          placeholder="Add a comment..."
-          placeholderTextColor={COLORS.textMuted}
-          value={input}
-          onChangeText={setInput}
-          onContentSizeChange={(event) => {
-            const nextHeight = Math.min(
-              88,
-              Math.max(44, event.nativeEvent.contentSize.height),
-            );
-            setInputHeight(nextHeight);
-          }}
-          onSubmitEditing={() => void handleSend()}
-          returnKeyType="send"
-          editable={!sending}
-          multiline
-          maxLength={1000}
-          textAlignVertical="center"
-          blurOnSubmit={false}
-        />
-
-        <TouchableOpacity
-          style={[
-            styles.postButton,
-            (!input.trim() || sending) && styles.postButtonDisabled,
-          ]}
-          onPress={() => void handleSend()}
-          disabled={!input.trim() || sending}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Post comment"
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color={COLORS.primary} />
-          ) : (
-            <Ionicons name="send" size={18} color={COLORS.primary} />
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
 export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
   (_, ref) => {
     const { width: screenWidth } = useWindowDimensions();
@@ -272,9 +110,11 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     const [postId, setPostId] = useState<string | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(false);
+    const [input, setInput] = useState("");
+    const [inputHeight, setInputHeight] = useState(44);
+    const [sending, setSending] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [commentCount, setCommentCount] = useState(0);
-    const [composerResetKey, setComposerResetKey] = useState(0);
     const [currentSnapIndex, setCurrentSnapIndex] = useState(0);
 
     const token = useAppSelector((s) => s.auth.token);
@@ -291,6 +131,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const bottomSheetRef = useRef<BottomSheetModal>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const [keyboardHeight] = useState(() => new Animated.Value(0));
 
     React.useEffect(() => {
       const showEvent =
@@ -299,7 +140,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
       const showSubscription = Keyboard.addListener(showEvent, (event) => {
-        Animated.timing(commentSheetKeyboardHeight, {
+        Animated.timing(keyboardHeight, {
           toValue: event.endCoordinates.height,
           duration: event.duration ?? 250,
           useNativeDriver: true,
@@ -307,7 +148,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       });
 
       const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
-        Animated.timing(commentSheetKeyboardHeight, {
+        Animated.timing(keyboardHeight, {
           toValue: 0,
           duration: event.duration ?? 250,
           useNativeDriver: true,
@@ -318,10 +159,16 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         showSubscription.remove();
         hideSubscription.remove();
       };
-    }, []);
+    }, [keyboardHeight]);
 
-    // Keep the sheet at its current detent while typing; the footer moves above
-    // the keyboard without expanding the sheet to a larger snap point.
+    const inputTranslateY = keyboardHeight.interpolate({
+      inputRange: [0, 400],
+      outputRange: [0, -420],
+      extrapolate: "clamp",
+    });
+
+    // Keep the sheet at its current detent while typing; the composer moves
+    // above the keyboard without expanding the sheet to a larger snap point.
     const allSnapPoints = useMemo(() => ["66%", "92%"], []);
     const snapPoints = useMemo(
       () =>
@@ -369,44 +216,31 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       [token],
     );
 
-    const submitComment = useCallback(
-      async (content: string): Promise<boolean> => {
-        if (!token || !postId) return false;
+    const handleSend = useCallback(async () => {
+      const trimmed = input.trim();
+      if (!trimmed || !token || !postId || sending) return;
 
-        try {
-          const resp = await api.post<{
-            success: boolean;
-            data: Comment;
-          }>(
-            `/posts/${postId}/comments`,
-            { content },
-            token,
-          );
+      setSending(true);
+      try {
+        const resp = await api.post<{
+          success: boolean;
+          data: Comment;
+        }>(
+          `/posts/${postId}/comments`,
+          { content: trimmed },
+          token,
+        );
 
-          setComments((previous) => [...previous, resp.data]);
-          setCommentCount((previous) => previous + 1);
-          return true;
-        } catch (err) {
-          console.error("Failed to send comment:", err);
-          return false;
-        }
-      },
-      [postId, token],
-    );
-
-    useLayoutEffect(() => {
-      updateCommentFooterBridge({
-        avatarUrl: currentUserAvatarUrl ?? undefined,
-        initial: currentUserInitial,
-        resetKey: composerResetKey,
-        onSubmit: submitComment,
-      });
-    }, [
-      composerResetKey,
-      currentUserAvatarUrl,
-      currentUserInitial,
-      submitComment,
-    ]);
+        setComments((previous) => [...previous, resp.data]);
+        setCommentCount((previous) => previous + 1);
+        setInput("");
+        setInputHeight(44);
+      } catch (err) {
+        console.error("Failed to send comment:", err);
+      } finally {
+        setSending(false);
+      }
+    }, [input, token, postId, sending]);
 
     const handleSheetChange = useCallback(
       (index: number) => {
@@ -420,8 +254,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         setPostId(pid);
         setComments([]);
         setCommentCount(0);
+        setInput("");
+        setInputHeight(44);
+        setSending(false);
         setCurrentSnapIndex(0);
-        setComposerResetKey((key) => key + 1);
         setFetchError(null);
 
         bottomSheetRef.current?.present();
@@ -513,7 +349,6 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         enablePanDownToClose
         enableOverDrag={false}
         backdropComponent={renderBackdrop}
-        footerComponent={CommentSheetFooter}
         onChange={handleSheetChange}
         handleIndicatorStyle={{
           backgroundColor: COLORS.borderGray,
@@ -537,8 +372,10 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           abortControllerRef.current?.abort();
           setComments([]);
           setCommentCount(0);
+          setInput("");
+          setInputHeight(44);
+          setSending(false);
           setCurrentSnapIndex(0);
-          setComposerResetKey((key) => key + 1);
           setFetchError(null);
           setLoading(false);
           setPostId(null);
@@ -583,22 +420,83 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             style={styles.listWrapper}
             contentContainerStyle={
               comments.length === 0
-                ? [
-                    styles.emptyListContent,
-                    {
-                      paddingHorizontal: horizontalPadding,
-                      paddingBottom: 118,
-                    },
-                  ]
-                : [
-                    styles.listContent,
-                    {
-                      paddingHorizontal: horizontalPadding,
-                      paddingBottom: 118,
-                    },
-                  ]
+                ? [styles.emptyListContent, { paddingHorizontal: horizontalPadding }]
+                : [styles.listContent, { paddingHorizontal: horizontalPadding }]
             }
           />
+
+          <Animated.View
+            style={[
+              styles.footer,
+              { transform: [{ translateY: inputTranslateY }] },
+            ]}
+          >
+            <View
+              style={[
+                styles.inputContainer,
+                { paddingHorizontal: horizontalPadding },
+              ]}
+            >
+              <View style={styles.inputRow}>
+                <View style={styles.userAvatar}>
+                  {currentUserAvatarUrl ? (
+                    <Image
+                      source={{ uri: currentUserAvatarUrl }}
+                      style={styles.userAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.userAvatarText}>
+                      {currentUserInitial}
+                    </Text>
+                  )}
+                </View>
+
+                <BottomSheetTextInput
+                  style={[
+                    styles.input,
+                    isCompact && styles.inputCompact,
+                    { height: inputHeight },
+                  ]}
+                  placeholder="Add a comment..."
+                  placeholderTextColor={COLORS.textMuted}
+                  value={input}
+                  onChangeText={setInput}
+                  onContentSizeChange={(event) => {
+                    const nextHeight = Math.min(
+                      88,
+                      Math.max(44, event.nativeEvent.contentSize.height),
+                    );
+                    setInputHeight(nextHeight);
+                  }}
+                  onSubmitEditing={() => void handleSend()}
+                  returnKeyType="send"
+                  editable={!sending}
+                  multiline
+                  maxLength={1000}
+                  textAlignVertical="center"
+                  blurOnSubmit={false}
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.postButton,
+                    (!input.trim() || sending) && styles.postButtonDisabled,
+                  ]}
+                  onPress={() => void handleSend()}
+                  disabled={!input.trim() || sending}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Post comment"
+                >
+                  {sending ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Ionicons name="send" size={18} color={COLORS.primary} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Animated.View>
         </View>
       </BottomSheetModal>
     );
@@ -756,10 +654,6 @@ const styles = StyleSheet.create({
   },
 
   footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 8,
     backgroundColor: COLORS.bgWhite,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.borderDivider,
