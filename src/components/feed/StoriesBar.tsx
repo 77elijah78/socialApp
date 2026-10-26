@@ -1,31 +1,32 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
-  View,
-  Text,
   Image,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+
+import { StoriesBarSkeleton } from "@/components/ui/Skeleton";
 import theme from "@/constants/theme";
-import { StoryItem } from "@/types";
-import { useStories } from "@/hooks/useStories";
 import {
-  showImageSourceActionSheet,
-  pickFromLibrary,
-  takePhoto,
   createUploadFormData,
   getAssetMimeType,
   PickedAsset,
+  pickFromLibrary,
+  showImageSourceActionSheet,
+  takePhoto,
 } from "@/hooks/useImagePicker";
+import { useStories } from "@/hooks/useStories";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
-import { StoriesBarSkeleton } from "@/components/ui/Skeleton";
-import { Alert } from "react-native";
+import { StoryItem } from "@/types";
 
 const STORY_SIZE = theme.SIZING.storyItem;
 
@@ -34,7 +35,7 @@ function StoryRing({
   isMe,
   size,
   avatarUrl,
-  storyMediaUrl,
+  initial,
   hasStory,
   storyCount,
 }: {
@@ -42,112 +43,90 @@ function StoryRing({
   isMe: boolean;
   size: number;
   avatarUrl: string | null;
-  storyMediaUrl?: string;
+  initial: string;
   hasStory: boolean;
-  storyCount?: number;
+  storyCount: number;
 }) {
-  if (isMe) {
-    const innerSize = hasStory ? size - 8 : size - 4;
-    const innerRadius = innerSize / 2;
+  const innerSize = size - 8;
+  const avatar = avatarUrl ? (
+    <Image
+      source={{ uri: avatarUrl }}
+      style={[styles.avatarImage, { width: innerSize, height: innerSize, borderRadius: innerSize / 2 }]}
+    />
+  ) : (
+    <View
+      style={[
+        styles.avatarFallback,
+        { width: innerSize, height: innerSize, borderRadius: innerSize / 2 },
+      ]}
+    >
+      <Text style={styles.avatarInitial}>{initial}</Text>
+    </View>
+  );
+
+  const avatarContent = (
+    <View
+      style={[
+        styles.avatarFrame,
+        { width: innerSize, height: innerSize, borderRadius: innerSize / 2 },
+      ]}
+    >
+      {avatar}
+    </View>
+  );
+
+  if (isMe && !hasStory) {
     return (
-      <View
-        style={[
-          styles.ring,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            borderStyle: "dashed",
-            borderColor: theme.COLORS.borderGray,
-          },
-        ]}
-      >
-        {hasStory && storyMediaUrl ? (
-          <>
-            <Image
-              source={{ uri: storyMediaUrl }}
-              style={[
-                styles.meStoryMedia,
-                { width: size - 4, height: size - 4, borderRadius: (size - 4) / 2 },
-              ]}
-              resizeMode="cover"
-            />
-            <View
-              style={[
-                styles.avatarOverlay,
-                { width: innerSize, height: innerSize, borderRadius: innerRadius },
-              ]}
-            >
-              {avatarUrl ? (
-                <Image
-                  source={{ uri: avatarUrl }}
-                  style={[styles.avatar, { width: innerSize - 4, height: innerSize - 4, borderRadius: (innerSize - 4) / 2 }]}
-                />
-              ) : (
-                <Ionicons name="person" size={28} color={theme.COLORS.textPrimary} />
-              )}
-            </View>
-            {storyCount && storyCount > 1 ? (
-              <View style={[styles.storyCountBadge, { bottom: -2, right: -2 }]}>
-                <Text style={styles.storyCountText}>{storyCount}</Text>
-              </View>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {avatarUrl ? (
-              <Image
-                source={{ uri: avatarUrl }}
-                style={[styles.avatar, { width: innerSize, height: innerSize, borderRadius: innerRadius }]}
-              />
-            ) : (
-              <Ionicons name="person" size={32} color={theme.COLORS.primary} />
-            )}
-            <View style={styles.plusBadge}>
-              <Ionicons name="add-circle" size={22} color={theme.COLORS.primary} />
-            </View>
-          </>
-        )}
+      <View style={[styles.addStoryRing, { width: size, height: size, borderRadius: size / 2 }]}>
+        {avatarContent}
+        <View style={styles.plusBadge}>
+          <Ionicons name="add" size={15} color={theme.COLORS.white} />
+        </View>
       </View>
     );
   }
 
-  if (!hasStory) return null;
-
-  if (isViewed) {
-    return (
-      <View
-        style={[styles.ringViewed, { width: size, height: size, borderRadius: size / 2, padding: 2 }]}
-      >
-        <Image
-          source={{ uri: avatarUrl ?? "" }}
-          style={[styles.avatar, { width: size - 8, height: size - 8, borderRadius: (size - 8) / 2 }]}
-        />
-      </View>
-    );
-  }
+  const ringContent = (
+    <View
+      style={[
+        styles.storyRingInner,
+        { width: size - 4, height: size - 4, borderRadius: (size - 4) / 2 },
+      ]}
+    >
+      {avatarContent}
+    </View>
+  );
 
   return (
-    <LinearGradient
-      colors={[theme.STORY.gradientStart, theme.STORY.gradientEnd]}
-      start={{ x: 0, y: 1 }}
-      end={{ x: 1, y: 0 }}
-      style={[styles.ringUnviewed, { width: size, height: size, borderRadius: size / 2, padding: 2 }]}
-    >
-      <Image
-        source={{ uri: avatarUrl ?? "" }}
-        style={[styles.avatar, { width: size - 8, height: size - 8, borderRadius: (size - 8) / 2 }]}
-      />
-    </LinearGradient>
+    <View style={styles.ringWrap}>
+      {isViewed && !isMe ? (
+        <View style={[styles.viewedRing, { width: size, height: size, borderRadius: size / 2 }]}>
+          {ringContent}
+        </View>
+      ) : (
+        <LinearGradient
+          colors={[theme.STORY.gradientStart, theme.STORY.gradientEnd]}
+          start={{ x: 0, y: 1 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.unviewedRing, { width: size, height: size, borderRadius: size / 2 }]}
+        >
+          {ringContent}
+        </LinearGradient>
+      )}
+      {storyCount > 1 ? (
+        <View style={styles.storyCountBadge}>
+          <Text style={styles.storyCountText}>{storyCount > 9 ? "9+" : storyCount}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 export default function StoriesBar() {
-  const { groupedStories, storyCounts, loading, refetch, stories, updateStoryViewed } = useStories();
-  const token = useAppSelector((s) => s.auth.token);
-  const currentUserId = useAppSelector((s) => s.auth.user?.id);
-  const currentAvatarUrl = useAppSelector((s) => s.auth.user?.avatarUrl);
-
+  const { groupedStories, storyCounts, loading, refetch, stories } = useStories();
+  const token = useAppSelector((state) => state.auth.token);
+  const currentUserId = useAppSelector((state) => state.auth.user?.id);
+  const currentAvatarUrl = useAppSelector((state) => state.auth.user?.avatarUrl ?? null);
   const [uploading, setUploading] = useState(false);
 
   const handleCreateStory = useCallback(() => {
@@ -156,7 +135,8 @@ export default function StoriesBar() {
     showImageSourceActionSheet(async (action) => {
       let asset: PickedAsset | null = null;
       if (action === "library") {
-        asset = (await pickFromLibrary({ allowsEditing: true, aspect: [9, 16] })) as PickedAsset | null;
+        const result = await pickFromLibrary({ allowsEditing: true, aspect: [9, 16] });
+        asset = Array.isArray(result) ? result[0] ?? null : result;
       } else {
         asset = await takePhoto();
       }
@@ -167,194 +147,309 @@ export default function StoriesBar() {
       try {
         const mimeType = getAssetMimeType(asset);
         const form = createUploadFormData(asset.uri, mimeType);
-        const resp = await api.upload("/media/upload", form, token);
+        const uploaded = await api.upload("/media/upload", form, token);
 
-        await api.post<{ success: boolean; data: unknown }>(
+        await api.post(
           "/posts/stories",
           {
-            mediaUrl: resp.data.url,
+            mediaUrl: uploaded.data.url,
             mediaType: "image",
             caption: undefined,
           },
           token,
         );
 
-        refetch();
-      } catch (err: any) {
-        Alert.alert("Upload Failed", err.message || "Could not create story.");
+        await refetch();
+      } catch (err) {
+        Alert.alert(
+          "Couldn’t create story",
+          err instanceof Error ? err.message : "Please try again.",
+        );
       } finally {
         setUploading(false);
       }
     });
   }, [token, uploading, refetch]);
 
-  const handleStoryPress = (story: StoryItem) => {
-    if (story.id === "me") {
-      if (meStoryCount > 0) {
-        const meStory = stories.find((s) => s.userId === currentUserId);
-        if (meStory) {
-          const index = stories.indexOf(meStory);
-          router.push({ pathname: "/stories/viewer", params: { index: String(index) } });
+  const handleStoryPress = useCallback(
+    (story: StoryItem) => {
+      if (story.id === "me" || story.userId === currentUserId) {
+        const ownStoryIndex = stories.findIndex((item) => item.userId === currentUserId);
+        if (ownStoryIndex >= 0) {
+          router.push({ pathname: "/stories/viewer", params: { index: String(ownStoryIndex) } });
+        } else {
+          handleCreateStory();
         }
-      } else {
-        handleCreateStory();
+        return;
       }
-    } else {
-      const storyIndex = stories.indexOf(story);
+
+      const storyIndex = stories.findIndex((item) => item.id === story.id);
       router.push({
         pathname: "/stories/viewer",
         params: { index: String(storyIndex >= 0 ? storyIndex : 0) },
       });
-    }
-  };
+    },
+    [currentUserId, handleCreateStory, stories],
+  );
 
-  const meStoryCount = storyCounts[currentUserId ?? "me"] ?? 0;
-  const meLatestStory = stories.find((s) => s.userId === currentUserId);
-
-  const meItem: StoryItem = {
+  const ownStoryCount = storyCounts[currentUserId ?? ""] ?? 0;
+  const latestOwnStory = stories.find((story) => story.userId === currentUserId);
+  const ownItem: StoryItem = {
     id: "me",
     userId: currentUserId ?? "me",
     username: "you",
     displayName: "Your story",
-    avatarUrl: currentAvatarUrl ?? meLatestStory?.avatarUrl ?? null,
-    mediaUrl: meLatestStory?.mediaUrl ?? "",
+    avatarUrl: currentAvatarUrl ?? null,
+    mediaUrl: latestOwnStory?.mediaUrl ?? "",
     mediaType: "image",
     caption: null,
-    createdAt: meLatestStory?.createdAt ?? new Date(),
-    expiresAt: meLatestStory?.expiresAt ?? new Date(),
+    createdAt: latestOwnStory?.createdAt ?? new Date(),
+    expiresAt: latestOwnStory?.expiresAt ?? new Date(),
     isViewed: false,
   };
-
-  const displayItems = [meItem, ...groupedStories.filter((s) => s.userId !== currentUserId)];
-
-  if (loading) {
-    return <StoriesBarSkeleton count={4} />;
-  }
+  const displayItems = [
+    ownItem,
+    ...groupedStories.filter((story) => story.userId !== currentUserId),
+  ];
+  const newStoryCount = groupedStories.filter(
+    (story) => story.userId !== currentUserId && !story.isViewed,
+  ).length;
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={displayItems}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
-          const isMe = item.userId === currentUserId || item.id === "me";
-          const storyCount = isMe ? meStoryCount : storyCounts[item.userId] ?? 0;
-          return (
-            <TouchableOpacity
-              style={styles.itemRow}
-              activeOpacity={theme.OPACITY.semiTransparent}
-              onPress={() => handleStoryPress(item)}
-              disabled={isMe && uploading}
-            >
-              <StoryRing
-                isViewed={isMe ? false : item.isViewed}
-                isMe={isMe}
-                size={STORY_SIZE}
-                avatarUrl={item.avatarUrl}
-                storyMediaUrl={isMe ? meLatestStory?.mediaUrl : undefined}
-                hasStory={isMe ? meStoryCount > 0 : true}
-                storyCount={storyCount > 1 ? storyCount : undefined}
-              />
-              <Text style={styles.itemLabel} numberOfLines={1}>
-                {item.displayName}
-              </Text>
-              {isMe && uploading && (
-                <View style={styles.uploadingOverlay}>
-                  <ActivityIndicator size="small" color={theme.COLORS.white} />
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Stories</Text>
+          <Text style={styles.sectionSubtitle}>Little moments from your circle</Text>
+        </View>
+        <View style={styles.updatesBadge}>
+          <View style={[styles.updatesDot, newStoryCount === 0 && styles.updatesDotQuiet]} />
+          <Text style={styles.updatesText}>
+            {newStoryCount > 0 ? `${newStoryCount} new` : "Your circle"}
+          </Text>
+        </View>
+      </View>
+
+      {loading ? (
+        <StoriesBarSkeleton count={4} />
+      ) : (
+        <FlatList
+          data={displayItems}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => {
+            const isMe = item.id === "me" || item.userId === currentUserId;
+            const count = isMe ? ownStoryCount : storyCounts[item.userId] ?? 0;
+            const label = isMe
+              ? ownStoryCount > 0
+                ? "Your story"
+                : "Add story"
+              : item.displayName ?? item.username;
+            const initial = (item.displayName ?? item.username ?? "?").charAt(0).toUpperCase();
+
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={isMe ? label : `View ${label}'s story`}
+                style={({ pressed }) => [styles.storyItem, pressed && styles.storyPressed]}
+                onPress={() => handleStoryPress(isMe ? ownItem : item)}
+                disabled={isMe && uploading}
+              >
+                <View style={styles.storyAvatarWrap}>
+                  <StoryRing
+                    isViewed={isMe ? false : item.isViewed}
+                    isMe={isMe}
+                    size={STORY_SIZE}
+                    avatarUrl={item.avatarUrl}
+                    initial={initial}
+                    hasStory={isMe ? ownStoryCount > 0 : true}
+                    storyCount={count}
+                  />
+                  {isMe && uploading ? (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="small" color={theme.COLORS.white} />
+                    </View>
+                  ) : null}
                 </View>
-              )}
-            </TouchableOpacity>
-          );
-        }}
-      />
+                <Text style={[styles.storyLabel, isMe && styles.ownStoryLabel]} numberOfLines={1}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    marginHorizontal: theme.LAYOUT.contentPadding,
+    marginBottom: theme.SPACING.md,
+    paddingTop: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.md,
+    borderRadius: 22,
     backgroundColor: theme.COLORS.bgWhite,
-    paddingVertical: theme.SPACING.lg,
-    paddingHorizontal: theme.SPACING.lg,
-    marginBottom: theme.SPACING.sm,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+    ...theme.SHADOWS.sm,
   },
-  itemRow: {
+  sectionHeader: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.SPACING.lg,
+    marginBottom: theme.SPACING.md,
+  },
+  sectionTitle: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  sectionSubtitle: {
+    marginTop: 3,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  updatesBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    paddingVertical: theme.SPACING.xs,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  updatesDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.COLORS.primary,
+  },
+  updatesDotQuiet: {
+    backgroundColor: theme.COLORS.textMuted,
+  },
+  updatesText: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  listContent: {
+    paddingHorizontal: theme.SPACING.md,
+  },
+  storyItem: {
     width: STORY_SIZE + 20,
+    alignItems: "center",
+    paddingVertical: theme.SPACING.xs,
+  },
+  storyPressed: {
+    opacity: theme.OPACITY.pressed,
+  },
+  storyAvatarWrap: {
     position: "relative",
   },
-  itemLabel: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.sm,
-    textAlign: "center",
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  ringWrap: {
+    position: "relative",
   },
-  ring: {
-    borderWidth: theme.BORDER.width.sm,
+  addStoryRing: {
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: theme.COLORS.borderDivider,
     backgroundColor: theme.COLORS.bgInput,
   },
-  ringViewed: {
-    borderWidth: theme.BORDER.width.sm,
-    borderColor: theme.COLORS.borderGray,
-    backgroundColor: theme.COLORS.white,
-  },
-  ringUnviewed: {
-    padding: theme.BORDER.width.sm,
-  },
-  avatar: {
-    backgroundColor: theme.COLORS.white,
-  },
-  meStoryMedia: {
-    opacity: 0.6,
-  },
-  avatarOverlay: {
-    position: "absolute",
-    backgroundColor: "rgba(255,255,255,0.9)",
+  avatarFrame: {
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: theme.COLORS.bgLight,
+    overflow: "hidden",
+    backgroundColor: theme.COLORS.bgInput,
+  },
+  avatarImage: {
+    backgroundColor: theme.COLORS.bgInput,
+  },
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  avatarInitial: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  storyRingInner: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgWhite,
+  },
+  unviewedRing: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 2,
+  },
+  viewedRing: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: theme.COLORS.borderGray,
+    backgroundColor: theme.COLORS.bgWhite,
   },
   plusBadge: {
     position: "absolute",
-    bottom: -2,
-    right: -2,
-    backgroundColor: theme.COLORS.primary,
-    borderRadius: theme.BORDER_RADIUS.full,
-    width: 20,
-    height: 20,
+    right: -1,
+    bottom: -1,
+    width: 23,
+    height: 23,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: theme.COLORS.primary,
+    borderWidth: 2,
+    borderColor: theme.COLORS.bgWhite,
   },
   storyCountBadge: {
     position: "absolute",
-    backgroundColor: theme.COLORS.primary,
-    borderRadius: theme.BORDER_RADIUS.full,
+    top: -1,
+    right: -3,
     minWidth: 18,
     height: 18,
+    paddingHorizontal: 4,
+    borderRadius: theme.BORDER_RADIUS.full,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    backgroundColor: theme.COLORS.textPrimary,
+    borderWidth: 2,
+    borderColor: theme.COLORS.bgWhite,
   },
   storyCountText: {
     color: theme.COLORS.white,
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  storyLabel: {
+    width: STORY_SIZE + 12,
+    marginTop: theme.SPACING.sm,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    textAlign: "center",
+  },
+  ownStoryLabel: {
+    color: theme.COLORS.textPrimary,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   uploadingOverlay: {
     position: "absolute",
-    top: -4,
-    right: -4,
-    backgroundColor: theme.COLORS.primary,
-    borderRadius: theme.BORDER_RADIUS.full,
-    width: 20,
-    height: 20,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: STORY_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(26, 26, 46, 0.42)",
   },
 });

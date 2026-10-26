@@ -1,19 +1,31 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import theme from "@/constants/theme";
+
 import { LiquidGlassTabBar } from "@/components/navigation/LiquidGlassTabBar";
+import theme from "@/constants/theme";
+import { useAppSelector } from "@/store/hooks";
 
 export default function TabLayout() {
+  const unreadCount = useAppSelector((state) => state.notifications.unreadCount);
+  const activityBadge =
+    unreadCount > 99 ? "99+" : unreadCount > 0 ? unreadCount : undefined;
+
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: theme.COLORS.bgLight, ...theme.SHADOWS.xl },
-        headerTintColor: theme.COLORS.indigo,
-        tabBarActiveTintColor: theme.COLORS.indigo,
+        headerStyle: {
+          backgroundColor: theme.COLORS.bgLight,
+          ...theme.SHADOWS.xl,
+        },
+        headerTintColor: theme.COLORS.primary,
+        tabBarActiveTintColor: theme.COLORS.primary,
         tabBarInactiveTintColor: theme.COLORS.textMuted,
-        // Labels are rendered by the custom LiquidGlassTabBar
-        // which uses icon-only tabs for a cleaner floating look.
         tabBarShowLabel: false,
+        tabBarStyle: {
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+        },
       }}
       tabBar={(props) => <LiquidGlassTabBar {...props} />}
     >
@@ -21,11 +33,11 @@ export default function TabLayout() {
         name="home"
         options={{
           headerShown: false,
-          title: "Feed",
+          title: "Home",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "home" : "home-outline"}
-              size={24}
+              size={21}
               color={color}
             />
           ),
@@ -39,7 +51,7 @@ export default function TabLayout() {
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "compass" : "compass-outline"}
-              size={24}
+              size={21}
               color={color}
             />
           ),
@@ -53,7 +65,7 @@ export default function TabLayout() {
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "chatbubble" : "chatbubble-outline"}
-              size={24}
+              size={21}
               color={color}
             />
           ),
@@ -63,11 +75,12 @@ export default function TabLayout() {
         name="notifications"
         options={{
           headerShown: false,
-          title: "Notifications",
+          title: "Activity",
+          tabBarBadge: activityBadge,
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
-              name={focused ? "notifications" : "notifications-outline"}
-              size={24}
+              name={focused ? "heart" : "heart-outline"}
+              size={21}
               color={color}
             />
           ),
@@ -81,7 +94,7 @@ export default function TabLayout() {
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "person" : "person-outline"}
-              size={24}
+              size={21}
               color={color}
             />
           ),
