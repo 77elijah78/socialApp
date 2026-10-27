@@ -24,6 +24,7 @@ import {
 } from "@/store/slices/notificationsSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
 
 const TAG = "[RootLayout]";
@@ -183,49 +184,51 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <KeyboardProvider>
-      <Provider store={store}>
-        <PersistGate>
-          <PaperProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <BottomSheetModalProvider>
-                <OverlayProvider>
-                  <SocketProvider />
-                  <Stack
-                    screenOptions={{
-                      contentStyle: {
-                        backgroundColor: theme.COLORS.bgLight,
-                        borderColor: theme.COLORS.bgLight,
-                      },
-                    }}
-                  >
-                    <Stack.Screen
-                      name="(auth)"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="(tabs)"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="(chatRoom)"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="stories/viewer"
-                      options={{
-                        headerShown: false,
-                        presentation: "modal",
-                        animation: "fade",
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <Provider store={store}>
+          <PersistGate>
+            <PaperProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <BottomSheetModalProvider>
+                  <OverlayProvider>
+                    <SocketProvider />
+                    <Stack
+                      screenOptions={{
+                        contentStyle: {
+                          backgroundColor: theme.COLORS.bgLight,
+                          borderColor: theme.COLORS.bgLight,
+                        },
                       }}
-                    />
-                  </Stack>
-                </OverlayProvider>
-              </BottomSheetModalProvider>
-            </GestureHandlerRootView>
-          </PaperProvider>
-        </PersistGate>
-      </Provider>
-    </KeyboardProvider>
+                    >
+                      <Stack.Screen
+                        name="(auth)"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="(tabs)"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="(chatRoom)"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="stories/viewer"
+                        options={{
+                          headerShown: false,
+                          presentation: "modal",
+                          animation: "fade",
+                        }}
+                      />
+                    </Stack>
+                  </OverlayProvider>
+                </BottomSheetModalProvider>
+              </GestureHandlerRootView>
+            </PaperProvider>
+          </PersistGate>
+        </Provider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }

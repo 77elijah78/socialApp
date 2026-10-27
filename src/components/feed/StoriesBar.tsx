@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Pressable,
@@ -27,6 +26,7 @@ import { useStories } from "@/hooks/useStories";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
+import { showAppDialog } from "@/services/AppDialogService";
 
 const STORY_SIZE = theme.SIZING.storyItem;
 
@@ -161,13 +161,17 @@ export default function StoriesBar() {
 
         await refetch();
       } catch (err) {
-        Alert.alert(
-          "Couldn’t create story",
-          err instanceof Error ? err.message : "Please try again.",
-        );
+        showAppDialog({
+          title: "Couldn’t create story",
+          message: err instanceof Error ? err.message : "Please try again.",
+          tone: "error",
+        });
       } finally {
         setUploading(false);
       }
+    }, {
+      title: "Create a story",
+      message: "Choose a photo from your library or capture a new one.",
     });
   }, [token, uploading, refetch]);
 

@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -26,6 +25,7 @@ import {
 } from "@/hooks/useImagePicker";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import { showAppDialog } from "@/services/AppDialogService";
 
 const MAX_IMAGES = 4;
 
@@ -76,7 +76,11 @@ export default function CreatePostScreen() {
   const handleCreatePost = useCallback(async () => {
     if (!canPost || uploading) return;
     if (!token) {
-      Alert.alert("Sign in required", "Please log in to create a post.");
+      showAppDialog({
+        title: "Sign in required",
+        message: "Please log in to create a post.",
+        tone: "warning",
+      });
       return;
     }
 
@@ -98,14 +102,18 @@ export default function CreatePostScreen() {
 
       setContent("");
       setSelectedImages([]);
-      Alert.alert("Post shared", "Your moment is now part of the feed.", [
-        { text: "Done", onPress: () => router.back() },
-      ]);
+      showAppDialog({
+        title: "Post shared",
+        message: "Your moment is now part of the feed.",
+        tone: "success",
+        buttons: [{ key: "done", label: "Done", bold: true, onPress: () => router.back() }],
+      });
     } catch (error) {
-      Alert.alert(
-        "Couldn’t share your post",
-        error instanceof Error ? error.message : "Please try again.",
-      );
+      showAppDialog({
+        title: "Couldn’t share your post",
+        message: error instanceof Error ? error.message : "Please try again.",
+        tone: "error",
+      });
     } finally {
       setUploading(false);
     }

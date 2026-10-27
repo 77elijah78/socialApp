@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   StyleSheet,
   FlatList,
-  Alert,
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +16,7 @@ import { useAppSelector } from "@/store/hooks";
 import { shareService, FollowedUser } from "@/services/ShareService";
 import { mediaService } from "@/services/MediaService";
 import theme from "@/constants/theme";
+import { showAppDialog } from "@/services/AppDialogService";
 
 export default function ShareUsersScreen() {
   const params = useLocalSearchParams<{
@@ -86,7 +86,11 @@ export default function ShareUsersScreen() {
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to load users:", err);
-          Alert.alert("Error", "Failed to load users. Please try again.");
+          showAppDialog({
+            title: "Couldn’t load people",
+            message: "Please check your connection and try again.",
+            tone: "error",
+          });
         }
       } finally {
         if (!cancelled) {
@@ -162,12 +166,19 @@ export default function ShareUsersScreen() {
         }
       }
 
-      Alert.alert("Sent", `Shared with ${selectedUsers.length} user${selectedUsers.length > 1 ? "s" : ""}`, [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      showAppDialog({
+        title: "Sent",
+        message: `Shared with ${selectedUsers.length} ${selectedUsers.length > 1 ? "people" : "person"}.`,
+        tone: "success",
+        buttons: [{ key: "done", label: "Done", bold: true, onPress: () => router.back() }],
+      });
     } catch (err) {
       console.error("Failed to share:", err);
-      Alert.alert("Error", "Failed to share. Please try again.");
+      showAppDialog({
+        title: "Couldn’t share",
+        message: "Please try again in a moment.",
+        tone: "error",
+      });
     } finally {
       setSending(false);
     }

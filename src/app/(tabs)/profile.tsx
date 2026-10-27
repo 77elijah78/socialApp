@@ -180,13 +180,6 @@ export default function ProfileScreen() {
                 </View>
               )}
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push("/editProfile")}
-              style={({ pressed }) => [styles.editIconButton, pressed && styles.pressed]}
-            >
-              <Ionicons name="create-outline" size={16} color={theme.COLORS.primary} />
-            </Pressable>
           </View>
 
           <View style={styles.nameRow}>
@@ -533,7 +526,7 @@ const styles = StyleSheet.create({
   avatarOverlapRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     marginTop: -38,
     marginBottom: theme.SPACING.sm,
   },
@@ -560,17 +553,6 @@ const styles = StyleSheet.create({
     color: theme.COLORS.primary,
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  editIconButton: {
-    width: 34,
-    height: 34,
-    marginBottom: 4,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
   },
   nameRow: {
     flexDirection: "row",

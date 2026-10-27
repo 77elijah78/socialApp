@@ -1,21 +1,17 @@
-import { icons } from "@/constants";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   FlatList,
   TextInput,
   Pressable,
-  Alert,
   Keyboard,
   Platform,
   Animated,
-  Dimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
 import ChatHeader from "@/components/chat/ChatHeader";
@@ -36,6 +32,7 @@ import MediaPickerModal from "@/components/messages/MediaPickerModal";
 import { mediaService } from "@/services/MediaService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
+import { showAppDialog } from "@/services/AppDialogService";
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -83,8 +80,15 @@ export default function PrivateRoom() {
   const [sending, setSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const textInputRef = useRef<TextInput>(null);
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
-  const screenHeight = Dimensions.get("window").height;
+  const [keyboardHeight] = useState(() => new Animated.Value(0));
+  const [dateLabels] = useState(() => {
+    const today = new Date();
+    return {
+      today: today.toDateString(),
+      yesterday: new Date(today.getTime() - 86400000).toDateString(),
+    };
+  });
+  const insets = useSafeAreaInsets();
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -94,10 +98,11 @@ export default function PrivateRoom() {
       const permission = await AudioModule.requestRecordingPermissionsAsync();
 
       if (!permission.granted) {
-        Alert.alert(
-          "Permission required",
-          "Enable microphone access in settings.",
-        );
+        showAppDialog({
+          title: "Microphone access needed",
+          message: "Enable microphone access in your device settings to record a voice message.",
+          tone: "warning",
+        });
         return;
       }
 
@@ -182,8 +187,12 @@ export default function PrivateRoom() {
         try {
           await mediaService.message.deleteConversation(conversationId);
           router.back();
-        } catch (err) {
-          openActionMenu([{ key: 'err', icon: 'alert-circle', label: 'Could not delete conversation', onPress: () => {} }]);
+        } catch {
+          showAppDialog({
+            title: "Couldn’t delete conversation",
+            message: "Please try again in a moment.",
+            tone: "error",
+          });
         }
       }},
     ];
@@ -235,7 +244,9 @@ export default function PrivateRoom() {
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
-      sendMedia(files[0].type, files[0].uri, receiverId);
+      for (const file of files) {
+        await sendMedia(file.type, file.uri, receiverId);
+      }
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 120);
@@ -243,7 +254,7 @@ export default function PrivateRoom() {
         textInputRef.current?.focus();
       }, 300);
     },
-    [conversationId, receiverId, sendMedia, flatListRef],
+    [receiverId, sendMedia, flatListRef],
   );
 
   const scrollToFirstUnread = useCallback(() => {
@@ -266,12 +277,6 @@ export default function PrivateRoom() {
   );
 
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
-
-  useEffect(() => {
-    if (firstUnreadIndex <= 0) {
-      setShowJumpToUnread(false);
-    }
-  }, [firstUnreadIndex]);
 
   const handleScroll = useCallback(
     (event: any) => {
@@ -350,8 +355,7 @@ export default function PrivateRoom() {
   // Flatten messages + date headers into one list
   const flatData = useMemo(() => {
     const items: MessageItem[] = [];
-    const today = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    const { today, yesterday } = dateLabels;
     let lastDate = "";
 
     const messageMap = new Map<string, any>();
@@ -406,7 +410,7 @@ export default function PrivateRoom() {
     });
 
     return items;
-  }, [messages, currentUserId]);
+  }, [dateLabels, messages, currentUserId]);
 
   const renderItem = useCallback(
     ({ item }: { item: MessageItem }) => {
@@ -453,19 +457,15 @@ export default function PrivateRoom() {
   const keyExtractor = useCallback((item: MessageItem) => item.id, []);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.container}>
       <OfflineBanner isOffline={isOffline} />
 
       {/* HEADER */}
-      <SafeAreaView edges={["top"]}>
+      <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
         <View style={styles.headerWrapper}>
           <ChatHeader
             receiverName={receiverName as string}
-            avatarUri={
-              (receiverAvatar as string) ||
-              "https://images.pexels.com/photos/13148612/pexels-photo-13148612.jpeg"
-            }
-            isOnline={true}
+            avatarUri={(receiverAvatar as string) || ""}
             onBack={handleBack}
             onProfilePress={handleProfilePress}
             onMenuPress={handleMenuPress}
@@ -486,14 +486,14 @@ export default function PrivateRoom() {
         >
           <View style={styles.jumpDot} />
           <Text style={styles.jumpText}>Jump to new messages</Text>
-          <Text style={styles.jumpChevron}>⌄</Text>
+          <Ionicons name="chevron-down" size={17} color={theme.COLORS.white} />
         </TouchableOpacity>
       )}
 
       {/* MESSAGES */}
       <FlatList
         ref={flatListRef}
-        style={{ flex: 1 }}
+        style={styles.messageList}
         data={flatData}
         extraData={messages}
         keyExtractor={keyExtractor}
@@ -507,7 +507,11 @@ export default function PrivateRoom() {
         ListHeaderComponent={
           !isSyncing && messages.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No messages yet</Text>
+              <View style={styles.emptyStateIcon}>
+                <Ionicons name="chatbubble-ellipses-outline" size={28} color={theme.COLORS.primary} />
+              </View>
+              <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
+              <Text style={styles.emptyStateText}>Send a message to start the conversation.</Text>
             </View>
           ) : null
         }
@@ -538,6 +542,7 @@ export default function PrivateRoom() {
         style={[
           styles.floatingInputWrapper,
           {
+            bottom: Math.max(insets.bottom, 8),
             transform: [{ translateY: inputTranslateY }],
           },
         ]}
@@ -573,10 +578,13 @@ export default function PrivateRoom() {
 
         <View style={styles.inputRow}>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Attach media"
             onPress={() => setVisible(true)}
             style={styles.attachButton}
+            activeOpacity={0.75}
           >
-            <Image source={icons.add} style={styles.iconSmall} />
+            <Ionicons name="add" size={22} color={theme.COLORS.primary} />
           </TouchableOpacity>
 
           <View style={styles.textInputWrapper}>
@@ -603,9 +611,10 @@ export default function PrivateRoom() {
               onPressIn={startRecording}
               onPressOut={stopRecording}
             >
-              <Image
-                source={status.isRecording ? icons.micactive : icons.mic}
-                style={styles.iconSmall}
+              <Ionicons
+                name={status.isRecording ? "radio-button-on" : "mic-outline"}
+                size={20}
+                color={theme.COLORS.white}
               />
             </Pressable>
           ) : (
@@ -614,7 +623,7 @@ export default function PrivateRoom() {
               onPress={handleSend}
               disabled={sending}
             >
-              <Image source={icons.send} style={styles.iconSmall} />
+              <Ionicons name="arrow-up" size={21} color={theme.COLORS.white} />
             </TouchableOpacity>
           )}
         </View>
@@ -634,19 +643,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.COLORS.bgMain,
   },
+  headerSafeArea: {
+    backgroundColor: theme.COLORS.bgWhite,
+  },
   headerWrapper: {
     zIndex: 10,
     elevation: 5,
+    backgroundColor: theme.COLORS.bgWhite,
+  },
+  messageList: {
+    flex: 1,
+    backgroundColor: "#F7F6FB",
   },
   jumpToUnread: {
     position: "absolute",
-    top: theme.SIZING.headerHeight + theme.SPACING.sm,
-    left: theme.LAYOUT.listPaddingHorizontal,
-    right: theme.LAYOUT.listPaddingHorizontal,
-    backgroundColor: theme.COLORS.primary,
-    paddingVertical: theme.SPACING.sm,
+    top: theme.SIZING.headerHeight + theme.SPACING.xxxxxl,
+    left: theme.LAYOUT.contentPadding,
+    right: theme.LAYOUT.contentPadding,
+    backgroundColor: theme.COLORS.textPrimary,
+    paddingVertical: theme.SPACING.md,
     paddingHorizontal: theme.SPACING.lg,
-    borderRadius: theme.BORDER_RADIUS.xxxxl,
+    borderRadius: 17,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -667,11 +684,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "center",
   },
-  jumpChevron: {
-    color: theme.COLORS.textWhite,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
   dateHeader: {
     alignItems: "center",
     paddingVertical: theme.SPACING.xs,
@@ -680,24 +692,44 @@ const styles = StyleSheet.create({
   dateHeaderText: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textMuted,
-    backgroundColor: theme.COLORS.bgLight,
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.xs,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    color: theme.COLORS.textSecondary,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: "#ECEAF4",
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.full,
   },
   messageSeparator: {
     height: theme.SPACING.xs,
   },
   emptyState: {
-    flex: 1,
+    minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: theme.SPACING.xxxxxl,
     paddingVertical: theme.SPACING.xxxxl,
   },
+  emptyStateIcon: {
+    width: 66,
+    height: 66,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEEAFE",
+    marginBottom: theme.SPACING.lg,
+  },
+  emptyStateTitle: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    marginBottom: theme.SPACING.xs,
+  },
   emptyStateText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    lineHeight: 20,
+    textAlign: "center",
   },
   loadingMore: {
     paddingVertical: theme.SPACING.md,
@@ -709,13 +741,14 @@ const styles = StyleSheet.create({
   },
   floatingInputWrapper: {
     position: "absolute",
-    left: theme.LAYOUT.contentPadding,
-    right: theme.LAYOUT.contentPadding,
-    bottom: 8,
+    left: theme.SPACING.md,
+    right: theme.SPACING.md,
     backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    ...theme.SHADOWS.lg,
-    paddingHorizontal: theme.SPACING.md,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: "#EAE8F1",
+    ...theme.SHADOWS.md,
+    paddingHorizontal: theme.SPACING.sm,
     paddingVertical: theme.SPACING.sm,
     flexDirection: "column",
     zIndex: 20,
@@ -724,12 +757,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: theme.SPACING.sm,
-    paddingLeft: theme.SPACING.md,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.COLORS.primary,
-    backgroundColor: theme.COLORS.bgLight,
-    borderRadius: theme.BORDER_RADIUS.md,
-    paddingVertical: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.md,
+    backgroundColor: "#F7F6FB",
+    borderRadius: 14,
+    paddingVertical: theme.SPACING.sm,
   },
   replyPreviewLine: {
     width: 3,
@@ -757,25 +788,27 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
+    gap: theme.SPACING.sm,
   },
   attachButton: {
-    width: theme.SIZING.bottomBar,
-    height: theme.SIZING.bottomBar,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxxl,
+    width: 43,
+    height: 43,
+    borderRadius: 15,
     backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: theme.SPACING.sm,
   },
   textInputWrapper: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgInput,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
+    backgroundColor: "#F7F6FB",
+    borderRadius: 17,
     paddingHorizontal: theme.SPACING.lg,
     paddingVertical: theme.SPACING.sm,
     borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
-    minHeight: theme.SIZING.bottomBar,
+    borderColor: "#ECEAF4",
+    minHeight: 43,
     justifyContent: "center",
   },
   textInput: {
@@ -787,18 +820,13 @@ const styles = StyleSheet.create({
     textAlignVertical: "center",
   },
   sendButton: {
-    width: theme.SIZING.sendButton,
-    height: theme.SIZING.sendButton,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
+    width: 43,
+    height: 43,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.primary,
     ...theme.SHADOWS.primary,
-    marginLeft: theme.SPACING.sm,
-  },
-  iconSmall: {
-    width: theme.SIZING.iconSm,
-    height: theme.SIZING.iconSm,
   },
   micButtonActive: {
     transform: [{ scale: 1.2 }],
