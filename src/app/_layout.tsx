@@ -214,6 +214,14 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="editProfile"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="settings"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="stories/viewer"
                         options={{
                           headerShown: false,

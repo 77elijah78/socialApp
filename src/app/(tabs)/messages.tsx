@@ -421,11 +421,11 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     paddingHorizontal: theme.SPACING.xxl,
-    paddingVertical: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.md,
     gap: theme.SPACING.sm,
   },
   filterChip: {
-    minHeight: 38,
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.sm,
@@ -448,8 +448,8 @@ const styles = StyleSheet.create({
     color: theme.COLORS.white,
   },
   filterCount: {
-    minWidth: 21,
-    height: 21,
+    minWidth: 18,
+    height: 18,
     paddingHorizontal: 5,
     borderRadius: 11,
     backgroundColor: theme.COLORS.bgInput,
