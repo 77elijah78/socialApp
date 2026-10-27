@@ -36,6 +36,7 @@ interface BackendConversation {
 
 interface RoomWithReceiver extends Omit<RoomRow, 'receiverId' | 'lastMessageStatus'> {
   receiverId?: string | null;
+  receiverUsername?: string;
   lastMessageStatus?: string;
 }
 
@@ -83,6 +84,7 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
     lastMessageTimestamp,
     unreadCount,
     receiverId: receiverId ?? null,
+    receiverUsername: otherParticipant?.user.username,
     lastMessageStatus,
     cachedAt: Date.now(),
     updatedAt: Date.now(),
@@ -147,8 +149,8 @@ export function useRooms() {
   }, [token, currentUserId]);
 
   useEffect(() => {
-    void loadLocalRooms();
-    void fetchConversations();
+    void Promise.resolve().then(loadLocalRooms);
+    void Promise.resolve().then(fetchConversations);
 
     const unsub = socketReceiver.on("message:notification", async (msg: MessageRow) => {
       if (!cancelledRef.current) {

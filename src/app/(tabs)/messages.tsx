@@ -289,6 +289,7 @@ export default function Messages() {
                     conversationId: item.conversationId,
                     roomId: item.id,
                     receiverName: item.name,
+                    receiverUsername: item.receiverUsername ?? "",
                     receiverAvatar: item.avatarUrl,
                     receiverId: item.receiverId ?? "",
                   },
