@@ -1,19 +1,22 @@
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  StyleSheet,
-  Pressable,
-  Alert,
+  ActivityIndicator,
   FlatList,
   Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import theme from "@/constants/theme";
+import { showAppDialog } from "@/services/AppDialogService";
 import { PickedFile } from "@/types";
 
 interface Props {
@@ -22,41 +25,55 @@ interface Props {
   onSend: (files: PickedFile[]) => void;
 }
 
-export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
-  const [pickedFiles, setPickedFiles] = useState<
-    (PickedFile & { selected: boolean })[]
-  >([]);
+interface SelectableFile extends PickedFile {
+  selected: boolean;
+}
 
-  // ─────────────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────────────
+const SOURCE_OPTIONS = [
+  { key: "camera", icon: "camera-outline", label: "Camera", caption: "Take a photo" },
+  { key: "image", icon: "image-outline", label: "Photos", caption: "Choose images" },
+  { key: "video", icon: "videocam-outline", label: "Video", caption: "Choose a clip" },
+  { key: "audio", icon: "musical-notes-outline", label: "Audio", caption: "Send a track" },
+  { key: "file", icon: "document-outline", label: "File", caption: "Browse files" },
+] as const;
+
+export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
+  const insets = useSafeAreaInsets();
+  const [pickedFiles, setPickedFiles] = useState<SelectableFile[]>([]);
+  const [openingSource, setOpeningSource] = useState(false);
 
   const addFiles = (files: PickedFile[]) => {
-    const formatted = files.map((file) => ({
-      ...file,
-      selected: true,
-    }));
-    setPickedFiles((prev) => [...prev, ...formatted]);
+    setPickedFiles((previous) => {
+      const existing = new Set(previous.map((file) => file.uri));
+      const next = files
+        .filter((file) => !existing.has(file.uri))
+        .map((file) => ({ ...file, selected: true }));
+      return [...previous, ...next];
+    });
   };
 
   const toggleSelect = (uri: string) => {
-    setPickedFiles((prev) =>
-      prev.map((file) =>
+    setPickedFiles((previous) =>
+      previous.map((file) =>
         file.uri === uri ? { ...file, selected: !file.selected } : file,
       ),
     );
   };
 
   const removeFile = (uri: string) => {
-    setPickedFiles((prev) => prev.filter((file) => file.uri !== uri));
+    setPickedFiles((previous) => previous.filter((file) => file.uri !== uri));
   };
 
   const clearAll = () => setPickedFiles([]);
 
   const handleSend = () => {
-    const selectedFiles = pickedFiles.filter((f) => f.selected);
+    const selectedFiles = pickedFiles.filter((file) => file.selected);
     if (!selectedFiles.length) {
-      Alert.alert("No file selected");
+      showAppDialog({
+        title: "Nothing selected",
+        message: "Choose at least one attachment before sending.",
+        tone: "warning",
+      });
       return;
     }
 
@@ -74,324 +91,564 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // ─────────────────────────────────────────────
-  // Pickers
-  // ─────────────────────────────────────────────
+  const requestLibraryAccess = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.granted) return true;
+    showAppDialog({
+      title: "Photo library access needed",
+      message: "Allow access to your photos in device settings to attach media.",
+      tone: "warning",
+    });
+    return false;
+  };
 
   const pickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      addFiles(
-        result.assets.map((a) => ({
-          uri: a.uri,
-          name: a.fileName ?? `image_${Date.now()}.jpg`,
-          type: a.mimeType ?? "image/jpeg",
-          size: a.fileSize,
-        })),
-      );
+    if (!(await requestLibraryAccess())) return;
+    setOpeningSource(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
+      if (!result.canceled) {
+        addFiles(
+          result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName ?? `image_${Date.now()}.jpg`,
+            type: asset.mimeType ?? "image/jpeg",
+            size: asset.fileSize,
+          })),
+        );
+      }
+    } finally {
+      setOpeningSource(false);
     }
   };
 
   const pickVideo = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsMultipleSelection: true,
-    });
-
-    if (!result.canceled) {
-      addFiles(
-        result.assets.map((a) => ({
-          uri: a.uri,
-          name: a.fileName ?? `video_${Date.now()}.mp4`,
-          type: a.mimeType ?? "video/mp4",
-          size: a.fileSize,
-        })),
-      );
+    if (!(await requestLibraryAccess())) return;
+    setOpeningSource(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsMultipleSelection: true,
+      });
+      if (!result.canceled) {
+        addFiles(
+          result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName ?? `video_${Date.now()}.mp4`,
+            type: asset.mimeType ?? "video/mp4",
+            size: asset.fileSize,
+          })),
+        );
+      }
+    } finally {
+      setOpeningSource(false);
     }
   };
 
   const pickAudio = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "audio/*",
-      multiple: true,
-    });
-
-    if (!result.canceled) {
-      addFiles(
-        result.assets.map((a) => ({
-          uri: a.uri,
-          name: a.name,
-          type: a.mimeType ?? "audio/mpeg",
-          size: a.size,
-        })),
-      );
+    setOpeningSource(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        multiple: true,
+      });
+      if (!result.canceled) {
+        addFiles(
+          result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType ?? "audio/mpeg",
+            size: asset.size,
+          })),
+        );
+      }
+    } finally {
+      setOpeningSource(false);
     }
   };
 
   const takePhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission required", "Please allow camera access.");
+      showAppDialog({
+        title: "Camera access needed",
+        message: "Allow camera access in device settings to take a photo.",
+        tone: "warning",
+      });
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-    });
-    if (!result.canceled) {
-      addFiles(
-        result.assets.map((a) => ({
-          uri: a.uri,
-          name: a.fileName ?? `image_${Date.now()}.jpg`,
-          type: a.mimeType ?? "image/jpeg",
-          size: a.fileSize,
-        })),
-      );
+
+    setOpeningSource(true);
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: true,
+      });
+      if (!result.canceled) {
+        addFiles(
+          result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName ?? `image_${Date.now()}.jpg`,
+            type: asset.mimeType ?? "image/jpeg",
+            size: asset.fileSize,
+          })),
+        );
+      }
+    } finally {
+      setOpeningSource(false);
     }
   };
 
   const pickFile = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "*/*",
-      multiple: true,
-    });
-
-    if (!result.canceled) {
-      addFiles(
-        result.assets.map((a) => ({
-          uri: a.uri,
-          name: a.name,
-          type: a.mimeType ?? "application/octet-stream",
-          size: a.size,
-        })),
-      );
+    setOpeningSource(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        multiple: true,
+      });
+      if (!result.canceled) {
+        addFiles(
+          result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType ?? "application/octet-stream",
+            size: asset.size,
+          })),
+        );
+      }
+    } finally {
+      setOpeningSource(false);
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Render File Item
-  // ─────────────────────────────────────────────
+  const handlePickSource = (source: (typeof SOURCE_OPTIONS)[number]["key"]) => {
+    switch (source) {
+      case "camera":
+        void takePhoto();
+        break;
+      case "image":
+        void pickImage();
+        break;
+      case "video":
+        void pickVideo();
+        break;
+      case "audio":
+        void pickAudio();
+        break;
+      case "file":
+        void pickFile();
+        break;
+    }
+  };
 
-  const renderFileItem = ({ item }: any) => (
+  const renderFileItem = ({ item }: { item: SelectableFile }) => (
     <View style={styles.fileItem}>
-      <TouchableOpacity onPress={() => toggleSelect(item.uri)}>
+      <TouchableOpacity
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: item.selected }}
+        onPress={() => toggleSelect(item.uri)}
+        style={styles.fileSelect}
+        activeOpacity={0.75}
+      >
         {isImage(item.type) ? (
           <Image source={{ uri: item.uri }} style={styles.thumbnail} />
         ) : (
           <View style={styles.fileIcon}>
             <Ionicons
-              name="document-outline"
-              size={22}
+              name={item.type.startsWith("video/") ? "videocam-outline" : item.type.startsWith("audio/") ? "musical-notes-outline" : "document-outline"}
+              size={20}
               color={theme.COLORS.primary}
             />
           </View>
         )}
-
-        {/* Check badge */}
-        <View
-          style={[
-            styles.checkBadge,
-            {
-              backgroundColor: item.selected
-                ? theme.COLORS.primary
-                : theme.COLORS.bgWhite,
-            },
-          ]}
-        >
-          {item.selected && (
-            <Ionicons name="checkmark" size={14} color={theme.COLORS.white} />
-          )}
+        <View style={[styles.checkBadge, item.selected && styles.checkBadgeSelected]}>
+          {item.selected ? <Ionicons name="checkmark" size={12} color={theme.COLORS.white} /> : null}
         </View>
       </TouchableOpacity>
 
-      <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={styles.fileName}>
-          {item.name}
-        </Text>
-        <Text style={styles.fileSize}>{formatSize(item.size)}</Text>
+      <View style={styles.fileInfo}>
+        <Text numberOfLines={1} style={styles.fileName}>{item.name}</Text>
+        <Text style={styles.fileSize}>{formatSize(item.size) || "Attachment"}</Text>
       </View>
 
-      <TouchableOpacity onPress={() => removeFile(item.uri)}>
-        <Ionicons name="close" size={18} color={theme.COLORS.danger} />
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${item.name}`}
+        onPress={() => removeFile(item.uri)}
+        style={styles.removeFileButton}
+      >
+        <Ionicons name="close" size={17} color={theme.COLORS.textSecondary} />
       </TouchableOpacity>
     </View>
   );
 
-  // ─────────────────────────────────────────────
-  // UI
-  // ─────────────────────────────────────────────
-
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.modalContainer}>
+    <Modal
+      visible={visible}
+      transparent
+      statusBarTranslucent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, theme.SPACING.xl) }]}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Attach Files</Text>
-
-          {/* Picker Options */}
-          <View style={styles.optionsRow}>
-            <Option icon="camera-outline" label="Camera" onPress={takePhoto} />
-            <Option icon="image-outline" label="Image" onPress={pickImage} />
-            <Option icon="videocam-outline" label="Video" onPress={pickVideo} />
-            <Option
-              icon="musical-notes-outline"
-              label="Audio"
-              onPress={pickAudio}
-            />
-            <Option icon="document-outline" label="File" onPress={pickFile} />
+          <View style={styles.header}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="attach-outline" size={20} color={theme.COLORS.primary} />
+            </View>
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>Add to your message</Text>
+              <Text style={styles.subtitle}>Photos, voice notes and files</Text>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close attachments"
+              onPress={onClose}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={20} color={theme.COLORS.textSecondary} />
+            </TouchableOpacity>
           </View>
 
-          {/* Selected Files */}
-          {pickedFiles.length > 0 && (
-            <>
-              <FlatList
-                data={pickedFiles}
-                keyExtractor={(item) => item.uri}
-                renderItem={renderFileItem}
-                style={{ marginTop: theme.SPACING.lg }}
-              />
+          <View style={styles.sourceGrid}>
+            {SOURCE_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                accessibilityRole="button"
+                style={styles.sourceTile}
+                onPress={() => handlePickSource(option.key)}
+                disabled={openingSource}
+                activeOpacity={0.75}
+              >
+                <View style={styles.sourceIcon}>
+                  <Ionicons name={option.icon} size={21} color={theme.COLORS.primary} />
+                </View>
+                <Text style={styles.sourceLabel}>{option.label}</Text>
+                <Text style={styles.sourceCaption}>{option.caption}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-              <View style={styles.actionsRow}>
-                <TouchableOpacity onPress={clearAll}>
-                  <Text style={{ color: theme.COLORS.danger }}>Clear</Text>
-                </TouchableOpacity>
+          {openingSource ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color={theme.COLORS.primary} />
+              <Text style={styles.loadingText}>Opening picker…</Text>
+            </View>
+          ) : null}
 
-                <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
-                  <Text
-                    style={{
-                      color: theme.COLORS.white,
-                      fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-                    }}
-                  >
-                    Send ({pickedFiles.filter((f) => f.selected).length})
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
+          <View style={styles.selectedHeader}>
+            <View>
+              <Text style={styles.selectedTitle}>Selected files</Text>
+              <Text style={styles.selectedSubtitle}>
+                {pickedFiles.length ? `${pickedFiles.length} ready to attach` : "Choose any source above to begin"}
+              </Text>
+            </View>
+            {pickedFiles.length ? (
+              <TouchableOpacity onPress={clearAll} activeOpacity={0.75}>
+                <Text style={styles.clearText}>Clear all</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {pickedFiles.length ? (
+            <FlatList
+              data={pickedFiles}
+              keyExtractor={(item) => item.uri}
+              renderItem={renderFileItem}
+              style={styles.fileList}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.emptyFiles}>
+              <Ionicons name="add-circle-outline" size={20} color={theme.COLORS.textMuted} />
+              <Text style={styles.emptyFilesText}>Your chosen attachments will appear here.</Text>
+            </View>
           )}
-        </Pressable>
-      </Pressable>
+
+          <View style={styles.footer}>
+            <Text style={styles.selectionCount}>
+              {pickedFiles.filter((file) => file.selected).length} selected
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                !pickedFiles.some((file) => file.selected) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!pickedFiles.some((file) => file.selected)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="paper-plane" size={16} color={theme.COLORS.white} />
+              <Text style={styles.sendButtonText}>Send files</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
     </Modal>
   );
 }
 
-// ─────────────────────────────────────────────
-// Option Button
-// ─────────────────────────────────────────────
-
-const Option = ({ icon, label, onPress }: any) => (
-  <TouchableOpacity style={styles.option} onPress={onPress}>
-    <Ionicons name={icon} size={22} color={theme.COLORS.primary} />
-    <Text style={styles.optionText}>{label}</Text>
-  </TouchableOpacity>
-);
-
-// ─────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  overlay: {
+  modalRoot: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: theme.COLORS.transparent,
   },
-  modalContainer: {
+  backdrop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(20,18,42,0.44)",
+  },
+  sheet: {
+    maxHeight: "91%",
     backgroundColor: theme.COLORS.bgWhite,
-    padding: theme.SPACING.xl,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xl,
-    maxHeight: "85%",
+    paddingHorizontal: theme.SPACING.xxl,
+    paddingTop: theme.SPACING.md,
+    paddingBottom: theme.SPACING.xl,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    shadowColor: "#17152B",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 22,
   },
   handle: {
-    width: theme.SIZING.avatarLg,
-    height: 5,
-    backgroundColor: theme.COLORS.textMuted,
+    width: 38,
+    height: 4,
     borderRadius: theme.BORDER_RADIUS.full,
     alignSelf: "center",
-    marginBottom: theme.SPACING.lg,
-    opacity: 0.4,
+    backgroundColor: "#D9D7E3",
+    marginBottom: theme.SPACING.xl,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: theme.SPACING.xl,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  headerCopy: {
+    flex: 1,
+    marginLeft: theme.SPACING.md,
   },
   title: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xxxl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    textAlign: "center",
-    marginBottom: theme.SPACING.lg,
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
-  optionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  option: {
-    alignItems: "center",
-  },
-  optionText: {
+  subtitle: {
+    color: theme.COLORS.textMuted,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
-    marginTop: theme.SPACING.sm,
-    color: theme.COLORS.textSecondary,
+    marginTop: 3,
   },
-  fileItem: {
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 13,
+    backgroundColor: theme.COLORS.bgInput,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.SPACING.sm,
+    marginBottom: theme.SPACING.xl,
+  },
+  sourceTile: {
+    width: "31.5%",
+    minHeight: 91,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: 17,
+    backgroundColor: "#F8F7FC",
+    borderWidth: 1,
+    borderColor: "#ECEAF4",
+  },
+  sourceIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: theme.COLORS.primaryGhost,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 7,
+  },
+  sourceLabel: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  sourceCaption: {
+    color: theme.COLORS.textMuted,
+    fontSize: 9,
+    marginTop: 2,
+  },
+  loadingRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    marginTop: -theme.SPACING.md,
     marginBottom: theme.SPACING.md,
   },
-  thumbnail: {
-    width: theme.SIZING.avatarLg,
-    height: theme.SIZING.avatarLg,
-    borderRadius: theme.BORDER_RADIUS.md,
+  loadingText: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+  },
+  selectedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: theme.SPACING.md,
+  },
+  selectedTitle: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  selectedSubtitle: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginTop: 3,
+  },
+  clearText: {
+    color: theme.COLORS.danger,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  fileList: {
+    maxHeight: 180,
+  },
+  fileItem: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#ECEAF4",
+    paddingVertical: theme.SPACING.sm,
+  },
+  fileSelect: {
+    position: "relative",
     marginRight: theme.SPACING.md,
+  },
+  thumbnail: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: theme.COLORS.bgInput,
   },
   fileIcon: {
-    width: theme.SIZING.avatarLg,
-    height: theme.SIZING.avatarLg,
-    borderRadius: theme.BORDER_RADIUS.md,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     backgroundColor: theme.COLORS.primaryGhost,
-    justifyContent: "center",
     alignItems: "center",
-    marginRight: theme.SPACING.md,
-  },
-  fileName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    color: theme.COLORS.textPrimary,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  fileSize: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textMuted,
+    justifyContent: "center",
   },
   checkBadge: {
     position: "absolute",
-    top: -6,
-    right: 6,
-    width: theme.SIZING.iconXs,
-    height: theme.SIZING.iconXs,
-    borderRadius: theme.BORDER_RADIUS.xl,
-    justifyContent: "center",
-    alignItems: "center",
+    right: -4,
+    bottom: -4,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: theme.COLORS.bgWhite,
     borderWidth: 1,
+    borderColor: "#D8D6E2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkBadgeSelected: {
+    backgroundColor: theme.COLORS.primary,
     borderColor: theme.COLORS.primary,
   },
-  actionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: theme.SPACING.lg,
+  fileInfo: {
+    flex: 1,
+    minWidth: 0,
   },
-  sendBtn: {
-    backgroundColor: theme.COLORS.primary,
+  fileName: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  fileSize: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginTop: 3,
+  },
+  removeFileButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    marginLeft: theme.SPACING.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgInput,
+  },
+  emptyFiles: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    borderRadius: 14,
+    backgroundColor: "#F8F7FC",
+    marginBottom: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.md,
+  },
+  emptyFilesText: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: theme.SPACING.md,
+    paddingTop: theme.SPACING.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#ECEAF4",
+  },
+  selectionCount: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
+  sendButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
     paddingHorizontal: theme.SPACING.xl,
-    paddingVertical: theme.SPACING.sm,
-    borderRadius: theme.BORDER_RADIUS.full,
+    borderRadius: 15,
+    backgroundColor: theme.COLORS.primary,
     ...theme.SHADOWS.primary,
+  },
+  sendButtonDisabled: {
+    opacity: 0.45,
+  },
+  sendButtonText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
 });

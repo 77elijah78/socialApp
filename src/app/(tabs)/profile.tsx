@@ -1,389 +1,419 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  Image,
-  StyleSheet,
-  Dimensions,
   ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
   RefreshControl,
-  Alert,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import theme from '@/constants/theme';
-import { useAppSelector, useAppDispatch } from '@/store/hooks';
-import { router } from 'expo-router';
-import { logout } from '@/store/slices/authSlice';
-import { authService } from '@/services/AuthService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '@/services/api';
-import { PostResponse, SocialPost } from '@/types';
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import theme from "@/constants/theme";
+import { api } from "@/services/api";
+import { useAppSelector } from "@/store/hooks";
+import { PostResponse, SocialPost } from "@/types";
+
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
-const GRID_ITEM_SIZE = (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
 
-type ProfileTab = 'views' | 'likes';
+type ProfileTab = "posts" | "likes";
 
-interface MenuItem {
+interface ProfileData {
   id: string;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-  danger?: boolean;
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  isVerified: boolean;
+  _count?: { posts: number; followers: number; following: number };
+}
+
+function formatCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(count);
+}
+
+function mapPostResponse(post: PostResponse): SocialPost {
+  return {
+    ...post,
+    timestamp: new Date(post.createdAt).toISOString(),
+    imageUrl: post.imageUrls?.[0] ?? "",
+    tags: [],
+    likeCount: post._count?.likes ?? 0,
+    commentCount: post._count?.comments ?? 0,
+    shareCount: post.shareCount ?? 0,
+    isLiked: post.isLiked ?? false,
+    isBookmarked: post.isSaved ?? false,
+  };
 }
 
 export default function ProfileScreen() {
   const user = useAppSelector((state) => state.auth.user);
   const token = useAppSelector((state) => state.auth.token);
-  const dispatch = useAppDispatch();
-
-  const [activeTab, setActiveTab] = useState<ProfileTab>('views');
-  const [profileData, setProfileData] = useState<any>(null);
+  const { width: screenWidth } = useWindowDimensions();
+  const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [likedPosts, setLikedPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const displayName = user?.displayName || user?.username || 'User';
-  const username = user?.username ? `@${user.username}` : '';
-  const avatarUrl = user?.avatarUrl || null;
-  const currentUsername = user?.username ?? '';
+  const currentUsername = user?.username ?? "";
+  const displayName =
+    profileData?.displayName || user?.displayName || user?.username || "Your profile";
+  const username = profileData?.username || user?.username || "";
+  const avatarUrl = profileData?.avatarUrl ?? user?.avatarUrl ?? null;
+  const bio = profileData?.bio ?? user?.bio ?? null;
+  const initial = displayName.charAt(0).toUpperCase() || "Y";
+  const counts = profileData?._count ?? { posts: posts.length, followers: 0, following: 0 };
+  const currentPosts = activeTab === "posts" ? posts : likedPosts;
+  const gridItemSize =
+    (screenWidth - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
+    GRID_COLUMNS;
 
   const fetchProfile = useCallback(async () => {
     if (!token || !currentUsername) return;
     try {
-      const resp = await api.get<{ success: boolean; data: any }>(
+      const response = await api.get<{ success: boolean; data: ProfileData }>(
         `/users/${currentUsername}`,
         token,
       );
-      setProfileData(resp.data);
-    } catch (err) {
-      console.warn('Failed to load profile stats:', err);
+      setProfileData(response.data);
+    } catch (error) {
+      console.warn("Failed to load profile stats:", error);
     }
   }, [token, currentUsername]);
 
   const fetchPosts = useCallback(async () => {
     if (!token || !currentUsername) return;
     try {
-      const resp = await api.get<{
+      const response = await api.get<{
         success: boolean;
-        data: { user: any; posts: PostResponse[]; total: number };
+        data: { user: ProfileData; posts: PostResponse[]; total: number };
       }>(`/posts/user/${currentUsername}?page=1&limit=50`, token);
-      const mapped = (resp.data.posts ?? []).map(mapPostResponse);
-      setPosts(mapped);
-    } catch (err) {
-      console.warn('Failed to load posts:', err);
+      setProfileData((previous) => ({
+        ...(previous ?? response.data.user),
+        ...response.data.user,
+      }));
+      setPosts((response.data.posts ?? []).map(mapPostResponse));
+    } catch (error) {
+      console.warn("Failed to load profile posts:", error);
     }
   }, [token, currentUsername]);
 
   const fetchLikedPosts = useCallback(async () => {
     if (!token) return;
     try {
-      const resp = await api.get<{
+      const response = await api.get<{
         success: boolean;
         data: { posts: PostResponse[]; total: number };
-      }>('/posts/liked?page=1&limit=50', token);
-      const mapped = (resp.data.posts ?? []).map(mapPostResponse);
-      setLikedPosts(mapped);
-    } catch (err) {
-      console.warn('Failed to load liked posts:', err);
+      }>("/posts/liked?page=1&limit=50", token);
+      setLikedPosts((response.data.posts ?? []).map(mapPostResponse));
+    } catch (error) {
+      console.warn("Failed to load liked posts:", error);
     }
   }, [token]);
 
   useEffect(() => {
     let cancelled = false;
-    async function loadAll() {
+
+    const loadProfile = async () => {
+      if (!token || !currentUsername) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
       if (!cancelled) setLoading(false);
-    }
-    loadAll();
-    return () => { cancelled = true; };
-  }, [fetchProfile, fetchPosts, fetchLikedPosts]);
+    };
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, currentUsername, fetchProfile, fetchPosts, fetchLikedPosts]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
-    setRefreshing(false);
+    try {
+      await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchProfile, fetchPosts, fetchLikedPosts]);
 
-  const currentData = activeTab === 'views' ? posts : likedPosts;
-
-  const menuItems = [
-    {
-      id: 'edit',
-      label: 'Edit Profile',
-      icon: 'create-outline' as const,
-      onPress: () => router.push('/editProfile'),
-    },
-    {
-      id: 'bookmarks',
-      label: 'Bookmarks',
-      icon: 'bookmark-outline' as const,
-      onPress: () => router.push('/bookmarks'),
-    },
-    {
-      id: 'settings',
-      label: 'Settings',
-      icon: 'settings-outline' as const,
-      onPress: () => router.push('/settings'),
-    },
-    {
-      id: 'logout',
-      label: 'Log Out',
-      icon: 'log-out-outline' as const,
-      onPress: () =>
-        Alert.alert('Log Out', 'Are you sure you want to log out?', [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Log Out',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await authService.logout();
-              } catch (err) {
-                console.warn('Logout error:', err);
-              } finally {
-                dispatch(logout());
-                await AsyncStorage.removeItem('refreshToken');
-                router.replace('/(auth)/login');
-              }
-            },
-          },
-        ]),
-      danger: true,
-    },
-  ];
-
-  const renderHeader = useCallback(() => {
-    const stats = profileData?._count ?? { posts: 0, followers: 0, following: 0 };
-    return (
-      <View>
-        <View style={styles.coverContainer}>
-          <View style={styles.coverPlaceholder}>
-            <Ionicons name="images-outline" size={40} color={theme.COLORS.textMuted} />
+  const renderProfileHeader = useCallback(() => (
+    <View>
+      <View style={styles.profileCard}>
+        <LinearGradient
+          colors={[theme.COLORS.primary, theme.COLORS.accentPurple, "#8B74E8"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.cover}
+        >
+          <View style={styles.coverOrbLarge} />
+          <View style={styles.coverOrbSmall} />
+          <View style={styles.coverLabel}>
+            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
+            <Text style={styles.coverLabelText}>YOUR CREATOR SPACE</Text>
           </View>
-        </View>
+          <Ionicons name="aperture-outline" size={24} color="rgba(255,255,255,0.8)" />
+        </LinearGradient>
 
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatarWrapper}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarInitial}>
-                  {displayName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+        <View style={styles.profileContent}>
+          <View style={styles.avatarOverlapRow}>
+            <View style={styles.avatarShell}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarFallback]}>
+                  <Text style={styles.avatarInitial}>{initial}</Text>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.infoSection}>
           <View style={styles.nameRow}>
-            <Text style={styles.displayName}>{displayName}</Text>
+            <Text style={styles.displayName} numberOfLines={1}>{displayName}</Text>
+            {profileData?.isVerified ? (
+              <Ionicons name="checkmark-circle" size={18} color={theme.COLORS.primary} />
+            ) : null}
           </View>
-          {username ? <Text style={styles.username}>{username}</Text> : null}
+          {username ? <Text style={styles.username}>@{username}</Text> : null}
+          {bio ? <Text style={styles.bio}>{bio}</Text> : null}
 
           <View style={styles.statsRow}>
-            <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(stats.posts ?? 0)}</Text>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{formatCount(counts.posts ?? posts.length)}</Text>
               <Text style={styles.statLabel}>Posts</Text>
-            </Pressable>
+            </View>
             <View style={styles.statDivider} />
-            <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(stats.followers ?? 0)}</Text>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{formatCount(counts.followers ?? 0)}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </Pressable>
+            </View>
             <View style={styles.statDivider} />
-            <Pressable style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(stats.following ?? 0)}</Text>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{formatCount(counts.following ?? 0)}</Text>
               <Text style={styles.statLabel}>Following</Text>
-            </Pressable>
+            </View>
           </View>
 
-          <View style={styles.actionRow}>
-            <Pressable style={styles.primaryButton} onPress={() => router.push('/editProfile')}>
-              <Text style={styles.primaryButtonText}>Edit Profile</Text>
+          <View style={styles.actionsRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/editProfile")}
+              style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}
+            >
+              <Ionicons name="create-outline" size={17} color={theme.COLORS.white} />
+              <Text style={styles.primaryActionText}>Edit profile</Text>
             </Pressable>
-            <Pressable style={styles.secondaryButton}>
-              <Ionicons name="share-outline" size={20} color={theme.COLORS.textPrimary} />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/posts/create")}
+              style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}
+            >
+              <Ionicons name="add" size={19} color={theme.COLORS.primary} />
+              <Text style={styles.secondaryActionText}>New post</Text>
             </Pressable>
           </View>
         </View>
+      </View>
 
-        <View style={styles.tabBar}>
-          {(['views', 'likes'] as ProfileTab[]).map((tab) => (
-            <Pressable
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
+      <View style={styles.tabsSection}>
+        <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "posts" }}
+          style={[styles.profileTab, activeTab === "posts" && styles.profileTabActive]}
+          onPress={() => setActiveTab("posts")}
+        >
+          <Ionicons
+            name="grid-outline"
+            size={17}
+            color={activeTab === "posts" ? theme.COLORS.primary : theme.COLORS.textMuted}
+          />
+          <Text style={[styles.profileTabText, activeTab === "posts" && styles.profileTabTextActive]}>Posts</Text>
+          <Text style={[styles.profileTabCount, activeTab === "posts" && styles.profileTabTextActive]}>
+            {formatCount(posts.length)}
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "likes" }}
+          style={[styles.profileTab, activeTab === "likes" && styles.profileTabActive]}
+          onPress={() => setActiveTab("likes")}
+        >
+          <Ionicons
+            name="heart-outline"
+            size={17}
+            color={activeTab === "likes" ? theme.COLORS.primary : theme.COLORS.textMuted}
+          />
+          <Text style={[styles.profileTabText, activeTab === "likes" && styles.profileTabTextActive]}>Liked</Text>
+          <Text style={[styles.profileTabCount, activeTab === "likes" && styles.profileTabTextActive]}>
+            {formatCount(likedPosts.length)}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  ), [
+    avatarUrl,
+    initial,
+    displayName,
+    profileData?.isVerified,
+    username,
+    bio,
+    counts.posts,
+    counts.followers,
+    counts.following,
+    posts.length,
+    likedPosts.length,
+    activeTab,
+  ]);
+
+  const renderGridItem = useCallback(
+    ({ item }: { item: SocialPost }) => {
+      const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? "";
+      return (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open post by ${item.author.displayName ?? item.author.username}`}
+          style={[styles.gridItem, { width: gridItemSize, height: gridItemSize }]}
+          onPress={() => router.push(`/posts/${item.id}/comments`)}
+        >
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.gridImage} />
+          ) : (
+            <LinearGradient
+              colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
+              style={styles.textPostTile}
             >
+              <Ionicons name="chatbubble-ellipses-outline" size={19} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.textPostContent} numberOfLines={5}>{item.content}</Text>
+            </LinearGradient>
+          )}
+          {imageUrl ? <View style={styles.gridScrim} /> : null}
+          <View style={styles.gridStats}>
+            <View style={styles.gridStat}>
               <Ionicons
-                name={tab === 'views' ? 'eye-outline' : 'heart-outline'}
-                size={22}
-                color={activeTab === tab ? theme.COLORS.primary : theme.COLORS.textMuted}
+                name={activeTab === "likes" ? "heart" : "chatbubble"}
+                size={12}
+                color={theme.COLORS.white}
               />
-              <Text
-                style={[
-                  styles.tabLabel,
-                  activeTab === tab && styles.tabLabelActive,
-                ]}
-              >
-                {tab === 'views' ? 'Views' : 'Likes'}
+              <Text style={styles.gridStatText}>
+                {formatCount(activeTab === "likes" ? item.likeCount ?? 0 : item.commentCount ?? 0)}
               </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-    );
-  }, [displayName, username, avatarUrl, profileData, activeTab]);
-
-  const renderGridItem = useCallback(({ item }: { item: SocialPost }) => {
-    const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';
-    return (
-      <Pressable
-        style={styles.gridItem}
-        onPress={() => router.push(`/posts/${item.id}/comments`)}
-      >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.gridImage} />
-        ) : (
-          <View style={[styles.gridImage, styles.gridPlaceholder]}>
-            <Ionicons name="image-outline" size={24} color={theme.COLORS.textMuted} />
+            </View>
           </View>
-        )}
-        <View style={styles.gridOverlay}>
-          <View style={styles.gridStat}>
-            <Ionicons
-              name={activeTab === 'likes' ? 'heart' : 'eye'}
-              size={12}
-              color={theme.COLORS.white}
-            />
-            <Text style={styles.gridStatText}>
-              {activeTab === 'likes' ? item.likeCount ?? 0 : item.commentCount ?? 0}
-            </Text>
-          </View>
-        </View>
-      </Pressable>
-    );
-  }, [activeTab]);
+        </Pressable>
+      );
+    },
+    [activeTab, gridItemSize],
+  );
 
-  const renderMenuList = useCallback(() => {
-    return (
-      <View style={styles.menuSection}>
-        <Text style={styles.menuTitle}>Account</Text>
-        <View style={styles.menuCard}>
-          {menuItems.map((item, index) => (
-            <Pressable
-              key={item.id}
-              style={[
-                styles.menuItem,
-                index !== menuItems.length - 1 && styles.menuItemBorder,
-              ]}
-              onPress={item.onPress}
-            >
-              <View style={styles.menuItemLeft}>
-                <View
-                  style={[
-                    styles.menuIconContainer,
-                    item.danger && styles.menuIconDanger,
-                  ]}
-                >
-                  <Ionicons
-                    name={item.icon}
-                    size={20}
-                    color={
-                      item.danger
-                        ? theme.COLORS.danger
-                        : theme.COLORS.textSecondary
-                    }
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.menuLabel,
-                    item.danger && styles.menuLabelDanger,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={theme.COLORS.textMuted}
-              />
-            </Pressable>
-          ))}
-        </View>
-      </View>
-    );
-  }, [menuItems]);
-
-  const renderEmptyState = useCallback(() => {
-    return (
-      <View style={styles.emptyState}>
+  const renderEmptyState = useCallback(() => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}>
         <Ionicons
-          name={activeTab === 'likes' ? 'heart-outline' : 'eye-outline'}
-          size={48}
-          color={theme.COLORS.textMuted}
+          name={activeTab === "likes" ? "heart-outline" : "images-outline"}
+          size={25}
+          color={theme.COLORS.primary}
         />
-        <Text style={styles.emptyTitle}>No {activeTab === 'likes' ? 'likes' : 'posts'} yet</Text>
-        <Text style={styles.emptySubtitle}>
-          {activeTab === 'likes'
-            ? 'Posts you like will show up here'
-            : 'Share your first post to see it here'}
-        </Text>
       </View>
+      <Text style={styles.emptyTitle}>
+        {activeTab === "likes" ? "No likes yet" : "Your first post starts here"}
+      </Text>
+      <Text style={styles.emptySubtitle}>
+        {activeTab === "likes"
+          ? "Posts you like will be collected here."
+          : "Share your first post and make this space yours."}
+      </Text>
+      {activeTab === "posts" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/posts/create")}
+          style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}
+        >
+          <Ionicons name="add" size={17} color={theme.COLORS.white} />
+          <Text style={styles.emptyButtonText}>Create a post</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  ), [activeTab]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerEyebrow}>YOUR SPACE</Text>
+            <Text style={styles.headerTitle}>Profile</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.COLORS.primary} />
+          <Text style={styles.loadingText}>Getting your profile ready…</Text>
+        </View>
+      </SafeAreaView>
     );
-  }, [activeTab]);
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <Pressable style={styles.headerIconBtn} onPress={() => router.push('/settings')}>
-          <Ionicons name="settings-outline" size={22} color={theme.COLORS.textPrimary} />
-        </Pressable>
+        <View>
+          <Text style={styles.headerEyebrow}>YOUR SPACE</Text>
+          <Text style={styles.headerTitle}>Profile</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Bookmarks"
+            onPress={() => router.push("/bookmarks")}
+            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="bookmark-outline" size={20} color={theme.COLORS.textPrimary} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            onPress={() => router.push("/settings")}
+            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="settings-outline" size={20} color={theme.COLORS.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.COLORS.primary} />
-        </View>
-      ) : (
-        <FlatList
-          style={styles.list}
-          data={currentData}
-          ListHeaderComponent={renderHeader}
-          ListFooterComponent={
-            <View style={styles.footer}>
-              {renderMenuList()}
-              <View style={{ height: theme.SPACING.xxxxl }} />
-            </View>
-          }
-          contentContainerStyle={styles.listContent}
-          renderItem={renderGridItem}
-          keyExtractor={(item) => item.id}
-          numColumns={GRID_COLUMNS}
-          columnWrapperStyle={styles.gridRow}
-          ListEmptyComponent={renderEmptyState}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.COLORS.primary}
-              colors={[theme.COLORS.primary]}
-            />
-          }
-        />
-      )}
+      <FlatList
+        style={styles.list}
+        data={currentPosts}
+        ListHeaderComponent={renderProfileHeader}
+        ListFooterComponent={<View style={styles.footerSpace} />}
+        contentContainerStyle={styles.listContent}
+        renderItem={renderGridItem}
+        keyExtractor={(item) => item.id}
+        numColumns={GRID_COLUMNS}
+        columnWrapperStyle={styles.gridRow}
+        ListEmptyComponent={renderEmptyState}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.COLORS.primary}
+            colors={[theme.COLORS.primary]}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      />
     </SafeAreaView>
   );
 }
@@ -394,366 +424,366 @@ const styles = StyleSheet.create({
     backgroundColor: theme.COLORS.bgLight,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingTop: theme.SPACING.md,
     paddingBottom: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgLight,
-    ...theme.SHADOWS.xl,
-    zIndex: 10,
+  },
+  headerEyebrow: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    letterSpacing: 1,
   },
   headerTitle: {
+    marginTop: 2,
+    color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textPrimary,
-    letterSpacing: theme.TYPOGRAPHY.letterSpacing.xs,
   },
-  headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: theme.BORDER.width.xs,
+    borderWidth: 1,
     borderColor: theme.COLORS.borderDivider,
   },
   list: {
     flex: 1,
   },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   listContent: {
-    paddingBottom: theme.SPACING.xxxxxl,
+    paddingTop: theme.SPACING.sm,
+    paddingBottom: theme.SPACING.xxxxl,
   },
-  coverContainer: {
-    width: '100%',
-    height: 120,
-    backgroundColor: theme.COLORS.bgInput,
-    position: 'relative',
-  },
-  coverPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.COLORS.bgChat,
-  },
-  coverEditBtn: {
-    position: 'absolute',
-    bottom: theme.SPACING.sm,
-    right: theme.SPACING.md,
-    width: 32,
-    height: 32,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  profileCard: {
+    marginHorizontal: theme.LAYOUT.contentPadding,
+    marginBottom: theme.SPACING.md,
+    borderRadius: 23,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+    overflow: "visible",
     ...theme.SHADOWS.sm,
   },
-  avatarContainer: {
-    marginTop: -theme.SIZING.avatarXl / 2,
-    alignSelf: 'center',
+  cover: {
+    height: 112,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.SPACING.lg,
+    paddingTop: theme.SPACING.lg,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    overflow: "hidden",
   },
-  avatarWrapper: {
-    position: 'relative',
+  coverOrbLarge: {
+    position: "absolute",
+    right: 26,
+    top: -72,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: "rgba(255,255,255,0.11)",
+  },
+  coverOrbSmall: {
+    position: "absolute",
+    right: -32,
+    bottom: -54,
+    width: 126,
+    height: 126,
+    borderRadius: 63,
+    backgroundColor: "rgba(255,255,255,0.09)",
+  },
+  coverLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    paddingVertical: 5,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  coverLabelText: {
+    color: theme.COLORS.white,
+    fontSize: 9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: 0.8,
+  },
+  profileContent: {
+    paddingHorizontal: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.lg,
+  },
+  avatarOverlapRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    marginTop: -38,
+    marginBottom: theme.SPACING.sm,
+  },
+  avatarShell: {
+    width: 84,
+    height: 84,
+    padding: 4,
+    borderRadius: 42,
+    backgroundColor: theme.COLORS.bgWhite,
+    ...theme.SHADOWS.md,
   },
   avatar: {
-    width: theme.SIZING.avatarXl,
-    height: theme.SIZING.avatarXl,
+    width: "100%",
+    height: "100%",
     borderRadius: theme.BORDER_RADIUS.full,
-    borderWidth: theme.BORDER.width.sm,
-    borderColor: theme.COLORS.bgWhite,
+    backgroundColor: theme.COLORS.bgInput,
   },
-  avatarPlaceholder: {
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: theme.COLORS.primaryGhost,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   avatarInitial: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     color: theme.COLORS.primary,
-  },
-  avatarEditBtn: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 24,
-    height: 24,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: theme.COLORS.bgWhite,
-  },
-  infoSection: {
-    alignItems: 'center',
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: theme.SPACING.xs,
   },
   displayName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    flexShrink: 1,
     color: theme.COLORS.textPrimary,
-  },
-  verifiedBadge: {
-    marginLeft: theme.SPACING.xs,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   username: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    marginTop: 3,
     color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.xs,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
   },
   bio: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textSecondary,
     marginTop: theme.SPACING.sm,
-    textAlign: 'center',
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.md,
   },
   statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: theme.SPACING.lg,
     paddingVertical: theme.SPACING.md,
-    width: '100%',
+    borderRadius: 16,
+    backgroundColor: theme.COLORS.bgLight,
   },
   statItem: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   statValue: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   statLabel: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginTop: 2,
     color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.xs,
+    fontSize: 9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   statDivider: {
-    width: theme.BORDER.width.xs,
-    height: 32,
+    width: 1,
+    height: 28,
     backgroundColor: theme.COLORS.borderDivider,
-    marginHorizontal: theme.SPACING.lg,
   },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.md,
+  actionsRow: {
+    flexDirection: "row",
+    gap: theme.SPACING.sm,
     marginTop: theme.SPACING.md,
-    width: '100%',
   },
-  primaryButton: {
+  primaryAction: {
     flex: 1,
-    height: theme.SIZING.buttonHeight,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    backgroundColor: theme.COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...theme.SHADOWS.primary,
-  },
-  primaryButtonText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textOnPrimary,
-  },
-  secondaryButton: {
-    width: theme.SIZING.buttonHeight,
-    height: theme.SIZING.buttonHeight,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    backgroundColor: theme.COLORS.bgWhite,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    marginTop: theme.SPACING.lg,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    borderBottomWidth: theme.BORDER.width.xs,
-    borderBottomColor: theme.COLORS.borderDivider,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: theme.SPACING.xs,
-    paddingVertical: theme.SPACING.md,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    borderRadius: 14,
+    backgroundColor: theme.COLORS.primary,
   },
-  tabActive: {
-    borderBottomColor: theme.COLORS.primary,
-  },
-  tabLabel: {
+  primaryActionText: {
+    color: theme.COLORS.white,
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-    color: theme.COLORS.textMuted,
-    textTransform: 'capitalize',
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
-  tabLabelActive: {
+  secondaryAction: {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.xs,
+    borderRadius: 14,
+    backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
+  },
+  secondaryActionText: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  tabsSection: {
+    flexDirection: "row",
+    marginHorizontal: theme.LAYOUT.contentPadding,
+    marginBottom: theme.SPACING.sm,
+    padding: 4,
+    borderRadius: 17,
+    backgroundColor: "#EAE8F2",
+  },
+  profileTab: {
+    flex: 1,
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.xs,
+    borderRadius: 13,
+  },
+  profileTabActive: {
+    backgroundColor: theme.COLORS.bgWhite,
+    ...theme.SHADOWS.sm,
+  },
+  profileTabText: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
+  profileTabTextActive: {
     color: theme.COLORS.primary,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
+  profileTabCount: {
+    color: theme.COLORS.textMuted,
+    fontSize: 9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
   gridRow: {
     gap: GRID_GAP,
-    marginTop: theme.SPACING.md,
+    marginBottom: GRID_GAP,
     paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
   },
   gridItem: {
-    width: GRID_ITEM_SIZE,
-    height: GRID_ITEM_SIZE,
-    borderRadius: theme.BORDER_RADIUS.sm,
-    overflow: 'hidden',
+    position: "relative",
+    borderRadius: 12,
+    overflow: "hidden",
     backgroundColor: theme.COLORS.bgInput,
   },
-  gridPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.COLORS.bgChat,
-  },
   gridImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
-  gridOverlay: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    flexDirection: 'row',
-    gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+  gridScrim: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(26,26,46,0.12)",
+  },
+  textPostTile: {
+    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    padding: theme.SPACING.md,
+    gap: theme.SPACING.sm,
+  },
+  textPostContent: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  gridStats: {
+    position: "absolute",
+    right: 6,
+    bottom: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: "rgba(26,26,46,0.55)",
   },
   gridStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   gridStatText: {
     color: theme.COLORS.white,
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  footer: {
-    marginTop: theme.SPACING.xxxxl,
-    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
-  },
-  menuSection: {
-    marginBottom: theme.SPACING.xxxxl,
-  },
-  menuTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontSize: 9,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: theme.TYPOGRAPHY.letterSpacing.sm,
-    marginBottom: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.xs,
-  },
-  menuCard: {
-    backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    ...theme.SHADOWS.sm,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
-    overflow: 'hidden',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-  },
-  menuItemBorder: {
-    borderBottomWidth: theme.BORDER.width.xs,
-    borderBottomColor: theme.COLORS.borderDivider,
-  },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.md,
-  },
-  menuIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.BORDER_RADIUS.md,
-    backgroundColor: theme.COLORS.bgLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuIconDanger: {
-    backgroundColor: theme.COLORS.dangerLight,
-  },
-  menuLabel: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textPrimary,
-  },
-  menuLabelDanger: {
-    color: theme.COLORS.danger,
   },
   emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.SPACING.xxxxxl * 2,
+    alignItems: "center",
     paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingVertical: theme.SPACING.xxxxxl,
+  },
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
   },
   emptyTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
     marginTop: theme.SPACING.md,
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    textAlign: "center",
   },
   emptySubtitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textSecondary,
+    maxWidth: 280,
     marginTop: theme.SPACING.xs,
-    textAlign: 'center',
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.md,
+    textAlign: "center",
+  },
+  emptyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+    marginTop: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primary,
+  },
+  emptyButtonText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  footerSpace: {
+    height: 12,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.md,
+  },
+  loadingText: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  pressed: {
+    opacity: theme.OPACITY.pressed,
   },
 });
-
-function mapPostResponse(post: PostResponse): SocialPost {
-  const firstImageUrl = post.imageUrls?.[0] ?? '';
-  const likeCount = post._count?.likes ?? 0;
-  const commentCount = post._count?.comments ?? 0;
-  return {
-    ...post,
-    timestamp: new Date(post.createdAt).toISOString(),
-    imageUrl: firstImageUrl,
-    tags: [],
-    likeCount,
-    commentCount,
-    shareCount: post.shareCount ?? 0,
-    isLiked: post.isLiked ?? false,
-    isBookmarked: post.isSaved ?? false,
-  };
-}
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
-}

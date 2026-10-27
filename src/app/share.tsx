@@ -7,13 +7,13 @@ import {
   TouchableOpacity,
   Share as RNShare,
   Clipboard,
-  Alert,
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import theme from "@/constants/theme";
+import { showAppDialog } from "@/services/AppDialogService";
 
 const SHARE_OPTIONS = [
   {
@@ -56,7 +56,11 @@ export default function ShareScreen() {
   const handleCopyLink = async () => {
     if (!url) return;
     await Clipboard.setString(url);
-    Alert.alert("Copied", "Link copied to clipboard");
+    showAppDialog({
+      title: "Link copied",
+      message: "The link is ready to share.",
+      tone: "success",
+    });
   };
 
   const handleSystemShare = async () => {

@@ -186,10 +186,8 @@ export default function NotificationsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.COLORS.textPrimary} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Notifications</Text>
+          <View style={{ width: 40 }} />
+          <Text style={styles.headerTitle}>Activity</Text>
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.errorContainer}>
@@ -205,14 +203,14 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.COLORS.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        {unreadCount > 0 && (
+        <View style={{ width: 40 }} />
+        <Text style={styles.headerTitle}>Activity</Text>
+        {unreadCount > 0 ? (
           <Pressable style={styles.markAllBtn} onPress={handleMarkAllRead}>
             <Text style={styles.markAllText}>Mark all read</Text>
           </Pressable>
+        ) : (
+          <View style={{ width: 40 }} />
         )}
       </View>
 
@@ -273,9 +271,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.COLORS.bgLight,
-  },
-  backBtn: {
-    padding: 4,
   },
   headerTitle: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,

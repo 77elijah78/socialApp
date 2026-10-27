@@ -1,9 +1,14 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import ActionMenu from "@/components/ui/ActionMenu";
 import AppAlert from "@/components/ui/AppAlert";
 import ShareModal from "@/components/ui/ShareModal";
 import { CommentBottomSheet } from "@/components/posts/CommentBottomSheet";
+import {
+  registerAppDialogHandler,
+  type AppDialogButton,
+  type AppDialogOptions,
+} from "@/services/AppDialogService";
 
 export interface ActionMenuItem {
   key: string;
@@ -13,17 +18,7 @@ export interface ActionMenuItem {
   destructive?: boolean;
 }
 
-export interface AlertOptions {
-  title: string;
-  message?: string;
-  buttons: {
-    key: string;
-    label: string;
-    onPress: () => void;
-    destructive?: boolean;
-    bold?: boolean;
-  }[];
-}
+export type AlertOptions = AppDialogOptions;
 
 export interface ShareOptions {
   postId?: string;
@@ -33,7 +28,7 @@ export interface ShareOptions {
 type OverlayContextValue = {
   openActionMenu: (
     items: ActionMenuItem[],
-    anchor?: { x: number; y: number; width: number; height: number }
+    anchor?: { x: number; y: number; width: number; height: number },
   ) => void;
   closeActionMenu: () => void;
   showAlert: (options: AlertOptions) => void;
@@ -57,76 +52,95 @@ export function useOverlay(): OverlayContextValue {
 export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [actionMenuItems, setActionMenuItems] = useState<ActionMenuItem[]>([]);
-  const [actionMenuAnchor, setActionMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
+  const [actionMenuAnchor, setActionMenuAnchor] = useState<
+    { x: number; y: number; width: number; height: number } | undefined
+  >();
 
   const [alertVisible, setAlertVisible] = useState(false);
-  const [alertTitle, setAlertTitle] = useState("");
-  const [alertMessage, setAlertMessage] = useState("");
-  const [alertButtons, setAlertButtons] = useState<AlertOptions["buttons"]>([]);
+  const [alertOptions, setAlertOptions] = useState<AlertOptions>({
+    title: "",
+    buttons: [],
+  });
 
   const [shareVisible, setShareVisible] = useState(false);
   const [sharePostId, setSharePostId] = useState<string | null>(null);
   const [shareStoryId, setShareStoryId] = useState<string | null>(null);
 
-  const commentSheetRef = React.useRef<{ open: (postId: string) => void; close: () => void }>(null);
+  const commentSheetRef = React.useRef<{
+    open: (postId: string) => void;
+    close: () => void;
+  }>(null);
 
-  const openActionMenu = useCallback((items: ActionMenuItem[], anchor?: { x: number; y: number; width: number; height: number }) => {
-    console.log("[OverlayProvider] openActionMenu called, items:", items.length, "anchor:", !!anchor);
-    setActionMenuItems(items);
-    setActionMenuAnchor(anchor);
-    setActionMenuVisible(true);
-  }, []);
+  const openActionMenu = useCallback(
+    (
+      items: ActionMenuItem[],
+      anchor?: { x: number; y: number; width: number; height: number },
+    ) => {
+      setActionMenuItems(items);
+      setActionMenuAnchor(anchor);
+      setActionMenuVisible(true);
+    },
+    [],
+  );
 
   const closeActionMenu = useCallback(() => {
-    console.log("[OverlayProvider] closeActionMenu called");
     setActionMenuVisible(false);
   }, []);
 
   const showAlert = useCallback((options: AlertOptions) => {
-    console.log("[OverlayProvider] showAlert called, title:", options.title);
-    setAlertTitle(options.title);
-    setAlertMessage(options.message ?? "");
-    setAlertButtons(options.buttons);
+    const buttons: AppDialogButton[] = options.buttons?.length
+      ? options.buttons
+      : [{ key: "dismiss", label: "Got it", bold: true }];
+    setAlertOptions({ ...options, buttons });
     setAlertVisible(true);
   }, []);
 
+  useEffect(() => registerAppDialogHandler(showAlert), [showAlert]);
+
   const closeAlert = useCallback(() => {
-    console.log("[OverlayProvider] closeAlert called");
     setAlertVisible(false);
   }, []);
 
   const openComments = useCallback((postId: string) => {
-    console.log("[OverlayProvider] openComments called, postId:", postId);
     commentSheetRef.current?.open(postId);
   }, []);
 
   const closeComments = useCallback(() => {
-    console.log("[OverlayProvider] closeComments called");
     commentSheetRef.current?.close();
   }, []);
 
   const openShare = useCallback((options: ShareOptions) => {
-    console.log("[OverlayProvider] openShare called, postId:", options.postId, "storyId:", options.storyId);
     setSharePostId(options.postId ?? null);
     setShareStoryId(options.storyId ?? null);
     setShareVisible(true);
   }, []);
 
   const closeShare = useCallback(() => {
-    console.log("[OverlayProvider] closeShare called");
     setShareVisible(false);
   }, []);
 
-  const value = useMemo(() => ({
-    openActionMenu,
-    closeActionMenu,
-    showAlert,
-    closeAlert,
-    openComments,
-    closeComments,
-    openShare,
-    closeShare,
-  }), [openActionMenu, closeActionMenu, showAlert, closeAlert, openComments, closeComments, openShare, closeShare]);
+  const value = useMemo(
+    () => ({
+      openActionMenu,
+      closeActionMenu,
+      showAlert,
+      closeAlert,
+      openComments,
+      closeComments,
+      openShare,
+      closeShare,
+    }),
+    [
+      openActionMenu,
+      closeActionMenu,
+      showAlert,
+      closeAlert,
+      openComments,
+      closeComments,
+      openShare,
+      closeShare,
+    ],
+  );
 
   return (
     <OverlayContext.Provider value={value}>
@@ -139,9 +153,12 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       />
       <AppAlert
         visible={alertVisible}
-        title={alertTitle}
-        message={alertMessage}
-        buttons={alertButtons}
+        title={alertOptions.title}
+        message={alertOptions.message}
+        buttons={alertOptions.buttons ?? []}
+        tone={alertOptions.tone}
+        presentation={alertOptions.presentation}
+        icon={alertOptions.icon}
         onClose={closeAlert}
       />
       <CommentBottomSheet ref={commentSheetRef} />

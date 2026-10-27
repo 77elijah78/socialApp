@@ -361,7 +361,7 @@ export function StorySkeleton({
             height: size,
             borderRadius: size / 2,
             borderColor: ringColor,
-            borderStyle: variant === "me" ? "dashed" : "solid",
+            borderStyle: "solid",
           },
         ]}
       >
@@ -702,14 +702,15 @@ const styles = StyleSheet.create({
   /* StoriesBar */
   storiesBar: {
     flexDirection: "row",
-    backgroundColor: theme.COLORS.bgWhite,
-    paddingVertical: theme.SPACING.lg,
-    paddingHorizontal: theme.SPACING.lg,
-    marginBottom: theme.SPACING.sm,
+    backgroundColor: "transparent",
+    paddingVertical: 0,
+    paddingHorizontal: theme.SPACING.md,
+    marginBottom: 0,
   },
   storyItem: {
     alignItems: "center",
     width: theme.SIZING.storyItem + 20,
+    paddingVertical: theme.SPACING.xs,
   },
   storyRing: {
     borderWidth: theme.BORDER.width.sm,

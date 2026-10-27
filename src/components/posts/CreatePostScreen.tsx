@@ -1,272 +1,625 @@
-import React, { useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
-  Image,
-  ScrollView,
-  Alert,
-  StyleSheet,
-  ActivityIndicator,
+  View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { api } from "@/services/api";
-import { useAppSelector } from "@/store/hooks";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import theme from "@/constants/theme";
 import {
-  pickFromLibrary,
-  takePhoto,
   createUploadFormData,
   getAssetMimeType,
   PickedAsset,
+  pickFromLibrary,
+  takePhoto,
 } from "@/hooks/useImagePicker";
+import { api } from "@/services/api";
+import { useAppSelector } from "@/store/hooks";
+import { showAppDialog } from "@/services/AppDialogService";
+
+const MAX_IMAGES = 4;
 
 export default function CreatePostScreen() {
-  const token = useAppSelector((s) => s.auth.token);
+  const token = useAppSelector((state) => state.auth.token);
+  const user = useAppSelector((state) => state.auth.user);
   const [content, setContent] = useState("");
   const [selectedImages, setSelectedImages] = useState<PickedAsset[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const handlePickFromLibrary = async () => {
+  const canPost = useMemo(
+    () => content.trim().length > 0 || selectedImages.length > 0,
+    [content, selectedImages.length],
+  );
+  const remainingImages = MAX_IMAGES - selectedImages.length;
+  const displayName = user?.displayName || user?.username || "Your profile";
+  const initial = displayName.charAt(0).toUpperCase() || "Y";
+
+  const appendImages = useCallback((result: PickedAsset | PickedAsset[] | null) => {
+    if (!result) return;
+    const assets = Array.isArray(result) ? result : [result];
+    setSelectedImages((previous) => {
+      const existingUris = new Set(previous.map((asset) => asset.uri));
+      const uniqueAssets = assets.filter((asset) => !existingUris.has(asset.uri));
+      return [...previous, ...uniqueAssets].slice(0, MAX_IMAGES);
+    });
+  }, []);
+
+  const handlePickFromLibrary = useCallback(async () => {
+    if (remainingImages <= 0) return;
     const result = await pickFromLibrary({
       allowsMultiple: true,
       allowsEditing: false,
-      mediaTypes: selectedImages.length > 0 ? undefined : "images",
+      mediaTypes: "images",
     });
-    if (result) {
-      const assets = Array.isArray(result) ? result : [result];
-      setSelectedImages((prev) => [...prev, ...assets].slice(0, 4));
-    }
-  };
+    appendImages(result);
+  }, [appendImages, remainingImages]);
 
-  const handleTakePhoto = async () => {
-    const asset = await takePhoto();
-    if (asset) {
-      setSelectedImages((prev) => [...prev, asset].slice(0, 4));
-    }
-  };
+  const handleTakePhoto = useCallback(async () => {
+    if (remainingImages <= 0) return;
+    appendImages(await takePhoto());
+  }, [appendImages, remainingImages]);
 
-  const handleRemoveImage = (index: number) => {
-    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
-  };
+  const handleRemoveImage = useCallback((uri: string) => {
+    setSelectedImages((previous) => previous.filter((asset) => asset.uri !== uri));
+  }, []);
 
-  const handleCreatePost = async () => {
-    if (!content.trim() && selectedImages.length === 0) {
-      Alert.alert("Empty Post", "Please add some content or images.");
-      return;
-    }
+  const handleCreatePost = useCallback(async () => {
+    if (!canPost || uploading) return;
     if (!token) {
-      Alert.alert("Not Authenticated", "Please log in to create a post.");
+      showAppDialog({
+        title: "Sign in required",
+        message: "Please log in to create a post.",
+        tone: "warning",
+      });
       return;
     }
 
     setUploading(true);
     try {
-      let imageUrls: string[] = [];
+      const imageUrls = await Promise.all(
+        selectedImages.map(async (asset) => {
+          const form = createUploadFormData(asset.uri, getAssetMimeType(asset));
+          const response = await api.upload("/media/upload", form, token);
+          return response.data.url;
+        }),
+      );
 
-      if (selectedImages.length > 0) {
-        for (const asset of selectedImages) {
-          const mimeType = getAssetMimeType(asset);
-          const form = createUploadFormData(asset.uri, mimeType);
-          const resp = await api.upload("/media/upload", form, token);
-          imageUrls.push(resp.data.url);
-        }
-      }
-
-      await api.post<{
-        success: boolean;
-        data: unknown;
-      }>(
+      await api.post(
         "/posts",
-        {
-          content: content.trim(),
-          imageUrls,
-        },
+        { content: content.trim(), imageUrls },
         token,
       );
 
       setContent("");
       setSelectedImages([]);
-      Alert.alert("Success", "Post created!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    } catch (err) {
-      Alert.alert("Failed", (err as Error).message || "Could not create post.");
+      showAppDialog({
+        title: "Post shared",
+        message: "Your moment is now part of the feed.",
+        tone: "success",
+        buttons: [{ key: "done", label: "Done", bold: true, onPress: () => router.back() }],
+      });
+    } catch (error) {
+      showAppDialog({
+        title: "Couldn’t share your post",
+        message: error instanceof Error ? error.message : "Please try again.",
+        tone: "error",
+      });
     } finally {
       setUploading(false);
     }
-  };
-
-  const canPost = content.trim().length > 0 || selectedImages.length > 0;
+  }, [canPost, uploading, token, selectedImages, content]);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="close" size={24} color={theme.COLORS.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Post</Text>
-        <TouchableOpacity
-          style={[styles.postBtn, !canPost || uploading ? styles.postBtnDisabled : null]}
-          onPress={handleCreatePost}
-          disabled={!canPost || uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color={theme.COLORS.white} />
-          ) : (
-            <Text style={styles.postBtnText}>Post</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.body}
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
       >
-        <TextInput
-          style={styles.input}
-          placeholder="What's on your mind?"
-          value={content}
-          onChangeText={setContent}
-          multiline
-          textAlignVertical="top"
-        />
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close post composer"
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="close" size={22} color={theme.COLORS.textPrimary} />
+          </Pressable>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.headerEyebrow}>CREATE</Text>
+            <Text style={styles.headerTitle}>New post</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Share post"
+            onPress={handleCreatePost}
+            disabled={!canPost || uploading}
+            style={({ pressed }) => [
+              styles.shareButton,
+              (!canPost || uploading) && styles.shareButtonDisabled,
+              pressed && canPost && !uploading && styles.pressed,
+            ]}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color={theme.COLORS.white} />
+            ) : (
+              <>
+                <Text style={styles.shareButtonText}>Share</Text>
+                <Ionicons name="arrow-forward" size={16} color={theme.COLORS.white} />
+              </>
+            )}
+          </Pressable>
+        </View>
 
-        <View style={styles.imageGrid}>
-          {selectedImages.map((img, idx) => (
-            <View key={idx} style={styles.imageWrapper}>
-              <Image source={{ uri: img.uri }} style={styles.image} />
-              <TouchableOpacity
-                style={styles.removeBtn}
-                onPress={() => handleRemoveImage(idx)}
-              >
-                <Ionicons name="close-circle" size={20} color={theme.COLORS.primary} />
-              </TouchableOpacity>
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.authorCard}>
+            <View style={styles.authorAvatarWrap}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.authorAvatar} />
+              ) : (
+                <View style={[styles.authorAvatar, styles.authorAvatarFallback]}>
+                  <Text style={styles.authorInitial}>{initial}</Text>
+                </View>
+              )}
             </View>
-          ))}
-        </View>
-      </ScrollView>
+            <View style={styles.authorInfo}>
+              <Text style={styles.authorName}>{displayName}</Text>
+              <View style={styles.audiencePill}>
+                <Ionicons name="people-outline" size={12} color={theme.COLORS.primary} />
+                <Text style={styles.audienceText}>Community</Text>
+              </View>
+            </View>
+            <View style={styles.visibilityIcon}>
+              <Ionicons name="globe-outline" size={18} color={theme.COLORS.textMuted} />
+            </View>
+          </View>
 
-      <View style={styles.footer}>
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={handleTakePhoto}
-            disabled={selectedImages.length >= 4}
-          >
-            <Ionicons name="camera" size={24} color={theme.COLORS.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={handlePickFromLibrary}
-            disabled={selectedImages.length >= 4}
-          >
-            <Ionicons name="image" size={24} color={theme.COLORS.primary} />
-          </TouchableOpacity>
+          <TextInput
+            style={styles.input}
+            placeholder="What would you like to share?"
+            placeholderTextColor={theme.COLORS.textMuted}
+            value={content}
+            onChangeText={setContent}
+            multiline
+            textAlignVertical="top"
+            maxLength={2000}
+            accessibilityLabel="Post caption"
+          />
+          <Text style={styles.characterCount}>{content.length}/2000</Text>
+
+          <View style={styles.mediaSection}>
+            <View style={styles.sectionHeading}>
+              <View>
+                <Text style={styles.sectionTitle}>Add to your post</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Bring your moment to life with photos
+                </Text>
+              </View>
+              <View style={styles.mediaCountPill}>
+                <Text style={styles.mediaCountText}>{selectedImages.length}/{MAX_IMAGES}</Text>
+              </View>
+            </View>
+
+            <View style={styles.imageGrid}>
+              {selectedImages.map((asset) => (
+                <View key={asset.uri} style={styles.imageTile}>
+                  <Image source={{ uri: asset.uri }} style={styles.imagePreview} />
+                  <View style={styles.imageScrim} />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove photo"
+                    onPress={() => handleRemoveImage(asset.uri)}
+                    style={({ pressed }) => [styles.removeImageButton, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="close" size={15} color={theme.COLORS.textPrimary} />
+                  </Pressable>
+                </View>
+              ))}
+              {selectedImages.length < MAX_IMAGES ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={handlePickFromLibrary}
+                  style={({ pressed }) => [styles.addImageTile, pressed && styles.pressed]}
+                >
+                  <View style={styles.addImageIcon}>
+                    <Ionicons name="add" size={22} color={theme.COLORS.primary} />
+                  </View>
+                  <Text style={styles.addImageTitle}>Add photo</Text>
+                  <Text style={styles.addImageHint}>Up to {remainingImages} more</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.tipCard}>
+            <View style={styles.tipIcon}>
+              <Ionicons name="sparkles-outline" size={17} color={theme.COLORS.primary} />
+            </View>
+            <Text style={styles.tipText}>
+              A little context makes your photos even more memorable.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <View style={styles.footerActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleTakePhoto}
+              disabled={remainingImages <= 0 || uploading}
+              style={({ pressed }) => [
+                styles.footerAction,
+                (remainingImages <= 0 || uploading) && styles.actionDisabled,
+                pressed && remainingImages > 0 && styles.pressed,
+              ]}
+            >
+              <View style={[styles.footerActionIcon, styles.cameraIcon]}>
+                <Ionicons name="camera-outline" size={20} color={theme.COLORS.primary} />
+              </View>
+              <Text style={styles.footerActionText}>Camera</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handlePickFromLibrary}
+              disabled={remainingImages <= 0 || uploading}
+              style={({ pressed }) => [
+                styles.footerAction,
+                (remainingImages <= 0 || uploading) && styles.actionDisabled,
+                pressed && remainingImages > 0 && styles.pressed,
+              ]}
+            >
+              <View style={[styles.footerActionIcon, styles.libraryIcon]}>
+                <Ionicons name="images-outline" size={20} color={theme.COLORS.accentBlue} />
+              </View>
+              <Text style={styles.footerActionText}>Photo library</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.footerHint}>
+            {selectedImages.length === 0
+              ? "Choose up to four photos"
+              : `${selectedImages.length} ${selectedImages.length === 1 ? "photo" : "photos"} ready to share`}
+          </Text>
         </View>
-        <Text style={styles.hint}>
-          {selectedImages.length}/4 images selected
-        </Text>
-      </View>
-    </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: theme.COLORS.bgLight,
   },
+  keyboardView: {
+    flex: 1,
+  },
   header: {
+    minHeight: 72,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.LAYOUT.contentPadding,
     borderBottomWidth: 1,
     borderBottomColor: theme.COLORS.borderDivider,
     backgroundColor: theme.COLORS.bgWhite,
   },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgLight,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerEyebrow: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: 1,
+  },
   headerTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: "600",
+    marginTop: 1,
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
-  postBtn: {
+  shareButton: {
+    minWidth: 76,
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.xs,
     paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.full,
     backgroundColor: theme.COLORS.primary,
-    borderRadius: theme.BORDER_RADIUS.md,
+    ...theme.SHADOWS.primary,
   },
-  postBtnDisabled: {
-    opacity: 0.5,
+  shareButtonDisabled: {
+    opacity: 0.48,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  postBtnText: {
+  shareButtonText: {
     color: theme.COLORS.white,
-    fontWeight: "600",
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   body: {
     flex: 1,
+  },
+  bodyContent: {
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingTop: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.xxxxxxl,
+  },
+  authorCard: {
+    flexDirection: "row",
+    alignItems: "center",
     padding: theme.SPACING.md,
+    borderRadius: 18,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+  },
+  authorAvatarWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    padding: 2,
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  authorAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.bgInput,
+  },
+  authorAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  authorInitial: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  authorInfo: {
+    flex: 1,
+    marginLeft: theme.SPACING.md,
+  },
+  authorName: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  audiencePill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    paddingVertical: 3,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  audienceText: {
+    color: theme.COLORS.primary,
+    fontSize: 10,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  visibilityIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgLight,
   },
   input: {
-    width: "100%",
-    minHeight: 120,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    minHeight: 150,
+    marginTop: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.md,
+    paddingTop: theme.SPACING.md,
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
+    lineHeight: 28,
+  },
+  characterCount: {
+    alignSelf: "flex-end",
+    marginTop: -theme.SPACING.sm,
+    marginRight: theme.SPACING.sm,
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  mediaSection: {
+    marginTop: theme.SPACING.xl,
+  },
+  sectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: theme.SPACING.md,
+  },
+  sectionTitle: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  sectionSubtitle: {
+    marginTop: theme.SPACING.xs,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  mediaCountPill: {
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.xs,
+    borderRadius: theme.BORDER_RADIUS.full,
     backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.md,
-    padding: theme.SPACING.md,
-    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: theme.COLORS.borderDivider,
+  },
+  mediaCountText: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   imageGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: theme.SPACING.sm,
-    marginTop: theme.SPACING.md,
   },
-  imageWrapper: {
+  imageTile: {
     position: "relative",
-    width: 100,
-    height: 100,
+    width: "48%",
+    aspectRatio: 1,
+    overflow: "hidden",
+    borderRadius: 18,
+    backgroundColor: theme.COLORS.bgInput,
   },
-  image: {
-    width: 100,
-    height: 100,
-    borderRadius: theme.BORDER_RADIUS.sm,
+  imagePreview: {
+    width: "100%",
+    height: "100%",
     resizeMode: "cover",
   },
-  removeBtn: {
+  imageScrim: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(26, 26, 46, 0.06)",
+  },
+  removeImageButton: {
     position: "absolute",
-    top: -6,
-    right: -6,
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.94)",
+  },
+  addImageTile: {
+    width: "48%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: theme.COLORS.primaryGhostBorder,
     backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: 10,
+  },
+  addImageIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  addImageTitle: {
+    marginTop: theme.SPACING.sm,
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  addImageHint: {
+    marginTop: 2,
+    color: theme.COLORS.textMuted,
+    fontSize: 9,
+  },
+  tipCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+    marginTop: theme.SPACING.xl,
+    padding: theme.SPACING.md,
+    borderRadius: 16,
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  tipIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgWhite,
+  },
+  tipText: {
+    flex: 1,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    lineHeight: theme.TYPOGRAPHY.lineHeight.md,
   },
   footer: {
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgWhite,
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingTop: theme.SPACING.md,
+    paddingBottom: theme.SPACING.sm,
     borderTopWidth: 1,
     borderTopColor: theme.COLORS.borderDivider,
+    backgroundColor: theme.COLORS.bgWhite,
   },
-  actionsRow: {
+  footerActions: {
     flexDirection: "row",
     gap: theme.SPACING.sm,
   },
-  actionBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  footerAction: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    borderRadius: 15,
     backgroundColor: theme.COLORS.bgLight,
+  },
+  footerActionIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  hint: {
+  cameraIcon: {
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  libraryIcon: {
+    backgroundColor: "rgba(59, 130, 246, 0.10)",
+  },
+  footerActionText: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  actionDisabled: {
+    opacity: 0.45,
+  },
+  footerHint: {
     marginTop: theme.SPACING.sm,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
     color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    textAlign: "center",
+  },
+  pressed: {
+    opacity: theme.OPACITY.pressed,
   },
 });

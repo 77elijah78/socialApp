@@ -1,19 +1,24 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, Pressable, Image, StyleSheet, Dimensions, TextInput, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import theme from '@/constants/theme';
-import PostCard from '@/components/feed/PostCard';
-import { SocialPost } from '@/types';
-import { api } from '@/services/api';
-import { useAppSelector } from '@/store/hooks';
-import { router } from 'expo-router';
-import { useDebounce } from '@/hooks/useDebounce';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router } from "expo-router";
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_GAP = theme.SPACING.sm;
-const GRID_COLUMNS = 2;
-const GRID_ITEM_SIZE = (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP) / GRID_COLUMNS;
+import theme from "@/constants/theme";
+import { useDebounce } from "@/hooks/useDebounce";
+import { api } from "@/services/api";
+import { useAppSelector } from "@/store/hooks";
 
 interface SearchedUser {
   id: string;
@@ -26,227 +31,357 @@ interface SearchedUser {
 }
 
 const CATEGORIES = [
-  { id: '1', label: 'Photography', icon: 'camera-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.primary },
-  { id: '2', label: 'Technology', icon: 'laptop-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.accentBlue },
-  { id: '3', label: 'Travel', icon: 'airplane-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.secondary },
-  { id: '4', label: 'Food', icon: 'restaurant-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.accentPurple },
-  { id: '5', label: 'Art', icon: 'brush-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.indigo },
-  { id: '6', label: 'Music', icon: 'musical-notes-outline' as keyof typeof Ionicons.glyphMap, color: theme.COLORS.accentLightPurple },
+  { id: "photo", label: "Photography", icon: "camera-outline" as const, color: theme.COLORS.primary },
+  { id: "tech", label: "Technology", icon: "laptop-outline" as const, color: theme.COLORS.accentBlue },
+  { id: "travel", label: "Travel", icon: "airplane-outline" as const, color: theme.COLORS.secondary },
+  { id: "food", label: "Food", icon: "restaurant-outline" as const, color: theme.COLORS.accentPurple },
+  { id: "art", label: "Art & design", icon: "color-palette-outline" as const, color: theme.COLORS.accentLightPurple },
+  { id: "music", label: "Music", icon: "musical-notes-outline" as const, color: theme.COLORS.indigo },
 ];
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
+const TRENDING_TOPICS = [
+  { id: "01", title: "Everyday frames", subtitle: "Photography · Creative" },
+  { id: "02", title: "Small weekend escapes", subtitle: "Travel · Community pick" },
+  { id: "03", title: "What we’re making", subtitle: "Art & design · Growing" },
+];
+
+function formatCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(count);
 }
 
 export default function ExploreScreen() {
-  const token = useAppSelector((s) => s.auth.token);
-  const [searchQuery, setSearchQuery] = useState('');
+  const token = useAppSelector((state) => state.auth.token);
+  const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-
+  const [busyFollowIds, setBusyFollowIds] = useState<string[]>([]);
+  const latestQueryRef = useRef("");
   const debouncedQuery = useDebounce(searchQuery, 300);
+  const normalizedQuery = debouncedQuery.trim();
+  const isSearching = searchQuery.trim().length > 0;
 
-  const isSearching = debouncedQuery.length > 0;
+  const handleSearchChange = useCallback((value: string) => {
+    latestQueryRef.current = value;
+    setSearchQuery(value);
+    setSearchResults([]);
+    setSearchLoading(value.trim().length > 0);
+  }, []);
 
   useEffect(() => {
-    if (!isSearching) {
-      setSearchResults([]);
-      return;
-    }
+    if (!normalizedQuery || latestQueryRef.current.trim() !== normalizedQuery) return;
 
     const controller = new AbortController();
     setSearchLoading(true);
 
     api
-      .get<{ success: boolean; data: SearchedUser[] }>(`/users/search?q=${encodeURIComponent(debouncedQuery)}`, token ?? undefined)
-      .then((resp) => {
-        if (!controller.signal.aborted) {
-          setSearchResults(resp.data ?? []);
+      .get<{ success: boolean; data: SearchedUser[] }>(
+        `/users/search?q=${encodeURIComponent(normalizedQuery)}`,
+        token ?? undefined,
+        { signal: controller.signal },
+      )
+      .then((response) => {
+        if (
+          !controller.signal.aborted &&
+          latestQueryRef.current.trim() === normalizedQuery
+        ) {
+          setSearchResults(response.data ?? []);
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setSearchResults([]);
+        if (
+          !controller.signal.aborted &&
+          latestQueryRef.current.trim() === normalizedQuery
+        ) {
+          setSearchResults([]);
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setSearchLoading(false);
+        if (
+          !controller.signal.aborted &&
+          latestQueryRef.current.trim() === normalizedQuery
+        ) {
+          setSearchLoading(false);
+        }
       });
 
     return () => controller.abort();
-  }, [debouncedQuery, token]);
+  }, [normalizedQuery, token]);
 
-  const renderUserCard = ({ item }: { item: SearchedUser }) => (
-    <Pressable
-      style={styles.userCard}
-      onPress={() => router.push(`/user/${item.username}`)}
-    >
-      <View style={styles.userInfo}>
-        <View style={styles.userAvatar}>
-          {item.avatarUrl ? (
-            <Image source={{ uri: item.avatarUrl }} style={styles.userAvatarImage} />
-          ) : (
-            <View style={[styles.userAvatarPlaceholder, { backgroundColor: theme.COLORS.primaryGhost }]}>
-              <Text style={styles.userAvatarInitial}>
-                {(item.displayName?.charAt(0) ?? item.username.charAt(0)).toUpperCase()}
+  const handleFollow = useCallback(
+    async (user: SearchedUser) => {
+      if (busyFollowIds.includes(user.id)) return;
+      setBusyFollowIds((previous) => [...previous, user.id]);
+
+      try {
+        if (user.isFollowing) {
+          await api.delete(`/users/${user.username}/follow`, token ?? undefined);
+        } else {
+          await api.post(`/users/${user.username}/follow`, {}, token ?? undefined);
+        }
+
+        const isFollowing = !user.isFollowing;
+        setSearchResults((previous) =>
+          previous.map((result) =>
+            result.id === user.id
+              ? {
+                  ...result,
+                  isFollowing,
+                  _count: {
+                    ...result._count,
+                    followers: Math.max(
+                      0,
+                      result._count.followers + (isFollowing ? 1 : -1),
+                    ),
+                  },
+                }
+              : result,
+          ),
+        );
+      } catch {
+        // Keep the search results unchanged if the follow request fails.
+      } finally {
+        setBusyFollowIds((previous) => previous.filter((id) => id !== user.id));
+      }
+    },
+    [busyFollowIds, token],
+  );
+
+  const renderUserCard = useCallback(
+    ({ item }: { item: SearchedUser }) => {
+      const displayName = item.displayName || item.username;
+      const isBusy = busyFollowIds.includes(item.id);
+
+      return (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push(`/user/${item.username}`)}
+          style={({ pressed }) => [styles.userCard, pressed && styles.userCardPressed]}
+        >
+          <View style={styles.userInfo}>
+            <View style={styles.userAvatarWrap}>
+              {item.avatarUrl ? (
+                <Image source={{ uri: item.avatarUrl }} style={styles.userAvatar} />
+              ) : (
+                <View style={[styles.userAvatar, styles.userAvatarFallback]}>
+                  <Text style={styles.userAvatarInitial}>
+                    {displayName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.userDetails}>
+              <View style={styles.userNameRow}>
+                <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
+                {item.isVerified ? (
+                  <Ionicons name="checkmark-circle" size={15} color={theme.COLORS.primary} />
+                ) : null}
+              </View>
+              <Text style={styles.userUsername} numberOfLines={1}>@{item.username}</Text>
+              <Text style={styles.userStats} numberOfLines={1}>
+                {formatCount(item._count.posts)} posts · {formatCount(item._count.followers)} followers
               </Text>
             </View>
-          )}
-          {item.isVerified && (
-            <View style={styles.verifiedBadge}>
-              <Ionicons name="checkmark-circle" size={14} color={theme.COLORS.primary} />
-            </View>
-          )}
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={item.isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`}
+            style={({ pressed }) => [
+              styles.followButton,
+              item.isFollowing && styles.followButtonFollowing,
+              pressed && styles.followButtonPressed,
+            ]}
+            onPress={(event) => {
+              event.stopPropagation();
+              void handleFollow(item);
+            }}
+            disabled={isBusy}
+          >
+            {isBusy ? (
+              <ActivityIndicator size="small" color={item.isFollowing ? theme.COLORS.primary : theme.COLORS.white} />
+            ) : (
+              <Text style={[styles.followButtonText, item.isFollowing && styles.followButtonTextFollowing]}>
+                {item.isFollowing ? "Following" : "Follow"}
+              </Text>
+            )}
+          </Pressable>
+        </Pressable>
+      );
+    },
+    [busyFollowIds, handleFollow],
+  );
+
+  const renderSearchResults = () => {
+    if (searchLoading) {
+      return (
+        <View style={styles.searchLoading}>
+          <ActivityIndicator size="large" color={theme.COLORS.primary} />
+          <Text style={styles.searchLoadingText}>Finding your people…</Text>
         </View>
-        <View style={styles.userDetails}>
-          <Text style={styles.userName}>{item.displayName ?? item.username}</Text>
-          <Text style={styles.userUsername}>@{item.username}</Text>
-          <Text style={styles.userStats}>
-            {formatCount(item._count.posts)} posts · {formatCount(item._count.followers)} followers
-          </Text>
+      );
+    }
+
+    if (searchResults.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="people-outline" size={25} color={theme.COLORS.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>No creators found</Text>
+          <Text style={styles.emptySubtitle}>Try a different name or username.</Text>
         </View>
-      </View>
-      <Pressable
-        style={[
-          styles.followButton,
-          item.isFollowing && styles.followButtonUnfollow,
-        ]}
-        onPress={async (e) => {
-          e.stopPropagation();
-          try {
-            if (item.isFollowing) {
-              await api.delete(`/users/${item.username}/follow`, token ?? undefined);
-            } else {
-              await api.post(`/users/${item.username}/follow`, {}, token ?? undefined);
-            }
-            setSearchResults((prev) =>
-              prev.map((u) =>
-                u.id === item.id ? { ...u, isFollowing: !u.isFollowing } : u,
-              ),
-            );
-          } catch {
-            /* ignore follow errors in search */
-          }
-        }}
+      );
+    }
+
+    return (
+      <FlatList
+        style={styles.searchResultsList}
+        data={searchResults}
+        keyExtractor={(item) => item.id}
+        renderItem={renderUserCard}
+        contentContainerStyle={styles.searchResultsContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={
+          <View style={styles.resultsHeading}>
+            <Text style={styles.sectionTitle}>People</Text>
+            <Text style={styles.resultsCount}>{searchResults.length} found</Text>
+          </View>
+        }
+      />
+    );
+  };
+
+  const renderDiscovery = () => (
+    <ScrollView
+      style={styles.discoveryScroll}
+      contentContainerStyle={styles.discoveryContent}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <LinearGradient
+        colors={[theme.COLORS.primary, theme.COLORS.accentPurple, "#8B74E8"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
       >
-        <Text style={[
-          styles.followButtonText,
-          item.isFollowing && styles.followButtonTextUnfollow,
-        ]}>
-          {item.isFollowing ? 'Following' : 'Follow'}
+        <View style={styles.heroOrbLarge} />
+        <View style={styles.heroOrbSmall} />
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroTag}>
+            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
+            <Text style={styles.heroTagText}>A WORLD OF IDEAS</Text>
+          </View>
+          <Ionicons name="compass-outline" size={24} color="rgba(255,255,255,0.85)" />
+        </View>
+        <Text style={styles.heroTitle}>Find your next{`\n`}favorite thing.</Text>
+        <Text style={styles.heroSubtitle}>
+          Fresh voices, creative corners, and moments worth discovering.
         </Text>
-      </Pressable>
-    </Pressable>
-  );
+        <View style={styles.heroFooter}>
+          <View style={styles.heroFooterLine} />
+          <Text style={styles.heroFooterText}>Made for curious minds</Text>
+        </View>
+      </LinearGradient>
 
-  const renderSearchHeader = () => (
-    <View style={styles.searchSection}>
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={20} color={theme.COLORS.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search users..."
-          placeholderTextColor={theme.COLORS.textMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          returnKeyType="search"
-        />
-        {searchQuery.length > 0 && (
-          <Pressable onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={theme.COLORS.textMuted} />
-          </Pressable>
-        )}
+      <View style={styles.section}>
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionTitle}>Explore by interest</Text>
+            <Text style={styles.sectionSubtitle}>A few places to start</Text>
+          </View>
+          <View style={styles.sectionAccent}>
+            <Ionicons name="apps-outline" size={16} color={theme.COLORS.primary} />
+          </View>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryList}
+        >
+          {CATEGORIES.map((category) => (
+            <View key={category.id} style={styles.categoryCard}>
+              <View style={[styles.categoryIcon, { backgroundColor: `${category.color}15` }]}>
+                <Ionicons name={category.icon} size={20} color={category.color} />
+              </View>
+              <Text style={styles.categoryLabel} numberOfLines={1}>{category.label}</Text>
+            </View>
+          ))}
+        </ScrollView>
       </View>
-    </View>
-  );
 
-  const renderTrending = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Trending Topics</Text>
-      <View style={styles.trendingGrid}>
-        {[
-          { id: '1', tag: '#Photography', posts: 12450 },
-          { id: '2', tag: '#Tech', posts: 8900 },
-          { id: '3', tag: '#Travel', posts: 7600 },
-          { id: '4', tag: '#Food', posts: 5400 },
-          { id: '5', tag: '#Art', posts: 3200 },
-          { id: '6', tag: '#Music', posts: 2100 },
-        ].map((topic) => (
-          <Pressable key={topic.id} style={styles.trendingItem}>
-            <View style={styles.trendingRank}>
-              <Text style={styles.trendingRankText}>#{topic.id}</Text>
+      <View style={[styles.section, styles.trendingSection]}>
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionTitle}>Popular conversations</Text>
+            <Text style={styles.sectionSubtitle}>Community picks this week</Text>
+          </View>
+          <View style={styles.trendingIcon}>
+            <Ionicons name="trending-up" size={17} color={theme.COLORS.primary} />
+          </View>
+        </View>
+        <View style={styles.topicList}>
+          {TRENDING_TOPICS.map((topic) => (
+            <View key={topic.id} style={styles.topicCard}>
+              <View style={styles.topicRank}>
+                <Text style={styles.topicRankText}>{topic.id}</Text>
+              </View>
+              <View style={styles.topicCopy}>
+                <Text style={styles.topicTitle}>{topic.title}</Text>
+                <Text style={styles.topicSubtitle}>{topic.subtitle}</Text>
+              </View>
+              <View style={styles.topicArrow}>
+                <Ionicons name="sparkles-outline" size={16} color={theme.COLORS.primary} />
+              </View>
             </View>
-            <View style={styles.trendingContent}>
-              <Text style={styles.trendingTag}>{topic.tag}</Text>
-              <Text style={styles.trendingPosts}>{formatCount(topic.posts)} posts</Text>
-            </View>
-            <Ionicons name="trending-up" size={18} color={theme.COLORS.primary} />
-          </Pressable>
-        ))}
+          ))}
+        </View>
       </View>
-    </View>
-  );
-
-  const renderCategories = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Browse Categories</Text>
-      <View style={styles.categoriesGrid}>
-        {CATEGORIES.map((cat) => (
-          <Pressable key={cat.id} style={styles.categoryCard}>
-            <View style={[styles.categoryIcon, { backgroundColor: cat.color + '15' }]}>
-              <Ionicons name={cat.icon} size={24} color={cat.color} />
-            </View>
-            <Text style={styles.categoryLabel}>{cat.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+      <View style={styles.bottomSpace} />
+    </ScrollView>
   );
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Explore</Text>
-        <Pressable style={styles.headerIconBtn}>
-          <Ionicons name="settings-outline" size={22} color={theme.COLORS.textPrimary} />
-        </Pressable>
+        <View>
+          <Text style={styles.headerEyebrow}>FIND YOUR PEOPLE</Text>
+          <Text style={styles.headerTitle}>Explore</Text>
+        </View>
+        <View style={styles.headerMark}>
+          <Ionicons name="compass" size={19} color={theme.COLORS.primary} />
+        </View>
       </View>
 
-      {renderSearchHeader()}
-
-      {isSearching ? (
-        searchLoading ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={theme.COLORS.primary} />
-          </View>
-        ) : searchResults.length > 0 ? (
-          <FlatList
-            data={searchResults}
-            keyExtractor={(item) => item.id}
-            renderItem={renderUserCard}
-            contentContainerStyle={{ paddingHorizontal: theme.LAYOUT.contentPadding }}
+      <View style={styles.searchSection}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={19} color={theme.COLORS.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search people"
+            placeholderTextColor={theme.COLORS.textMuted}
+            value={searchQuery}
+            onChangeText={handleSearchChange}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            accessibilityLabel="Search people"
           />
-        ) : (
-          <View style={[styles.emptyState, { marginTop: theme.SPACING.xxl }]}>
-            <Ionicons name="search-outline" size={48} color={theme.COLORS.textMuted} />
-            <Text style={styles.emptyTitle}>No users found</Text>
-            <Text style={styles.emptySubtitle}>Try a different search term</Text>
-          </View>
-        )
-      ) : (
-        <FlatList
-          style={styles.list}
-          data={[]}
-          renderItem={() => null}
-          ListHeaderComponent={
-            <View>
-              {renderTrending()}
-              {renderCategories()}
-            </View>
-          }
-          contentContainerStyle={styles.listContent}
-        />
-      )}
+          {searchQuery.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              onPress={() => handleSearchChange("")}
+              hitSlop={8}
+            >
+              <Ionicons name="close-circle" size={19} color={theme.COLORS.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {isSearching ? renderSearchResults() : renderDiscovery()}
     </SafeAreaView>
   );
 }
@@ -257,241 +392,415 @@ const styles = StyleSheet.create({
     backgroundColor: theme.COLORS.bgLight,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingTop: theme.SPACING.md,
     paddingBottom: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgLight,
-    ...theme.SHADOWS.xl,
-    zIndex: 10,
+  },
+  headerEyebrow: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    letterSpacing: 1,
   },
   headerTitle: {
+    marginTop: 2,
+    color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textPrimary,
-    letterSpacing: theme.TYPOGRAPHY.letterSpacing.xs,
+    letterSpacing: -0.3,
   },
-  headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
+  headerMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
   },
   searchSection: {
     paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingVertical: theme.SPACING.md,
-    backgroundColor: theme.COLORS.bgLight,
+    paddingTop: theme.SPACING.sm,
+    paddingBottom: theme.SPACING.lg,
   },
   searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.sm,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingVertical: theme.SPACING.md,
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.lg,
+    borderRadius: 17,
     backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    borderWidth: theme.BORDER.width.xs,
+    borderWidth: 1,
     borderColor: theme.COLORS.borderDivider,
+    ...theme.SHADOWS.sm,
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textPrimary,
-    padding: 0,
   },
-  list: {
+  discoveryScroll: {
     flex: 1,
   },
-  listContent: {
-    paddingBottom: theme.SPACING.xxxxxl,
+  discoveryContent: {
+    paddingTop: theme.SPACING.xs,
   },
-  section: {
-    marginTop: theme.SPACING.lg,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-  },
-  sectionTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-    marginBottom: theme.SPACING.md,
-  },
-  trendingGrid: {
-    gap: theme.SPACING.sm,
-  },
-  trendingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.md,
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
-    ...theme.SHADOWS.sm,
-  },
-  trendingRank: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primaryGhost,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trendingRankText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.primary,
-  },
-  trendingContent: {
-    flex: 1,
-  },
-  trendingTag: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-  },
-  trendingPosts: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.xs,
-  },
-  usersList: {
-    gap: theme.SPACING.sm,
-  },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.md,
-    flex: 1,
-  },
-  userAvatar: {
-    position: 'relative',
-  },
-  userAvatarImage: {
-    width: theme.SIZING.avatarMd,
-    height: theme.SIZING.avatarMd,
-    borderRadius: theme.BORDER_RADIUS.full,
-  },
-  userAvatarPlaceholder: {
-    width: theme.SIZING.avatarMd,
-    height: theme.SIZING.avatarMd,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userAvatarInitial: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.primary,
-  },
-  verifiedBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-  },
-  userDetails: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-  },
-  userUsername: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.xs,
-  },
-  userStats: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    color: theme.COLORS.textMuted,
-    marginTop: theme.SPACING.xs,
-  },
-  followButton: {
-    paddingVertical: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.lg,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
+  heroCard: {
+    minHeight: 226,
+    marginHorizontal: theme.LAYOUT.contentPadding,
+    padding: theme.SPACING.xl,
+    borderRadius: 24,
+    overflow: "hidden",
     ...theme.SHADOWS.primary,
   },
-  followButtonUnfollow: {
-    backgroundColor: theme.COLORS.bgLight,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
+  heroOrbLarge: {
+    position: "absolute",
+    top: -44,
+    right: -22,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
-  followButtonText: {
+  heroOrbSmall: {
+    position: "absolute",
+    right: 72,
+    bottom: -44,
+    width: 114,
+    height: 114,
+    borderRadius: 57,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  heroTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+    paddingHorizontal: theme.SPACING.sm,
+    paddingVertical: 5,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  heroTagText: {
+    color: theme.COLORS.white,
+    fontSize: 9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: 0.8,
+  },
+  heroTitle: {
+    marginTop: theme.SPACING.lg,
+    color: theme.COLORS.white,
+    fontSize: 27,
+    lineHeight: 31,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: -0.4,
+  },
+  heroSubtitle: {
+    maxWidth: 280,
+    marginTop: theme.SPACING.sm,
+    color: "rgba(255,255,255,0.82)",
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textWhite,
+    lineHeight: 18,
   },
-  followButtonTextUnfollow: {
+  heroFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+    marginTop: theme.SPACING.lg,
+  },
+  heroFooterLine: {
+    width: 24,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "rgba(255,255,255,0.75)",
+  },
+  heroFooterText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
+  section: {
+    marginTop: theme.SPACING.xl,
+  },
+  sectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    marginBottom: theme.SPACING.md,
+  },
+  sectionTitle: {
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  sectionSubtitle: {
+    marginTop: 3,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  sectionAccent: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  categoryList: {
+    paddingHorizontal: theme.LAYOUT.contentPadding,
     gap: theme.SPACING.sm,
   },
   categoryCard: {
-    width: (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP) / 3 - theme.SPACING.sm,
-    aspectRatio: 1,
-    borderRadius: theme.BORDER_RADIUS.lg,
+    minWidth: 96,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: 18,
     backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.borderDivider,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.SPACING.sm,
-    ...theme.SHADOWS.sm,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
   },
   categoryIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   categoryLabel: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    maxWidth: 94,
+    marginTop: theme.SPACING.sm,
     color: theme.COLORS.textPrimary,
-    textAlign: 'center',
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.SPACING.xxxxxl * 2,
+  trendingSection: {
+    marginTop: theme.SPACING.xxl,
+  },
+  trendingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  topicList: {
+    gap: theme.SPACING.sm,
     paddingHorizontal: theme.LAYOUT.contentPadding,
   },
-  emptyTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  topicCard: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: 18,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+  },
+  topicRank: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  topicRankText: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  topicCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  topicTitle: {
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  topicSubtitle: {
+    marginTop: 3,
+    color: theme.COLORS.textMutedGray,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  topicArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.bgLight,
+  },
+  searchResultsList: {
+    flex: 1,
+  },
+  searchResultsContent: {
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingBottom: 96,
+  },
+  resultsHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: theme.SPACING.sm,
+    marginBottom: theme.SPACING.xs,
+  },
+  resultsCount: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
+  userCard: {
+    minHeight: 84,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.SPACING.md,
+    marginBottom: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: 18,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+  },
+  userCardPressed: {
+    opacity: theme.OPACITY.pressed,
+  },
+  userInfo: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.md,
+  },
+  userAvatarWrap: {
+    width: 50,
+    height: 50,
+    padding: 2,
+    borderRadius: 25,
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  userAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.bgInput,
+  },
+  userAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  userAvatarInitial: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  userDetails: {
+    flex: 1,
+    minWidth: 0,
+  },
+  userNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.xs,
+  },
+  userName: {
+    flexShrink: 1,
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  userUsername: {
+    marginTop: 2,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  userStats: {
+    marginTop: 3,
+    color: theme.COLORS.textMuted,
+    fontSize: 9,
+  },
+  followButton: {
+    minWidth: 84,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primary,
+  },
+  followButtonFollowing: {
+    backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
+  },
+  followButtonPressed: {
+    opacity: theme.OPACITY.pressed,
+  },
+  followButtonText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  followButtonTextFollowing: {
+    color: theme.COLORS.primary,
+  },
+  searchLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.md,
+  },
+  searchLoadingText: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+  },
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+  },
+  emptyTitle: {
     marginTop: theme.SPACING.md,
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   emptySubtitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textSecondary,
     marginTop: theme.SPACING.xs,
-    textAlign: 'center',
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    textAlign: "center",
+  },
+  bottomSpace: {
+    height: 32,
   },
 });

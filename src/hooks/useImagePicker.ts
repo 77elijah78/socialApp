@@ -1,5 +1,5 @@
-import { Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { showAppDialog } from "@/services/AppDialogService";
 
 export type MediaType = "image" | "video";
 
@@ -64,7 +64,12 @@ async function ensurePermission(
 ): Promise<boolean> {
   const { status } = await requestFn();
   if (status !== "granted") {
-    Alert.alert(title, message);
+    showAppDialog({
+      title,
+      message,
+      tone: "warning",
+      buttons: [{ key: "dismiss", label: "Got it", bold: true }],
+    });
     return false;
   }
   return true;
@@ -149,10 +154,28 @@ export async function takePhoto(): Promise<PickedAsset | null> {
 
 export function showImageSourceActionSheet(
   onPick: (action: "library" | "camera") => void,
+  copy: { title?: string; message?: string } = {},
 ) {
-  Alert.alert("Select Media", "Choose a source", [
-    { text: "Photo Library", onPress: () => onPick("library") },
-    { text: "Camera", onPress: () => onPick("camera") },
-    { text: "Cancel", style: "cancel" },
-  ]);
+  showAppDialog({
+    title: copy.title ?? "Choose a photo",
+    message: copy.message ?? "Select a source to continue.",
+    presentation: "sheet",
+    tone: "action",
+    icon: "images-outline",
+    buttons: [
+      {
+        key: "library",
+        label: "Choose from library",
+        icon: "images-outline",
+        onPress: () => onPick("library"),
+      },
+      {
+        key: "camera",
+        label: "Take a photo",
+        icon: "camera-outline",
+        onPress: () => onPick("camera"),
+      },
+      { key: "cancel", label: "Cancel", cancel: true },
+    ],
+  });
 }

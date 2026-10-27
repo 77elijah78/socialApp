@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, Pressable, FlatList, Keyboard } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, Pressable, FlatList, Keyboard, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppSelector } from "@/store/hooks";
 import { shareService, FollowedUser } from "@/services/ShareService";
 import { mediaService } from "@/services/MediaService";
 import { ShareOptions } from "@/providers/OverlayProvider";
 import theme from "@/constants/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export interface ShareModalProps {
   visible: boolean;
@@ -15,6 +16,7 @@ export interface ShareModalProps {
 }
 
 const ShareModal = ({ visible, postId, storyId, onClose }: ShareModalProps) => {
+  const insets = useSafeAreaInsets();
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
   const currentUserDisplayName = useAppSelector((s) => s.auth.user?.displayName ?? s.auth.user?.username) ?? "User";
@@ -27,22 +29,25 @@ const ShareModal = ({ visible, postId, storyId, onClose }: ShareModalProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  const resetShareState = useCallback(() => {
+    setFollowing([]);
+    setSuggested([]);
+    setSearchQuery("");
+    setSelectedIds(new Set());
+    setError(null);
+    setLoading(true);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    resetShareState();
+    onClose();
+  }, [onClose, resetShareState]);
+
   useEffect(() => {
-    if (!visible) {
-      setFollowing([]);
-      setSuggested([]);
-      setSearchQuery("");
-      setSelectedIds(new Set());
-      setError(null);
-      setLoading(true);
-      return;
-    }
+    if (!visible || !token) return;
 
     let cancelled = false;
     const load = async () => {
-      if (!token) return;
-      setLoading(true);
-      setError(null);
       try {
         const [followingResult, suggestedResult] = await Promise.all([
           shareService.getMyFollowing(token),
@@ -145,14 +150,14 @@ const ShareModal = ({ visible, postId, storyId, onClose }: ShareModalProps) => {
         }
       }
 
-      onClose();
+      handleClose();
     } catch (err) {
       console.error("Failed to share:", err);
       setError("Failed to share. Please try again.");
     } finally {
       setSending(false);
     }
-  }, [sending, selectedCount, selectedIds, following, suggested, token, postId, storyId, currentUserId, currentUserDisplayName, onClose]);
+  }, [sending, selectedCount, selectedIds, following, suggested, token, postId, storyId, currentUserId, currentUserDisplayName, handleClose]);
 
   const renderUserItem = useCallback(({ item }: { item: FollowedUser }) => {
     const displayName = item.displayName ?? item.username;
@@ -166,9 +171,7 @@ const ShareModal = ({ visible, postId, storyId, onClose }: ShareModalProps) => {
       >
         <View style={styles.avatar}>
           {item.avatarUrl ? (
-            <View style={styles.avatarImageContainer}>
-              <Text style={styles.avatarText}>{displayName?.[0]?.toUpperCase() ?? "?"}</Text>
-            </View>
+            <Image source={{ uri: item.avatarUrl }} style={styles.avatarImageContainer} />
           ) : (
             <View style={[styles.avatarImageContainer, styles.avatarPlaceholder]}>
               <Text style={styles.avatarText}>{displayName?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -210,14 +213,14 @@ const ShareModal = ({ visible, postId, storyId, onClose }: ShareModalProps) => {
       transparent
       statusBarTranslucent
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable style={styles.backdrop} onPress={handleClose} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, theme.SPACING.xl) }]}>
           <View style={styles.handle} />
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={styles.headerClose}>Cancel</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Share</Text>
@@ -296,48 +299,56 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   sheet: {
-    backgroundColor: theme.COLORS.bgLight,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xxxxxl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xxxxxl,
-    maxHeight: "85%",
-    paddingBottom: 16,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "90%",
+    paddingBottom: theme.SPACING.xl,
+    borderTopWidth: 1,
+    borderColor: "#ECEAF4",
+    shadowColor: "#17152B",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 20,
+    elevation: 20,
   },
   handle: {
-    width: 36,
-    height: 5,
-    backgroundColor: theme.COLORS.borderGray,
+    width: 38,
+    height: 4,
+    backgroundColor: "#D9D7E3",
     borderRadius: theme.BORDER_RADIUS.full,
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 12,
+    marginTop: theme.SPACING.md,
+    marginBottom: theme.SPACING.lg,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.COLORS.borderDivider,
+    paddingHorizontal: theme.SPACING.xxl,
+    paddingVertical: theme.SPACING.md,
     backgroundColor: theme.COLORS.bgWhite,
   },
   headerClose: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
     color: theme.COLORS.textSecondary,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   headerTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     color: theme.COLORS.textPrimary,
   },
   sendButton: {
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingVertical: 10,
     backgroundColor: theme.COLORS.primary,
-    borderRadius: theme.BORDER_RADIUS.full,
-    minWidth: 80,
+    borderRadius: 15,
+    minWidth: 84,
+    minHeight: 39,
     alignItems: "center",
+    justifyContent: "center",
+    ...theme.SHADOWS.primary,
   },
   sendButtonDisabled: {
     backgroundColor: theme.COLORS.textMuted,
@@ -348,18 +359,19 @@ const styles = StyleSheet.create({
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   searchContainer: {
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.xxl,
+    paddingVertical: theme.SPACING.md,
     backgroundColor: theme.COLORS.bgWhite,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.COLORS.borderDivider,
   },
   searchInputWrapper: {
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: theme.COLORS.bgAuthInput,
-    borderRadius: theme.BORDER_RADIUS.xxxxxl,
-    paddingHorizontal: theme.SPACING.md,
+    backgroundColor: "#F7F6FB",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#ECEAF4",
+    paddingHorizontal: theme.SPACING.lg,
     gap: theme.SPACING.sm,
   },
   searchIcon: {
@@ -391,25 +403,28 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   userItem: {
+    minHeight: 66,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.xxl,
     paddingVertical: theme.SPACING.sm,
     gap: theme.SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#F0EEF5",
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 16,
     backgroundColor: theme.COLORS.bgInput,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
   avatarImageContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.bgInput,

@@ -1,14 +1,17 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  Dimensions,
   Modal,
   Pressable,
-  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import theme from "@/constants/theme";
 
 export interface ActionMenuItem {
@@ -26,120 +29,128 @@ interface ActionMenuProps {
   onClose: () => void;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const FALLBACK_SCREEN = Dimensions.get("window");
+const MAX_MENU_WIDTH = 320;
 
-const ActionMenuComponent = ({
-  visible,
-  items,
-  anchor,
-  onClose,
-}: ActionMenuProps) => {
-  const [menuLayout, setMenuLayout] = useState({
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  });
+const ActionMenu = ({ visible, items, anchor, onClose }: ActionMenuProps) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [menuSize, setMenuSize] = useState({ width: MAX_MENU_WIDTH, height: 0 });
+  const width = screenWidth || FALLBACK_SCREEN.width;
+  const height = screenHeight || FALLBACK_SCREEN.height;
+  const isAnchored = Boolean(anchor);
 
-  const handleLayout = (event: any) => {
-    const { width, height } = event.nativeEvent.layout;
-    setMenuLayout((prev) => ({ ...prev, width, height }));
-  };
+  const menuPosition = useMemo(() => {
+    if (!anchor) return undefined;
 
-  const getMenuPosition = useCallback(() => {
-    if (!anchor) {
-      return {
-        left: (SCREEN_WIDTH - (menuLayout.width || 200)) / 2,
-        top: (SCREEN_HEIGHT - (menuLayout.height || 300)) / 2,
-      };
-    }
-
-    const menuWidth = menuLayout.width || 220;
-    const menuHeight = menuLayout.height || items.length * 48 + 16;
-    const spacing = 8;
-
+    const menuWidth = Math.min(menuSize.width || 240, width - 24);
+    const estimatedHeight = menuSize.height || items.length * 58 + 24;
+    const margin = 12;
     let left = anchor.x;
-    let top = anchor.y + anchor.height + spacing;
+    let top = anchor.y + anchor.height + 8;
 
-    if (left + menuWidth > SCREEN_WIDTH - spacing) {
-      left = SCREEN_WIDTH - menuWidth - spacing;
+    if (left + menuWidth > width - margin) left = width - menuWidth - margin;
+    if (left < margin) left = margin;
+    if (top + estimatedHeight > height - insets.bottom - margin) {
+      top = anchor.y - estimatedHeight - 8;
     }
-    if (left < spacing) {
-      left = spacing;
-    }
+    if (top < insets.top + margin) top = insets.top + margin;
 
-    if (top + menuHeight > SCREEN_HEIGHT - spacing) {
-      top = anchor.y - menuHeight - spacing;
-    }
-    if (top < spacing) {
-      top = spacing;
-    }
+    return { left, top, width: menuWidth };
+  }, [anchor, height, insets.bottom, insets.top, items.length, menuSize.height, menuSize.width, width]);
 
-    return { left, top };
-  }, [anchor, items.length, menuLayout.width, menuLayout.height]);
+  const handleLayout = useCallback((event: { nativeEvent: { layout: { width: number; height: number } } }) => {
+    const { width: measuredWidth, height: measuredHeight } = event.nativeEvent.layout;
+    setMenuSize({ width: measuredWidth, height: measuredHeight });
+  }, []);
 
-  const handleAction = (item: ActionMenuItem) => {
-    onClose();
-    setTimeout(() => item.onPress(), 250);
-  };
+  const handleAction = useCallback(
+    (item: ActionMenuItem) => {
+      onClose();
+      setTimeout(item.onPress, 180);
+    },
+    [onClose],
+  );
+
+  const menuContent = (
+    <View style={[styles.menuCard, isAnchored ? styles.popoverCard : styles.sheetCard]} onLayout={handleLayout}>
+      {!isAnchored ? <View style={styles.handle} /> : null}
+      {items.map((item, index) => (
+        <TouchableOpacity
+          key={item.key}
+          accessibilityRole="button"
+          style={[
+            styles.actionItem,
+            index < items.length - 1 && styles.actionItemDivider,
+            item.destructive && styles.actionItemDestructive,
+          ]}
+          onPress={() => handleAction(item)}
+          activeOpacity={0.72}
+        >
+          <View style={[styles.actionIcon, item.destructive && styles.actionIconDestructive]}>
+            <Ionicons
+              name={item.icon}
+              size={19}
+              color={item.destructive ? theme.COLORS.danger : theme.COLORS.primary}
+            />
+          </View>
+          <Text
+            style={[styles.actionLabel, item.destructive && styles.actionLabelDestructive]}
+            numberOfLines={2}
+          >
+            {item.label}
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={item.destructive ? "rgba(255,71,87,0.55)" : theme.COLORS.textMuted}
+          />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
   return (
     <Modal
       visible={visible}
       transparent
       statusBarTranslucent
-      animationType="fade"
+      animationType={isAnchored ? "fade" : "slide"}
       onRequestClose={onClose}
     >
       <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <View style={styles.backdropContent} />
-        </Pressable>
-
-        <View
-          style={[styles.menuContainer, getMenuPosition()]}
-          onLayout={handleLayout}
-        >
-          <View style={styles.menuCard}>
-            <View style={styles.menuHandle} />
-            {items.map((item, index) => (
-              <React.Fragment key={item.key}>
-                {index > 0 && <View style={styles.separator} />}
-                <TouchableOpacity
-                  style={styles.actionItem}
-                  onPress={() => handleAction(item)}
-                  activeOpacity={0.6}
-                >
-                  <Ionicons
-                    name={item.icon}
-                    size={22}
-                    color={
-                      item.destructive
-                        ? theme.COLORS.danger
-                        : theme.COLORS.textPrimary
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      item.destructive && styles.actionLabelDestructive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              </React.Fragment>
-            ))}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close menu"
+          style={styles.backdrop}
+          onPress={onClose}
+        />
+        {isAnchored ? (
+          <View style={[styles.popoverContainer, menuPosition]}>{menuContent}</View>
+        ) : (
+          <View
+            style={[
+              styles.sheetContainer,
+              { paddingBottom: Math.max(insets.bottom, theme.SPACING.lg) },
+            ]}
+          >
+            <ScrollView
+              style={styles.sheetScroll}
+              contentContainerStyle={styles.sheetScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {menuContent}
+            </ScrollView>
           </View>
-        </View>
+        )}
       </View>
     </Modal>
   );
 };
 
-ActionMenuComponent.displayName = "ActionMenu";
+ActionMenu.displayName = "ActionMenu";
 
-export default ActionMenuComponent;
+export default ActionMenu;
 
 const styles = StyleSheet.create({
   modalRoot: {
@@ -151,54 +162,83 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
+    backgroundColor: "rgba(20,18,42,0.34)",
   },
-  backdropContent: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
-  },
-  menuContainer: {
+  popoverContainer: {
     position: "absolute",
-    top: 0,
-    left: 0,
+    maxWidth: MAX_MENU_WIDTH,
   },
   menuCard: {
-    backgroundColor: theme.COLORS.bgLight,
-    borderRadius: theme.BORDER_RADIUS.lg,
-    paddingVertical: theme.SPACING.sm,
-    minWidth: 220,
-    maxWidth: SCREEN_WIDTH * 0.75,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: "#ECEAF4",
+    overflow: "hidden",
+    shadowColor: "#17152B",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.17,
+    shadowRadius: 20,
+    elevation: 14,
   },
-  menuHandle: {
-    width: 36,
-    height: 5,
-    backgroundColor: theme.COLORS.borderGray,
+  popoverCard: {
+    borderRadius: 20,
+    paddingVertical: theme.SPACING.xs,
+  },
+  sheetContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+    paddingHorizontal: theme.SPACING.md,
+  },
+  sheetScroll: {
+    maxHeight: "72%",
+  },
+  sheetScrollContent: {
+    paddingTop: theme.SPACING.sm,
+  },
+  sheetCard: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    paddingTop: theme.SPACING.md,
+    paddingBottom: theme.SPACING.md,
+  },
+  handle: {
+    width: 38,
+    height: 4,
     borderRadius: theme.BORDER_RADIUS.full,
     alignSelf: "center",
-    marginBottom: 8,
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: theme.COLORS.borderDivider,
-    marginVertical: theme.SPACING.xs,
-    marginHorizontal: theme.SPACING.md,
+    backgroundColor: "#D9D7E3",
+    marginBottom: theme.SPACING.md,
   },
   actionItem: {
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.md,
-    borderRadius: theme.BORDER_RADIUS.md,
-    marginHorizontal: theme.SPACING.xs,
+    gap: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.lg,
+  },
+  actionItemDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ECEAF4",
+  },
+  actionItemDestructive: {
+    backgroundColor: "rgba(255,71,87,0.035)",
+  },
+  actionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: theme.COLORS.primaryGhost,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionIconDestructive: {
+    backgroundColor: theme.COLORS.dangerLight,
   },
   actionLabel: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    flex: 1,
     color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   actionLabelDestructive: {
