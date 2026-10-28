@@ -11,7 +11,10 @@ import {
   Platform,
   Animated,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
 import ChatHeader from "@/components/chat/ChatHeader";
@@ -117,8 +120,12 @@ export default function PrivateRoom() {
   const visibleMessageIdsRef = useRef<string[]>([]);
   const nearBottomRef = useRef(true);
   const scrollOffsetRef = useRef(0);
-  const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const restoreScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const restoreScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const pendingScrollViewPositionRef = useRef(0.78);
   const [positionRecord, setPositionRecord] = useState<{
     key: string;
@@ -145,7 +152,8 @@ export default function PrivateRoom() {
       if (!permission.granted) {
         showAppDialog({
           title: "Microphone access needed",
-          message: "Enable microphone access in your device settings to record a voice message.",
+          message:
+            "Enable microphone access in your device settings to record a voice message.",
           tone: "warning",
         });
         return;
@@ -176,11 +184,14 @@ export default function PrivateRoom() {
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
   const positionStorageKey = useMemo(
-    () => `private-room-position:${currentUserId ?? "guest"}:${String(conversationId || roomId || "")}`,
+    () =>
+      `private-room-position:${currentUserId ?? "guest"}:${String(conversationId || roomId || "")}`,
     [currentUserId, conversationId, roomId],
   );
   const positionLoaded = positionRecord?.key === positionStorageKey;
-  const savedPosition = positionLoaded ? positionRecord?.position ?? null : null;
+  const savedPosition = positionLoaded
+    ? (positionRecord?.position ?? null)
+    : null;
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
@@ -204,9 +215,13 @@ export default function PrivateRoom() {
         const raw = await AsyncStorage.getItem(positionStorageKey);
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<SavedChatPosition>;
-          if (typeof parsed.offset === "number" && Number.isFinite(parsed.offset)) {
+          if (
+            typeof parsed.offset === "number" &&
+            Number.isFinite(parsed.offset)
+          ) {
             position = {
-              anchorId: typeof parsed.anchorId === "string" ? parsed.anchorId : null,
+              anchorId:
+                typeof parsed.anchorId === "string" ? parsed.anchorId : null,
               offset: Math.max(0, parsed.offset),
               anchorAtBottom: parsed.anchorAtBottom === true,
               anchorViewPosition:
@@ -280,7 +295,11 @@ export default function PrivateRoom() {
     return -1;
   }, [messages, isReceivedUnread]);
   const unreadMessageCount = useMemo(
-    () => messages.reduce((count, message) => count + Number(isReceivedUnread(message)), 0),
+    () =>
+      messages.reduce(
+        (count, message) => count + Number(isReceivedUnread(message)),
+        0,
+      ),
     [messages, isReceivedUnread],
   );
 
@@ -297,7 +316,10 @@ export default function PrivateRoom() {
         savedAt: Date.now(),
       };
       try {
-        await AsyncStorage.setItem(positionStorageKey, JSON.stringify(position));
+        await AsyncStorage.setItem(
+          positionStorageKey,
+          JSON.stringify(position),
+        );
       } catch (error) {
         console.warn("[privateRoom] could not save reading position:", error);
       }
@@ -340,7 +362,9 @@ export default function PrivateRoom() {
   const requestScrollToLatest = useCallback(
     (animated = true) => {
       const latestMessage = messages[messages.length - 1];
-      const latestId = String(latestMessage?.localId ?? latestMessage?.id ?? "");
+      const latestId = String(
+        latestMessage?.localId ?? latestMessage?.id ?? "",
+      );
       if (latestId) {
         lastVisibleMessageRef.current = {
           id: latestId,
@@ -415,39 +439,88 @@ export default function PrivateRoom() {
 
   const { openActionMenu } = useOverlay();
 
-  const handleMenuPress = useCallback((anchor?: { x: number; y: number; width: number; height: number }) => {
-    const actions: ActionMenuItem[] = [
-      { key: 'search', icon: 'search', label: 'Search', onPress: () => {} },
-      { key: 'mute', icon: 'notifications-off-outline', label: 'Mute notifications', onPress: () => {} },
-      { key: 'wallpaper', icon: 'image-outline', label: 'Wallpaper', onPress: () => {} },
-      { key: 'delete', icon: 'trash-outline', label: 'Delete conversation', destructive: true, onPress: async () => {
-        try {
-          await mediaService.message.deleteConversation(conversationId);
-          router.back();
-        } catch {
-          showAppDialog({
-            title: "Couldn’t delete conversation",
-            message: "Please try again in a moment.",
-            tone: "error",
-          });
-        }
-      }},
-    ];
-    openActionMenu(actions, anchor);
-  }, [conversationId, router, openActionMenu]);
+  const handleMenuPress = useCallback(
+    (anchor?: { x: number; y: number; width: number; height: number }) => {
+      const actions: ActionMenuItem[] = [
+        { key: "search", icon: "search", label: "Search", onPress: () => {} },
+        {
+          key: "mute",
+          icon: "notifications-off-outline",
+          label: "Mute notifications",
+          onPress: () => {},
+        },
+        {
+          key: "wallpaper",
+          icon: "image-outline",
+          label: "Wallpaper",
+          onPress: () => {},
+        },
+        {
+          key: "delete",
+          icon: "trash-outline",
+          label: "Delete conversation",
+          destructive: true,
+          onPress: async () => {
+            try {
+              await mediaService.message.deleteConversation(conversationId);
+              router.back();
+            } catch {
+              showAppDialog({
+                title: "Couldn’t delete conversation",
+                message: "Please try again in a moment.",
+                tone: "error",
+              });
+            }
+          },
+        },
+      ];
+      openActionMenu(actions, anchor);
+    },
+    [conversationId, router, openActionMenu],
+  );
 
   const handleMessageAction = useCallback(
     (message: any) => {
       const isOwn = message.senderId === currentUserId;
       const actions: ActionMenuItem[] = [
-        { key: 'reply', icon: 'arrow-undo-outline', label: 'Reply', onPress: () => setReplyingTo(message) },
-        isOwn ? { key: 'delete', icon: 'trash-outline', label: 'Delete', destructive: true, onPress: async () => {
-          const deleteOptions: ActionMenuItem[] = [
-            { key: 'forme', icon: 'close-circle-outline', label: 'Delete for me', onPress: () => mediaService.message.delete(message.id) },
-            { key: 'everyone', icon: 'people-outline', label: 'Delete for everyone', destructive: true, onPress: () => mediaService.message.delete(message.id, "everyone") },
-          ];
-          openActionMenu(deleteOptions);
-        }} : { key: 'cannot', icon: 'lock-closed-outline', label: 'Cannot delete others messages', onPress: () => {} },
+        {
+          key: "reply",
+          icon: "arrow-undo-outline",
+          label: "Reply",
+          onPress: () => setReplyingTo(message),
+        },
+        isOwn
+          ? {
+              key: "delete",
+              icon: "trash-outline",
+              label: "Delete",
+              destructive: true,
+              onPress: async () => {
+                const deleteOptions: ActionMenuItem[] = [
+                  {
+                    key: "forme",
+                    icon: "close-circle-outline",
+                    label: "Delete for me",
+                    onPress: () => mediaService.message.delete(message.id),
+                  },
+                  {
+                    key: "everyone",
+                    icon: "people-outline",
+                    label: "Delete for everyone",
+                    destructive: true,
+                    onPress: () =>
+                      mediaService.message.delete(message.id, "everyone"),
+                  },
+                ];
+                openActionMenu(deleteOptions);
+              },
+            }
+          : {
+              key: "cannot",
+              icon: "lock-closed-outline",
+              label: "Cannot delete others messages",
+              onPress: () => {},
+            },
       ];
       openActionMenu(actions);
     },
@@ -514,7 +587,8 @@ export default function PrivateRoom() {
 
   const handleScroll = useCallback(
     (event: any) => {
-      const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+      const { layoutMeasurement, contentOffset, contentSize } =
+        event.nativeEvent;
       const offset = Math.max(0, contentOffset.y);
       const isNearBottom =
         layoutMeasurement.height + offset >= contentSize.height - 120;
@@ -556,7 +630,10 @@ export default function PrivateRoom() {
   const handleViewableItemsChanged = useCallback(
     ({ changed, viewableItems }: { changed: any[]; viewableItems: any[] }) => {
       const visibleItems = viewableItems
-        .filter((viewable) => viewable.isViewable && viewable.item?.kind === "message")
+        .filter(
+          (viewable) =>
+            viewable.isViewable && viewable.item?.kind === "message",
+        )
         .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
         .map((viewable) => viewable.item);
       const visibleIds = visibleItems.map((item) => item.id as string);
@@ -575,7 +652,9 @@ export default function PrivateRoom() {
       }
 
       const newlyVisibleMessageIds = changed
-        .filter((change) => change.isViewable && change.item?.kind === "message")
+        .filter(
+          (change) => change.isViewable && change.item?.kind === "message",
+        )
         .map((change) => change.item.id as string);
       if (newlyVisibleMessageIds.length > 0 && markVisibleRead) {
         markVisibleRead(newlyVisibleMessageIds);
@@ -686,7 +765,9 @@ export default function PrivateRoom() {
   const handleInitialContentSizeChange = useCallback(() => {
     if (pendingLatestScrollRef.current) {
       const latestMessage = messages[messages.length - 1];
-      const latestId = String(latestMessage?.localId ?? latestMessage?.id ?? "");
+      const latestId = String(
+        latestMessage?.localId ?? latestMessage?.id ?? "",
+      );
       if (latestId) {
         lastVisibleMessageRef.current = {
           id: latestId,
@@ -773,7 +854,10 @@ export default function PrivateRoom() {
   }, [messages, requestScrollToLatest]);
 
   const lastUnreadFlatIndex = useMemo(
-    () => flatData.findIndex((item) => item.kind === "message" && item.index === lastUnreadIndex),
+    () =>
+      flatData.findIndex(
+        (item) => item.kind === "message" && item.index === lastUnreadIndex,
+      ),
     [flatData, lastUnreadIndex],
   );
 
@@ -813,7 +897,8 @@ export default function PrivateRoom() {
       initialScrollRoomRef.current = roomKey;
       pendingScrollViewPositionRef.current = viewPosition;
       visibleMessageIdsRef.current = [];
-      if (restoreScrollTimerRef.current) clearTimeout(restoreScrollTimerRef.current);
+      if (restoreScrollTimerRef.current)
+        clearTimeout(restoreScrollTimerRef.current);
       restoreScrollTimerRef.current = setTimeout(() => {
         restoreScrollTimerRef.current = null;
         if (initialScrollRoomRef.current !== roomKey) return;
@@ -824,7 +909,9 @@ export default function PrivateRoom() {
 
     if (messages.length === 0) {
       nearBottomRef.current = lastUnreadIndex < 0;
-      scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () => scrollToLastUnread(false));
+      scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
+        scrollToLastUnread(false),
+      );
       return;
     }
 
@@ -892,7 +979,8 @@ export default function PrivateRoom() {
     const initialAnchor = flatData.find(
       (item) =>
         item.kind === "message" &&
-        item.index === (lastUnreadIndex >= 0 ? lastUnreadIndex : messages.length - 1),
+        item.index ===
+          (lastUnreadIndex >= 0 ? lastUnreadIndex : messages.length - 1),
     );
     lastVisibleMessageRef.current = initialAnchor
       ? {
@@ -901,7 +989,9 @@ export default function PrivateRoom() {
           viewPosition: lastUnreadIndex >= 0 ? 0.78 : 1,
         }
       : null;
-    scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () => scrollToLastUnread(false));
+    scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
+      scrollToLastUnread(false),
+    );
   }, [
     conversationId,
     roomId,
@@ -919,10 +1009,19 @@ export default function PrivateRoom() {
   ]);
 
   const handleScrollToIndexFailed = useCallback(
-    ({ index, averageItemLength }: { index: number; averageItemLength: number }) => {
+    ({
+      index,
+      averageItemLength,
+    }: {
+      index: number;
+      averageItemLength: number;
+    }) => {
       const list = flatListRef.current;
       if (!list) return;
-      list.scrollToOffset({ offset: Math.max(0, averageItemLength * index), animated: false });
+      list.scrollToOffset({
+        offset: Math.max(0, averageItemLength * index),
+        animated: false,
+      });
       requestAnimationFrame(() => {
         list.scrollToIndex({
           index,
@@ -1003,7 +1102,9 @@ export default function PrivateRoom() {
           onPress={() => {
             cancelPositionRestore();
             const targetMessage = messages[lastUnreadIndex];
-            const targetId = String(targetMessage?.localId ?? targetMessage?.id ?? "");
+            const targetId = String(
+              targetMessage?.localId ?? targetMessage?.id ?? "",
+            );
             if (targetId) {
               nearBottomRef.current = false;
               lastVisibleMessageRef.current = {
@@ -1029,11 +1130,16 @@ export default function PrivateRoom() {
             <View style={styles.jumpCopy}>
               <Text style={styles.jumpEyebrow}>NEW MESSAGES</Text>
               <Text style={styles.jumpText}>
-                {unreadMessageCount} unread {unreadMessageCount === 1 ? "message" : "messages"}
+                {unreadMessageCount} unread{" "}
+                {unreadMessageCount === 1 ? "message" : "messages"}
               </Text>
             </View>
             <View style={styles.jumpIconWrap}>
-              <Ionicons name="arrow-down" size={17} color={theme.COLORS.primary} />
+              <Ionicons
+                name="arrow-down"
+                size={17}
+                color={theme.COLORS.primary}
+              />
             </View>
           </LinearGradient>
         </TouchableOpacity>
@@ -1049,8 +1155,9 @@ export default function PrivateRoom() {
         onContentSizeChange={handleInitialContentSizeChange}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
+        //keyboardDismissMode="on-drag"
         contentContainerStyle={{
-          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 80,
+          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
           paddingTop: theme.SPACING.md,
         }}
         renderItem={renderItem}
@@ -1059,10 +1166,16 @@ export default function PrivateRoom() {
           !isSyncing && messages.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyStateIcon}>
-                <Ionicons name="chatbubble-ellipses-outline" size={28} color={theme.COLORS.primary} />
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
+                  size={28}
+                  color={theme.COLORS.primary}
+                />
               </View>
               <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
-              <Text style={styles.emptyStateText}>Send a message to start the conversation.</Text>
+              <Text style={styles.emptyStateText}>
+                Send a message to start the conversation.
+              </Text>
             </View>
           ) : null
         }
@@ -1096,6 +1209,7 @@ export default function PrivateRoom() {
           {
             bottom: Math.max(insets.bottom, 8),
             transform: [{ translateY: inputTranslateY }],
+            marginBottom: keyboardIsVisible ? -8 : 0,
           },
         ]}
       >
