@@ -944,7 +944,13 @@ export function useChat({
         return;
       }
 
-      await reload();
+      // Keep the newly fetched older page in the current list. Reloading only
+      // the latest 30 rows here would discard it and stall older-position restore.
+      setMessages((previousMessages) =>
+        dedupeMessages([...serverOlder, ...previousMessages]).sort(
+          (a, b) => a.timestamp - b.timestamp,
+        ),
+      );
     } catch (error) {
       if (mountedRef.current) {
         setSyncError(error instanceof Error ? error : new Error(String(error)));
@@ -963,7 +969,6 @@ export function useChat({
     hasMore,
     isSyncing,
     messages,
-    reload,
   ]);
 
   /**
