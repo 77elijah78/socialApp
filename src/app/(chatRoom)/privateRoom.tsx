@@ -100,6 +100,8 @@ export default function PrivateRoom() {
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
   const textInputRef = useRef<TextInput>(null);
   const initialScrollRoomRef = useRef<string | null>(null);
+  const initialCacheScrollKeyRef = useRef<string | null>(null);
+  const pendingInitialEndScrollRef = useRef(false);
   const positionRestoredRef = useRef(false);
   const restoreLoadInFlightRef = useRef(false);
   const restoreCursorRef = useRef<string | null>(null);
@@ -180,6 +182,8 @@ export default function PrivateRoom() {
   useEffect(() => {
     positionRestoredRef.current = false;
     initialScrollRoomRef.current = null;
+    initialCacheScrollKeyRef.current = null;
+    pendingInitialEndScrollRef.current = false;
     restoreLoadInFlightRef.current = false;
     restoreCursorRef.current = null;
     lastVisibleMessageRef.current = null;
@@ -608,6 +612,48 @@ export default function PrivateRoom() {
     return items;
   }, [dateLabels, messages, currentUserId]);
 
+  const handleInitialContentSizeChange = useCallback(() => {
+    if (!pendingInitialEndScrollRef.current) return;
+    pendingInitialEndScrollRef.current = false;
+    const scrollKey = initialCacheScrollKeyRef.current;
+    requestAnimationFrame(() => {
+      if (
+        initialCacheScrollKeyRef.current === scrollKey &&
+        !positionRestoredRef.current
+      ) {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }
+    });
+  }, [flatListRef]);
+
+  useEffect(() => {
+    const roomKey = String(conversationId || roomId || "");
+    if (
+      !roomKey ||
+      !conversationId ||
+      messages[0]?.conversationId !== conversationId ||
+      messages.length === 0 ||
+      initialCacheScrollKeyRef.current === positionStorageKey
+    ) {
+      return;
+    }
+
+    initialCacheScrollKeyRef.current = positionStorageKey;
+    pendingInitialEndScrollRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (
+          initialCacheScrollKeyRef.current === positionStorageKey &&
+          pendingInitialEndScrollRef.current &&
+          !positionRestoredRef.current
+        ) {
+          pendingInitialEndScrollRef.current = false;
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }
+      });
+    });
+  }, [conversationId, roomId, positionStorageKey, messages, flatListRef]);
+
   const lastUnreadFlatIndex = useMemo(
     () => flatData.findIndex((item) => item.kind === "message" && item.index === lastUnreadIndex),
     [flatData, lastUnreadIndex],
@@ -863,6 +909,8 @@ export default function PrivateRoom() {
         style={styles.messageList}
         data={flatData}
         extraData={messages}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        onContentSizeChange={handleInitialContentSizeChange}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
