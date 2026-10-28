@@ -56,6 +56,7 @@ interface UseChatReturn {
   ) => Promise<void>;
 
   markVisibleRead: (visibleMessageIds: string[]) => void;
+  incomingMessageVersion: number;
 }
 
 export function useChat({
@@ -65,6 +66,7 @@ export function useChat({
 }: UseChatParams): UseChatReturn {
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isSyncing, setIsSyncing] = useState(true);
+  const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
   const [isConnected, setConnected] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
@@ -317,6 +319,8 @@ export function useChat({
       if (cancelled || !mountedRef.current) {
         return;
       }
+
+      setIncomingMessageVersion((version) => version + 1);
 
       /**
        * New message should immediately appear.
@@ -1030,5 +1034,6 @@ export function useChat({
     sendMedia,
 
     markVisibleRead,
+    incomingMessageVersion,
   };
 }
