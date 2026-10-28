@@ -76,8 +76,14 @@ export interface Comment {
   postId: string;
   createdAt: Date;
   repliedToId: string | null;
-  author?: User;
+  author?: Partial<User> & Pick<User, "id" | "username">;
   post?: Post;
+  /** Frontend-ready comment engagement fields; likes remain optimistic until persisted by the API. */
+  likeCount?: number;
+  isLiked?: boolean;
+  repliesCount?: number;
+  replies?: Comment[];
+  _count?: { likes?: number; replies?: number };
 }
 
 export interface SavedPost {

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import theme from "@/constants/theme";
@@ -32,27 +32,62 @@ const MAX_IMAGES = 4;
 export default function CreatePostScreen() {
   const token = useAppSelector((state) => state.auth.token);
   const user = useAppSelector((state) => state.auth.user);
+  const params = useLocalSearchParams<{ postId?: string }>();
+  const postId = Array.isArray(params.postId) ? params.postId[0] : params.postId;
+  const isEditing = Boolean(postId);
   const [content, setContent] = useState("");
+  const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
   const [selectedImages, setSelectedImages] = useState<PickedAsset[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [loadedPostId, setLoadedPostId] = useState<string | null>(null);
+  const loadingPost = Boolean(postId && token && loadedPostId !== postId);
 
   const canPost = useMemo(
-    () => content.trim().length > 0 || selectedImages.length > 0,
-    [content, selectedImages.length],
+    () => content.trim().length > 0 || selectedImages.length + existingImageUrls.length > 0,
+    [content, selectedImages.length, existingImageUrls.length],
   );
-  const remainingImages = MAX_IMAGES - selectedImages.length;
+  const remainingImages = Math.max(0, MAX_IMAGES - selectedImages.length - existingImageUrls.length);
   const displayName = user?.displayName || user?.username || "Your profile";
   const initial = displayName.charAt(0).toUpperCase() || "Y";
+
+  useEffect(() => {
+    if (!postId || !token) return;
+
+    let cancelled = false;
+    api.get<{ success: boolean; data: { content: string; imageUrls?: string[] } }>(
+      `/posts/${postId}`,
+      token,
+    ).then((response) => {
+      if (cancelled) return;
+      setContent(response.data.content ?? "");
+      setExistingImageUrls(response.data.imageUrls ?? []);
+    }).catch((error) => {
+      if (!cancelled) {
+        showAppDialog({
+          title: "Couldn’t load post",
+          message: error instanceof Error ? error.message : "Please try again.",
+          tone: "error",
+        });
+      }
+    }).finally(() => {
+      if (!cancelled) setLoadedPostId(postId);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId, token]);
 
   const appendImages = useCallback((result: PickedAsset | PickedAsset[] | null) => {
     if (!result) return;
     const assets = Array.isArray(result) ? result : [result];
+    const availableSlots = Math.max(0, MAX_IMAGES - existingImageUrls.length);
     setSelectedImages((previous) => {
       const existingUris = new Set(previous.map((asset) => asset.uri));
       const uniqueAssets = assets.filter((asset) => !existingUris.has(asset.uri));
-      return [...previous, ...uniqueAssets].slice(0, MAX_IMAGES);
+      return [...previous, ...uniqueAssets].slice(0, availableSlots);
     });
-  }, []);
+  }, [existingImageUrls.length]);
 
   const handlePickFromLibrary = useCallback(async () => {
     if (remainingImages <= 0) return;
@@ -71,10 +106,11 @@ export default function CreatePostScreen() {
 
   const handleRemoveImage = useCallback((uri: string) => {
     setSelectedImages((previous) => previous.filter((asset) => asset.uri !== uri));
+    setExistingImageUrls((previous) => previous.filter((imageUrl) => imageUrl !== uri));
   }, []);
 
-  const handleCreatePost = useCallback(async () => {
-    if (!canPost || uploading) return;
+  const handleSavePost = useCallback(async () => {
+    if (!canPost || uploading || loadingPost) return;
     if (!token) {
       showAppDialog({
         title: "Sign in required",
@@ -86,38 +122,53 @@ export default function CreatePostScreen() {
 
     setUploading(true);
     try {
-      const imageUrls = await Promise.all(
+      const uploadedImageUrls = await Promise.all(
         selectedImages.map(async (asset) => {
           const form = createUploadFormData(asset.uri, getAssetMimeType(asset));
           const response = await api.upload("/media/upload", form, token);
           return response.data.url;
         }),
       );
+      const imageUrls = [...existingImageUrls, ...uploadedImageUrls];
+      const payload = { content: content.trim(), imageUrls };
 
-      await api.post(
-        "/posts",
-        { content: content.trim(), imageUrls },
-        token,
-      );
+      if (isEditing && postId) {
+        await api.patch(`/posts/${postId}`, payload, token);
+      } else {
+        await api.post("/posts", payload, token);
+      }
 
       setContent("");
       setSelectedImages([]);
+      setExistingImageUrls([]);
       showAppDialog({
-        title: "Post shared",
-        message: "Your moment is now part of the feed.",
+        title: isEditing ? "Post updated" : "Post shared",
+        message: isEditing
+          ? "Your changes have been saved."
+          : "Your moment is now part of the feed.",
         tone: "success",
         buttons: [{ key: "done", label: "Done", bold: true, onPress: () => router.back() }],
       });
     } catch (error) {
       showAppDialog({
-        title: "Couldn’t share your post",
+        title: isEditing ? "Couldn’t update post" : "Couldn’t share your post",
         message: error instanceof Error ? error.message : "Please try again.",
         tone: "error",
       });
     } finally {
       setUploading(false);
     }
-  }, [canPost, uploading, token, selectedImages, content]);
+  }, [
+    canPost,
+    uploading,
+    loadingPost,
+    token,
+    selectedImages,
+    existingImageUrls,
+    content,
+    isEditing,
+    postId,
+  ]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
@@ -136,25 +187,25 @@ export default function CreatePostScreen() {
             <Ionicons name="close" size={22} color={theme.COLORS.textPrimary} />
           </Pressable>
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerEyebrow}>CREATE</Text>
-            <Text style={styles.headerTitle}>New post</Text>
+            <Text style={styles.headerEyebrow}>{isEditing ? "EDIT" : "CREATE"}</Text>
+            <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "New post"}</Text>
           </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Share post"
-            onPress={handleCreatePost}
-            disabled={!canPost || uploading}
+            onPress={handleSavePost}
+            disabled={!canPost || uploading || loadingPost}
             style={({ pressed }) => [
               styles.shareButton,
-              (!canPost || uploading) && styles.shareButtonDisabled,
-              pressed && canPost && !uploading && styles.pressed,
+              (!canPost || uploading || loadingPost) && styles.shareButtonDisabled,
+              pressed && canPost && !uploading && !loadingPost && styles.pressed,
             ]}
           >
-            {uploading ? (
+            {uploading || loadingPost ? (
               <ActivityIndicator size="small" color={theme.COLORS.white} />
             ) : (
               <>
-                <Text style={styles.shareButtonText}>Share</Text>
+                <Text style={styles.shareButtonText}>{isEditing ? "Save" : "Share"}</Text>
                 <Ionicons name="arrow-forward" size={16} color={theme.COLORS.white} />
               </>
             )}
@@ -167,6 +218,13 @@ export default function CreatePostScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {loadingPost ? (
+            <View style={styles.loadingPostState}>
+              <ActivityIndicator size="small" color={theme.COLORS.primary} />
+              <Text style={styles.loadingPostText}>Loading your post…</Text>
+            </View>
+          ) : null}
+
           <View style={styles.authorCard}>
             <View style={styles.authorAvatarWrap}>
               {user?.avatarUrl ? (
@@ -211,11 +269,25 @@ export default function CreatePostScreen() {
                 </Text>
               </View>
               <View style={styles.mediaCountPill}>
-                <Text style={styles.mediaCountText}>{selectedImages.length}/{MAX_IMAGES}</Text>
+                <Text style={styles.mediaCountText}>{existingImageUrls.length + selectedImages.length}/{MAX_IMAGES}</Text>
               </View>
             </View>
 
             <View style={styles.imageGrid}>
+              {existingImageUrls.map((uri) => (
+                <View key={`existing-${uri}`} style={styles.imageTile}>
+                  <Image source={{ uri }} style={styles.imagePreview} />
+                  <View style={styles.imageScrim} />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove photo"
+                    onPress={() => handleRemoveImage(uri)}
+                    style={({ pressed }) => [styles.removeImageButton, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="close" size={15} color={theme.COLORS.textPrimary} />
+                  </Pressable>
+                </View>
+              ))}
               {selectedImages.map((asset) => (
                 <View key={asset.uri} style={styles.imageTile}>
                   <Image source={{ uri: asset.uri }} style={styles.imagePreview} />
@@ -230,7 +302,7 @@ export default function CreatePostScreen() {
                   </Pressable>
                 </View>
               ))}
-              {selectedImages.length < MAX_IMAGES ? (
+              {remainingImages > 0 ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={handlePickFromLibrary}
@@ -290,9 +362,9 @@ export default function CreatePostScreen() {
             </Pressable>
           </View>
           <Text style={styles.footerHint}>
-            {selectedImages.length === 0
+            {selectedImages.length + existingImageUrls.length === 0
               ? "Choose up to four photos"
-              : `${selectedImages.length} ${selectedImages.length === 1 ? "photo" : "photos"} ready to share`}
+              : `${selectedImages.length + existingImageUrls.length} ${selectedImages.length + existingImageUrls.length === 1 ? "photo" : "photos"} ready to ${isEditing ? "save" : "share"}`}
           </Text>
         </View>
       </KeyboardAvoidingView>
@@ -371,6 +443,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingTop: theme.SPACING.lg,
     paddingBottom: theme.SPACING.xxxxxxl,
+  },
+  loadingPostState: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    paddingVertical: theme.SPACING.lg,
+  },
+  loadingPostText: {
+    color: theme.COLORS.textSecondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
   authorCard: {
     flexDirection: "row",

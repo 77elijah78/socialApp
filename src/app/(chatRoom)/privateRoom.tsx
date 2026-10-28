@@ -33,6 +33,17 @@ import { mediaService } from "@/services/MediaService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
+import { useKeyboardState } from "react-native-keyboard-controller";
+import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+interface SavedChatPosition {
+  anchorId: string | null;
+  offset: number;
+  anchorAtBottom: boolean;
+  anchorViewPosition: number;
+  savedAt: number;
+}
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -65,21 +76,54 @@ type MessageItem =
   | { kind: "message"; id: string; data: any; index: number };
 
 export default function PrivateRoom() {
-  const { roomId, receiverName, receiverAvatar, conversationId, receiverId } =
-    useLocalSearchParams<{
-      roomId: string;
-      receiverName: string;
-      receiverAvatar?: string;
-      conversationId: string;
-      receiverId: string;
-    }>();
+  const {
+    roomId,
+    receiverName,
+    receiverUsername,
+    receiverAvatar,
+    conversationId,
+    receiverId,
+  } = useLocalSearchParams<{
+    roomId: string;
+    receiverName: string;
+    receiverUsername?: string;
+    receiverAvatar?: string;
+    conversationId: string;
+    receiverId: string;
+  }>();
 
   const [record, setRecord] = useState(true);
   const [visible, setVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [showJumpToUnread, setShowJumpToUnread] = useState(true);
   const textInputRef = useRef<TextInput>(null);
+  const initialScrollRoomRef = useRef<string | null>(null);
+  const initialCacheScrollKeyRef = useRef<string | null>(null);
+  const pendingInitialEndScrollRef = useRef(false);
+  const pendingLatestScrollRef = useRef(false);
+  const pendingLatestScrollAnimatedRef = useRef(false);
+  const isSearchingSavedPositionRef = useRef(false);
+  const handledIncomingVersionRef = useRef(0);
+  const positionRestoredRef = useRef(false);
+  const restoreLoadInFlightRef = useRef(false);
+  const restoreCursorRef = useRef<string | null>(null);
+  const lastVisibleMessageRef = useRef<{
+    id: string;
+    anchorAtBottom: boolean;
+    viewPosition: number;
+  } | null>(null);
+  const visibleMessageIdsRef = useRef<string[]>([]);
+  const nearBottomRef = useRef(true);
+  const scrollOffsetRef = useRef(0);
+  const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingScrollViewPositionRef = useRef(0.78);
+  const [positionRecord, setPositionRecord] = useState<{
+    key: string;
+    position: SavedChatPosition | null;
+  } | null>(null);
   const [keyboardHeight] = useState(() => new Animated.Value(0));
   const [dateLabels] = useState(() => {
     const today = new Date();
@@ -89,6 +133,7 @@ export default function PrivateRoom() {
     };
   });
   const insets = useSafeAreaInsets();
+  const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -130,14 +175,66 @@ export default function PrivateRoom() {
 
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
+  const positionStorageKey = useMemo(
+    () => `private-room-position:${currentUserId ?? "guest"}:${String(conversationId || roomId || "")}`,
+    [currentUserId, conversationId, roomId],
+  );
+  const positionLoaded = positionRecord?.key === positionStorageKey;
+  const savedPosition = positionLoaded ? positionRecord?.position ?? null : null;
   const [isFocused, setIsFocused] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      setIsFocused(true);
-      return () => setIsFocused(false);
-    }, []),
-  );
+  useEffect(() => {
+    positionRestoredRef.current = false;
+    initialScrollRoomRef.current = null;
+    initialCacheScrollKeyRef.current = null;
+    pendingInitialEndScrollRef.current = false;
+    pendingLatestScrollRef.current = false;
+    isSearchingSavedPositionRef.current = false;
+    restoreLoadInFlightRef.current = false;
+    restoreCursorRef.current = null;
+    lastVisibleMessageRef.current = null;
+    visibleMessageIdsRef.current = [];
+    scrollOffsetRef.current = 0;
+    nearBottomRef.current = true;
+
+    let cancelled = false;
+    const readPosition = async () => {
+      let position: SavedChatPosition | null = null;
+      try {
+        const raw = await AsyncStorage.getItem(positionStorageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<SavedChatPosition>;
+          if (typeof parsed.offset === "number" && Number.isFinite(parsed.offset)) {
+            position = {
+              anchorId: typeof parsed.anchorId === "string" ? parsed.anchorId : null,
+              offset: Math.max(0, parsed.offset),
+              anchorAtBottom: parsed.anchorAtBottom === true,
+              anchorViewPosition:
+                typeof parsed.anchorViewPosition === "number" &&
+                Number.isFinite(parsed.anchorViewPosition)
+                  ? Math.max(0, Math.min(1, parsed.anchorViewPosition))
+                  : parsed.anchorAtBottom === true
+                    ? 1
+                    : 0,
+              savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
+            };
+          }
+        }
+      } catch {
+        // A malformed or unavailable local position should fall back to the unread/end position.
+      }
+      if (!cancelled) setPositionRecord({ key: positionStorageKey, position });
+    };
+
+    void readPosition();
+    return () => {
+      cancelled = true;
+      if (restoreScrollTimerRef.current) {
+        clearTimeout(restoreScrollTimerRef.current);
+        restoreScrollTimerRef.current = null;
+      }
+    };
+  }, [positionStorageKey]);
 
   const {
     messages,
@@ -150,6 +247,8 @@ export default function PrivateRoom() {
     isOffline,
     syncError,
     loadMore,
+    hasMore,
+    incomingMessageVersion,
     replyMsg,
     markVisibleRead,
   } = useChat({
@@ -162,19 +261,157 @@ export default function PrivateRoom() {
     },
   });
 
-  const firstUnreadIndex = messages.findIndex(
-    (m) => m.senderId !== (currentUserId ?? "") && m.status !== "READ",
+  const isReceivedUnread = useCallback(
+    (message: any) =>
+      message.senderId !== (currentUserId ?? "") &&
+      message.isRead !== true &&
+      String(message.status ?? "").toUpperCase() !== "READ",
+    [currentUserId],
+  );
+
+  const firstUnreadIndex = useMemo(
+    () => messages.findIndex(isReceivedUnread),
+    [messages, isReceivedUnread],
+  );
+  const lastUnreadIndex = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (isReceivedUnread(messages[index])) return index;
+    }
+    return -1;
+  }, [messages, isReceivedUnread]);
+  const unreadMessageCount = useMemo(
+    () => messages.reduce((count, message) => count + Number(isReceivedUnread(message)), 0),
+    [messages, isReceivedUnread],
+  );
+
+  const flushSavedPosition = useCallback(
+    async (offset: number) => {
+      if (!positionRestoredRef.current) return;
+      const visibleAnchor = lastVisibleMessageRef.current;
+      const position: SavedChatPosition = {
+        anchorId: visibleAnchor?.id ?? null,
+        offset: Math.max(0, offset),
+        anchorAtBottom: visibleAnchor?.anchorAtBottom ?? nearBottomRef.current,
+        anchorViewPosition:
+          visibleAnchor?.viewPosition ?? (nearBottomRef.current ? 1 : 0),
+        savedAt: Date.now(),
+      };
+      try {
+        await AsyncStorage.setItem(positionStorageKey, JSON.stringify(position));
+      } catch (error) {
+        console.warn("[privateRoom] could not save reading position:", error);
+      }
+    },
+    [positionStorageKey],
+  );
+
+  const schedulePositionSave = useCallback(
+    (offset: number) => {
+      if (!positionRestoredRef.current) return;
+      if (persistPositionTimerRef.current) {
+        clearTimeout(persistPositionTimerRef.current);
+      }
+      persistPositionTimerRef.current = setTimeout(() => {
+        persistPositionTimerRef.current = null;
+        void flushSavedPosition(offset);
+      }, 280);
+    },
+    [flushSavedPosition],
+  );
+
+  const cancelPositionRestore = useCallback(() => {
+    const roomKey = String(conversationId || roomId || "");
+    if (restoreScrollTimerRef.current) {
+      clearTimeout(restoreScrollTimerRef.current);
+      restoreScrollTimerRef.current = null;
+    }
+    if (persistPositionTimerRef.current) {
+      clearTimeout(persistPositionTimerRef.current);
+      persistPositionTimerRef.current = null;
+    }
+    positionRestoredRef.current = true;
+    initialScrollRoomRef.current = roomKey;
+    isSearchingSavedPositionRef.current = false;
+    restoreCursorRef.current = null;
+    pendingInitialEndScrollRef.current = false;
+    pendingLatestScrollRef.current = false;
+  }, [conversationId, roomId]);
+
+  const requestScrollToLatest = useCallback(
+    (animated = true) => {
+      const latestMessage = messages[messages.length - 1];
+      const latestId = String(latestMessage?.localId ?? latestMessage?.id ?? "");
+      if (latestId) {
+        lastVisibleMessageRef.current = {
+          id: latestId,
+          anchorAtBottom: true,
+          viewPosition: 1,
+        };
+      }
+      nearBottomRef.current = true;
+      pendingLatestScrollAnimatedRef.current = animated;
+      pendingLatestScrollRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!pendingLatestScrollRef.current) return;
+          pendingLatestScrollRef.current = false;
+          flatListRef.current?.scrollToEnd({
+            animated: pendingLatestScrollAnimatedRef.current,
+          });
+        });
+      });
+    },
+    [flatListRef, messages],
+  );
+
+  useEffect(
+    () => () => {
+      if (persistPositionTimerRef.current) {
+        clearTimeout(persistPositionTimerRef.current);
+        persistPositionTimerRef.current = null;
+        void flushSavedPosition(scrollOffsetRef.current);
+      }
+    },
+    [flushSavedPosition],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => {
+        setIsFocused(false);
+        if (persistPositionTimerRef.current) {
+          clearTimeout(persistPositionTimerRef.current);
+          persistPositionTimerRef.current = null;
+        }
+        void flushSavedPosition(scrollOffsetRef.current);
+      };
+    }, [flushSavedPosition]),
   );
 
   const handleBack = useCallback(() => {
+    if (persistPositionTimerRef.current) {
+      clearTimeout(persistPositionTimerRef.current);
+      persistPositionTimerRef.current = null;
+    }
+    void flushSavedPosition(scrollOffsetRef.current);
     router.back();
-  }, [router]);
+  }, [flushSavedPosition]);
 
   const handleProfilePress = useCallback(() => {
-    if (receiverName) {
-      router.push(`/user/${receiverName}`);
+    if (keyboardIsVisible) {
+      Keyboard.dismiss();
+      textInputRef.current?.blur();
+      return;
     }
-  }, [receiverName, router]);
+
+    const profileUsername = Array.isArray(receiverUsername)
+      ? receiverUsername[0]
+      : receiverUsername;
+    if (profileUsername) {
+      router.push(`/user/${profileUsername}`);
+    }
+  }, [keyboardIsVisible, receiverUsername]);
 
   const { openActionMenu } = useOverlay();
 
@@ -221,6 +458,8 @@ export default function PrivateRoom() {
     const text = inputText.trim();
     if (!text || sending) return;
 
+    cancelPositionRestore();
+    requestScrollToLatest(false);
     setInputText("");
     setSending(true);
 
@@ -231,41 +470,38 @@ export default function PrivateRoom() {
       } else {
         await send(text, receiverId);
       }
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 120);
+      requestScrollToLatest(true);
       setTimeout(() => {
         textInputRef.current?.focus();
       }, 300);
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, send, replyMsg, receiverId, flatListRef, replyingTo]);
+  }, [
+    inputText,
+    sending,
+    send,
+    replyMsg,
+    receiverId,
+    replyingTo,
+    cancelPositionRestore,
+    requestScrollToLatest,
+  ]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
+      cancelPositionRestore();
+      requestScrollToLatest(false);
       for (const file of files) {
         await sendMedia(file.type, file.uri, receiverId);
       }
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 120);
+      requestScrollToLatest(true);
       setTimeout(() => {
         textInputRef.current?.focus();
       }, 300);
     },
-    [receiverId, sendMedia, flatListRef],
+    [receiverId, sendMedia, cancelPositionRestore, requestScrollToLatest],
   );
-
-  const scrollToFirstUnread = useCallback(() => {
-    if (firstUnreadIndex > 0 && flatListRef.current) {
-      flatListRef.current.scrollToIndex({
-        index: firstUnreadIndex,
-        animated: true,
-        viewPosition: 0.5,
-      });
-    }
-  }, [firstUnreadIndex]);
 
   const handleInputChange = useCallback(
     (t: string) => {
@@ -276,20 +512,37 @@ export default function PrivateRoom() {
     [onTyping],
   );
 
-  const [showJumpToUnread, setShowJumpToUnread] = useState(true);
-
   const handleScroll = useCallback(
     (event: any) => {
-      if (!showJumpToUnread) return;
-      const { layoutMeasurement, contentOffset, contentSize } =
-        event.nativeEvent;
+      const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+      const offset = Math.max(0, contentOffset.y);
       const isNearBottom =
-        layoutMeasurement.height + contentOffset.y >= contentSize.height - 120;
-      if (isNearBottom && firstUnreadIndex > 0) {
+        layoutMeasurement.height + offset >= contentSize.height - 120;
+      scrollOffsetRef.current = offset;
+      nearBottomRef.current = isNearBottom;
+      schedulePositionSave(offset);
+
+      if (unreadMessageCount === 0 || isNearBottom) {
         setShowJumpToUnread(false);
+      } else {
+        setShowJumpToUnread(true);
       }
     },
-    [showJumpToUnread, firstUnreadIndex],
+    [unreadMessageCount, schedulePositionSave],
+  );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    cancelPositionRestore();
+    lastVisibleMessageRef.current = null;
+  }, [cancelPositionRestore]);
+
+  const handleScrollEnd = useCallback(
+    (event: any) => {
+      const offset = Math.max(0, event.nativeEvent.contentOffset.y);
+      scrollOffsetRef.current = offset;
+      void flushSavedPosition(offset);
+    },
+    [flushSavedPosition],
   );
 
   const viewabilityConfig = useMemo(
@@ -301,16 +554,34 @@ export default function PrivateRoom() {
   );
 
   const handleViewableItemsChanged = useCallback(
-    ({ changed }: { changed: any[] }) => {
-      const visibleMessageIds = changed
-        .filter((c) => c.isViewable && c.item?.kind === "message")
-        .map((c) => c.item.id);
+    ({ changed, viewableItems }: { changed: any[]; viewableItems: any[] }) => {
+      const visibleItems = viewableItems
+        .filter((viewable) => viewable.isViewable && viewable.item?.kind === "message")
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        .map((viewable) => viewable.item);
+      const visibleIds = visibleItems.map((item) => item.id as string);
+      visibleMessageIdsRef.current = visibleIds;
 
-      if (visibleMessageIds.length > 0 && markVisibleRead) {
-        markVisibleRead(visibleMessageIds);
+      const anchorItem = nearBottomRef.current
+        ? visibleItems[visibleItems.length - 1]
+        : visibleItems[0];
+      if (anchorItem?.id) {
+        lastVisibleMessageRef.current = {
+          id: anchorItem.id as string,
+          anchorAtBottom: nearBottomRef.current,
+          viewPosition: nearBottomRef.current ? 1 : 0,
+        };
+        schedulePositionSave(scrollOffsetRef.current);
+      }
+
+      const newlyVisibleMessageIds = changed
+        .filter((change) => change.isViewable && change.item?.kind === "message")
+        .map((change) => change.item.id as string);
+      if (newlyVisibleMessageIds.length > 0 && markVisibleRead) {
+        markVisibleRead(newlyVisibleMessageIds);
       }
     },
-    [markVisibleRead],
+    [markVisibleRead, schedulePositionSave],
   );
 
   const dismissKeyboard = useCallback(() => {
@@ -412,6 +683,257 @@ export default function PrivateRoom() {
     return items;
   }, [dateLabels, messages, currentUserId]);
 
+  const handleInitialContentSizeChange = useCallback(() => {
+    if (pendingLatestScrollRef.current) {
+      const latestMessage = messages[messages.length - 1];
+      const latestId = String(latestMessage?.localId ?? latestMessage?.id ?? "");
+      if (latestId) {
+        lastVisibleMessageRef.current = {
+          id: latestId,
+          anchorAtBottom: true,
+          viewPosition: 1,
+        };
+      }
+      nearBottomRef.current = true;
+      requestAnimationFrame(() => {
+        if (!pendingLatestScrollRef.current) return;
+        pendingLatestScrollRef.current = false;
+        flatListRef.current?.scrollToEnd({
+          animated: pendingLatestScrollAnimatedRef.current,
+        });
+      });
+      return;
+    }
+
+    pendingInitialEndScrollRef.current = false;
+    const scrollKey = initialCacheScrollKeyRef.current;
+    if (!scrollKey || positionRestoredRef.current) return;
+    requestAnimationFrame(() => {
+      if (
+        initialCacheScrollKeyRef.current === scrollKey &&
+        !positionRestoredRef.current
+      ) {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }
+    });
+  }, [flatListRef, messages]);
+
+  useEffect(() => {
+    const roomKey = String(conversationId || roomId || "");
+    if (
+      !roomKey ||
+      !conversationId ||
+      messages[0]?.conversationId !== conversationId ||
+      messages.length === 0 ||
+      positionRestoredRef.current ||
+      initialCacheScrollKeyRef.current === positionStorageKey
+    ) {
+      return;
+    }
+
+    initialCacheScrollKeyRef.current = positionStorageKey;
+    pendingInitialEndScrollRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (
+          initialCacheScrollKeyRef.current === positionStorageKey &&
+          pendingInitialEndScrollRef.current &&
+          !positionRestoredRef.current
+        ) {
+          pendingInitialEndScrollRef.current = false;
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }
+      });
+    });
+  }, [conversationId, roomId, positionStorageKey, messages, flatListRef]);
+
+  useEffect(() => {
+    if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
+    handledIncomingVersionRef.current = incomingMessageVersion;
+    if (!isFocused) return;
+
+    cancelPositionRestore();
+    requestScrollToLatest(true);
+  }, [
+    incomingMessageVersion,
+    isFocused,
+    cancelPositionRestore,
+    requestScrollToLatest,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isSearchingSavedPositionRef.current ||
+      positionRestoredRef.current ||
+      messages.length === 0
+    ) {
+      return;
+    }
+    requestScrollToLatest(false);
+  }, [messages, requestScrollToLatest]);
+
+  const lastUnreadFlatIndex = useMemo(
+    () => flatData.findIndex((item) => item.kind === "message" && item.index === lastUnreadIndex),
+    [flatData, lastUnreadIndex],
+  );
+
+  const scrollToLastUnread = useCallback(
+    (animated = true) => {
+      if (!flatListRef.current) return;
+      if (lastUnreadFlatIndex >= 0) {
+        pendingScrollViewPositionRef.current = 0.78;
+        flatListRef.current.scrollToIndex({
+          index: lastUnreadFlatIndex,
+          animated,
+          viewPosition: 0.78,
+        });
+      } else {
+        flatListRef.current.scrollToEnd({ animated });
+      }
+    },
+    [flatListRef, lastUnreadFlatIndex],
+  );
+
+  useEffect(() => {
+    const roomKey = String(conversationId || roomId || "");
+    if (
+      !roomKey ||
+      !positionLoaded ||
+      isSyncing ||
+      positionRestoredRef.current ||
+      initialScrollRoomRef.current === roomKey ||
+      restoreLoadInFlightRef.current
+    ) {
+      return;
+    }
+
+    setShowJumpToUnread(lastUnreadIndex >= 0);
+
+    const scheduleRestore = (viewPosition: number, scroll: () => void) => {
+      initialScrollRoomRef.current = roomKey;
+      pendingScrollViewPositionRef.current = viewPosition;
+      visibleMessageIdsRef.current = [];
+      if (restoreScrollTimerRef.current) clearTimeout(restoreScrollTimerRef.current);
+      restoreScrollTimerRef.current = setTimeout(() => {
+        restoreScrollTimerRef.current = null;
+        if (initialScrollRoomRef.current !== roomKey) return;
+        positionRestoredRef.current = true;
+        scroll();
+      }, 120);
+    };
+
+    if (messages.length === 0) {
+      nearBottomRef.current = lastUnreadIndex < 0;
+      scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () => scrollToLastUnread(false));
+      return;
+    }
+
+    if (savedPosition?.anchorId) {
+      const anchorIndex = flatData.findIndex(
+        (item) =>
+          item.kind === "message" &&
+          (item.id === savedPosition.anchorId ||
+            item.data.id === savedPosition.anchorId ||
+            item.data.localId === savedPosition.anchorId),
+      );
+
+      if (anchorIndex >= 0) {
+        isSearchingSavedPositionRef.current = false;
+        pendingLatestScrollRef.current = false;
+        pendingInitialEndScrollRef.current = false;
+        const viewPosition = savedPosition.anchorViewPosition;
+        nearBottomRef.current = savedPosition.anchorAtBottom;
+        lastVisibleMessageRef.current = {
+          id: savedPosition.anchorId,
+          anchorAtBottom: savedPosition.anchorAtBottom,
+          viewPosition,
+        };
+        scheduleRestore(viewPosition, () => {
+          flatListRef.current?.scrollToIndex({
+            index: anchorIndex,
+            animated: false,
+            viewPosition,
+          });
+        });
+        return;
+      }
+
+      if (hasMore && !syncError) {
+        const oldestMessage = messages[0];
+        const cursor = `${oldestMessage?.timestamp ?? ""}:${oldestMessage?.id ?? oldestMessage?.localId ?? ""}`;
+        if (restoreCursorRef.current !== cursor) {
+          isSearchingSavedPositionRef.current = true;
+          restoreCursorRef.current = cursor;
+          restoreLoadInFlightRef.current = true;
+          void loadMore().finally(() => {
+            restoreLoadInFlightRef.current = false;
+          });
+          return;
+        }
+      }
+    }
+
+    isSearchingSavedPositionRef.current = false;
+    pendingLatestScrollRef.current = false;
+
+    if (savedPosition) {
+      nearBottomRef.current = savedPosition.anchorAtBottom;
+      lastVisibleMessageRef.current = null;
+      scheduleRestore(savedPosition.anchorViewPosition, () => {
+        flatListRef.current?.scrollToOffset({
+          offset: savedPosition.offset,
+          animated: false,
+        });
+      });
+      return;
+    }
+
+    nearBottomRef.current = lastUnreadIndex < 0;
+    const initialAnchor = flatData.find(
+      (item) =>
+        item.kind === "message" &&
+        item.index === (lastUnreadIndex >= 0 ? lastUnreadIndex : messages.length - 1),
+    );
+    lastVisibleMessageRef.current = initialAnchor
+      ? {
+          id: initialAnchor.id,
+          anchorAtBottom: lastUnreadIndex < 0,
+          viewPosition: lastUnreadIndex >= 0 ? 0.78 : 1,
+        }
+      : null;
+    scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () => scrollToLastUnread(false));
+  }, [
+    conversationId,
+    roomId,
+    positionLoaded,
+    savedPosition,
+    isSyncing,
+    messages,
+    flatData,
+    hasMore,
+    syncError,
+    loadMore,
+    lastUnreadIndex,
+    scrollToLastUnread,
+    flatListRef,
+  ]);
+
+  const handleScrollToIndexFailed = useCallback(
+    ({ index, averageItemLength }: { index: number; averageItemLength: number }) => {
+      const list = flatListRef.current;
+      if (!list) return;
+      list.scrollToOffset({ offset: Math.max(0, averageItemLength * index), animated: false });
+      requestAnimationFrame(() => {
+        list.scrollToIndex({
+          index,
+          animated: false,
+          viewPosition: pendingScrollViewPositionRef.current,
+        });
+      });
+    },
+    [flatListRef],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: MessageItem }) => {
       if (item.kind === "date") {
@@ -425,7 +947,7 @@ export default function PrivateRoom() {
       const m = item.data;
       const isSent = m.senderId === currentUserId;
       const showUnreadDivider =
-        item.index === firstUnreadIndex && firstUnreadIndex > 0;
+        item.index === firstUnreadIndex && firstUnreadIndex >= 0;
 
       return (
         <View>
@@ -439,7 +961,7 @@ export default function PrivateRoom() {
           <MessageCard
             message={m.content}
             time={m.timestamp}
-            sender=""
+            sender={isSent ? "You" : String(receiverName ?? "Received image")}
             isRead={m.isRead === true || m.status === "READ"}
             isSent={isSent}
             status={m.status ?? "SENT"}
@@ -475,20 +997,47 @@ export default function PrivateRoom() {
       </SafeAreaView>
 
       {/* UNREAD JUMP BUTTON */}
-      {showJumpToUnread && firstUnreadIndex > 0 && (
+      {showJumpToUnread && lastUnreadIndex >= 0 ? (
         <TouchableOpacity
-          style={styles.jumpToUnread}
+          style={styles.jumpToUnreadTouchable}
           onPress={() => {
-            scrollToFirstUnread();
+            cancelPositionRestore();
+            const targetMessage = messages[lastUnreadIndex];
+            const targetId = String(targetMessage?.localId ?? targetMessage?.id ?? "");
+            if (targetId) {
+              nearBottomRef.current = false;
+              lastVisibleMessageRef.current = {
+                id: targetId,
+                anchorAtBottom: false,
+                viewPosition: 0.78,
+              };
+            }
+            scrollToLastUnread(true);
             setShowJumpToUnread(false);
           }}
           activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel={`Jump to ${unreadMessageCount} unread messages`}
         >
-          <View style={styles.jumpDot} />
-          <Text style={styles.jumpText}>Jump to new messages</Text>
-          <Ionicons name="chevron-down" size={17} color={theme.COLORS.white} />
+          <LinearGradient
+            colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.jumpToUnread}
+          >
+            <View style={styles.jumpDot} />
+            <View style={styles.jumpCopy}>
+              <Text style={styles.jumpEyebrow}>NEW MESSAGES</Text>
+              <Text style={styles.jumpText}>
+                {unreadMessageCount} unread {unreadMessageCount === 1 ? "message" : "messages"}
+              </Text>
+            </View>
+            <View style={styles.jumpIconWrap}>
+              <Ionicons name="arrow-down" size={17} color={theme.COLORS.primary} />
+            </View>
+          </LinearGradient>
         </TouchableOpacity>
-      )}
+      ) : null}
 
       {/* MESSAGES */}
       <FlatList
@@ -496,6 +1045,8 @@ export default function PrivateRoom() {
         style={styles.messageList}
         data={flatData}
         extraData={messages}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        onContentSizeChange={handleInitialContentSizeChange}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
@@ -528,9 +1079,10 @@ export default function PrivateRoom() {
             </View>
           ) : null
         }
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: false })
-        }
+        onScrollToIndexFailed={handleScrollToIndexFailed}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollEnd={handleScrollEnd}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         onViewableItemsChanged={handleViewableItemsChanged}
@@ -655,34 +1207,55 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F6FB",
   },
-  jumpToUnread: {
+  jumpToUnreadTouchable: {
     position: "absolute",
     top: theme.SIZING.headerHeight + theme.SPACING.xxxxxl,
     left: theme.LAYOUT.contentPadding,
     right: theme.LAYOUT.contentPadding,
-    backgroundColor: theme.COLORS.textPrimary,
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.lg,
-    borderRadius: 17,
+    borderRadius: 18,
+    zIndex: 10,
+    ...theme.SHADOWS.md,
+  },
+  jumpToUnread: {
+    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: theme.SPACING.sm,
-    zIndex: 10,
-    ...theme.SHADOWS.primary,
+    gap: theme.SPACING.md,
+    overflow: "hidden",
   },
   jumpDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.COLORS.textWhite,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: theme.COLORS.white,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
+  jumpCopy: {
+    flex: 1,
+  },
+  jumpEyebrow: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: 0.8,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   jumpText: {
-    color: theme.COLORS.textWhite,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    flex: 1,
-    textAlign: "center",
+    marginTop: 1,
+  },
+  jumpIconWrap: {
+    width: 31,
+    height: 31,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.white,
   },
   dateHeader: {
     alignItems: "center",

@@ -43,12 +43,7 @@ export default function Messages() {
       anchor?: { x: number; y: number; width: number; height: number },
     ) => {
       const actions: ActionMenuItem[] = [
-        {
-          key: "cancel",
-          icon: "close-outline",
-          label: "Cancel",
-          onPress: () => {},
-        },
+        { key: "cancel", icon: "close-outline", label: "Cancel", onPress: () => {} },
         {
           key: "delete",
           icon: "trash-outline",
@@ -78,11 +73,7 @@ export default function Messages() {
     [rooms],
   );
   const totalUnread = useMemo(
-    () =>
-      rooms.reduce(
-        (total, room) => total + Math.max(0, room.unreadCount ?? 0),
-        0,
-      ),
+    () => rooms.reduce((total, room) => total + Math.max(0, room.unreadCount ?? 0), 0),
     [rooms],
   );
 
@@ -101,10 +92,7 @@ export default function Messages() {
   const skeletonData = useMemo(() => Array.from({ length: 6 }), []);
   const renderSkeleton = useCallback(
     ({ index }: { item: unknown; index: number }) => (
-      <ConversationRowSkeleton
-        key={`skeleton-${index}`}
-        testID="conversation-skeleton"
-      />
+      <ConversationRowSkeleton key={`skeleton-${index}`} testID="conversation-skeleton" />
     ),
     [],
   );
@@ -140,10 +128,7 @@ export default function Messages() {
         <Text style={styles.emptyTitle}>{title}</Text>
         <Text style={styles.emptyDescription}>{description}</Text>
         {isSearching ? (
-          <Pressable
-            onPress={() => setSearchQuery("")}
-            style={styles.emptyAction}
-          >
+          <Pressable onPress={() => setSearchQuery("")} style={styles.emptyAction}>
             <Text style={styles.emptyActionText}>Clear search</Text>
           </Pressable>
         ) : null}
@@ -168,17 +153,11 @@ export default function Messages() {
             end={{ x: 1, y: 1 }}
             style={styles.inboxMark}
           >
-            <Ionicons
-              name="chatbubble-ellipses"
-              size={22}
-              color={theme.COLORS.white}
-            />
+            <Ionicons name="chatbubble-ellipses" size={22} color={theme.COLORS.white} />
           </LinearGradient>
           {totalUnread > 0 ? (
             <View style={styles.inboxUnreadDot}>
-              <Text style={styles.inboxUnreadText}>
-                {totalUnread > 9 ? "9+" : totalUnread}
-              </Text>
+              <Text style={styles.inboxUnreadText}>{totalUnread > 9 ? "9+" : totalUnread}</Text>
             </View>
           ) : null}
         </View>
@@ -203,11 +182,7 @@ export default function Messages() {
             onPress={() => setSearchQuery("")}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons
-              name="close-circle"
-              size={19}
-              color={theme.COLORS.textMuted}
-            />
+            <Ionicons name="close-circle" size={19} color={theme.COLORS.textMuted} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -216,7 +191,6 @@ export default function Messages() {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterRow}
-        style={styles.filterRow}
       >
         <FilterChip
           label="All"
@@ -234,17 +208,12 @@ export default function Messages() {
 
       <View style={styles.listHeading}>
         <Text style={styles.listTitle}>
-          {activeFilter === "unread"
-            ? "Unread conversations"
-            : "Recent conversations"}
+          {activeFilter === "unread" ? "Unread conversations" : "Recent conversations"}
         </Text>
         <View style={styles.listMeta}>
-          {syncing ? (
-            <ActivityIndicator size="small" color={theme.COLORS.primary} />
-          ) : null}
+          {syncing ? <ActivityIndicator size="small" color={theme.COLORS.primary} /> : null}
           <Text style={styles.listCount}>
-            {filteredRooms.length}{" "}
-            {filteredRooms.length === 1 ? "chat" : "chats"}
+            {filteredRooms.length} {filteredRooms.length === 1 ? "chat" : "chats"}
           </Text>
         </View>
       </View>
@@ -262,19 +231,11 @@ export default function Messages() {
       ) : error && rooms.length === 0 ? (
         <View style={styles.errorState}>
           <View style={[styles.emptyIconWrap, styles.errorIconWrap]}>
-            <Ionicons
-              name="cloud-offline-outline"
-              size={27}
-              color={theme.COLORS.danger}
-            />
+            <Ionicons name="cloud-offline-outline" size={27} color={theme.COLORS.danger} />
           </View>
           <Text style={styles.emptyTitle}>Couldn’t load messages</Text>
           <Text style={styles.emptyDescription}>{error.message}</Text>
-          <TouchableOpacity
-            onPress={handleRetry}
-            style={styles.retryButton}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity onPress={handleRetry} style={styles.retryButton} activeOpacity={0.8}>
             <Ionicons name="refresh" size={16} color={theme.COLORS.white} />
             <Text style={styles.retryButtonText}>Try again</Text>
           </TouchableOpacity>
@@ -328,6 +289,7 @@ export default function Messages() {
                     conversationId: item.conversationId,
                     roomId: item.id,
                     receiverName: item.name,
+                    receiverUsername: item.receiverUsername ?? "",
                     receiverAvatar: item.avatarUrl,
                     receiverId: item.receiverId ?? "",
                   },
@@ -360,20 +322,9 @@ function FilterChip({
       activeOpacity={0.78}
       style={[styles.filterChip, selected && styles.filterChipSelected]}
     >
-      <Text
-        style={[styles.filterLabel, selected && styles.filterLabelSelected]}
-      >
-        {label}
-      </Text>
-      <View
-        style={[styles.filterCount, selected && styles.filterCountSelected]}
-      >
-        <Text
-          style={[
-            styles.filterCountText,
-            selected && styles.filterCountTextSelected,
-          ]}
-        >
+      <Text style={[styles.filterLabel, selected && styles.filterLabelSelected]}>{label}</Text>
+      <View style={[styles.filterCount, selected && styles.filterCountSelected]}>
+        <Text style={[styles.filterCountText, selected && styles.filterCountTextSelected]}>
           {count > 99 ? "99+" : count}
         </Text>
       </View>
@@ -473,7 +424,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.SPACING.xxl,
     paddingVertical: theme.SPACING.md,
     gap: theme.SPACING.sm,
-    maxHeight: "10%",
   },
   filterChip: {
     minHeight: 32,

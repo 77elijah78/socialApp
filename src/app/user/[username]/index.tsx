@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { api } from '@/services/api';
@@ -163,6 +164,7 @@ export default function UserProfileScreen() {
           conversationId: conv.id,
           roomId: conv.id,
           receiverName: profile.displayName ?? profile.username,
+          receiverUsername: profile.username,
           receiverAvatar: profile.avatarUrl ?? '',
           receiverId: profile.id,
         },
@@ -217,17 +219,26 @@ export default function UserProfileScreen() {
     if (!profile) return null;
 
     return (
-      <View>
-        {/* Cover Image */}
-        <View style={styles.coverContainer}>
-          <View style={styles.coverPlaceholder}>
-            <Ionicons name="images-outline" size={40} color={theme.COLORS.textMuted} />
+      <View style={styles.profileHeaderCard}>
+        <LinearGradient
+          colors={[theme.COLORS.primary, theme.COLORS.accentPurple, '#8B74E8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.coverContainer}
+        >
+          <View style={styles.coverOrbLarge} />
+          <View style={styles.coverOrbSmall} />
+          <View style={styles.coverLabel}>
+            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
+            <Text style={styles.coverLabelText}>COMMUNITY PROFILE</Text>
           </View>
-        </View>
+          <Ionicons name="aperture-outline" size={25} color="rgba(255,255,255,0.8)" />
+        </LinearGradient>
 
+        <View style={styles.profileContent}>
         {/* Avatar */}
         <View style={styles.avatarContainer}>
-          <View style={[styles.avatarWrapper, { borderColor: theme.COLORS.borderGray }]}>
+          <View style={[styles.avatarWrapper, { borderColor: theme.COLORS.bgWhite }]}>
             {profile.avatarUrl ? (
               <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
             ) : (
@@ -282,8 +293,13 @@ export default function UserProfileScreen() {
           </View>
 
           {isOwnProfile ? (
-            <Pressable style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Edit Profile</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/editProfile")}
+              style={styles.primaryButton}
+            >
+              <Ionicons name="create-outline" size={17} color={theme.COLORS.textOnPrimary} />
+              <Text style={styles.primaryButtonText}>Edit profile</Text>
             </Pressable>
           ) : (
             <>
@@ -338,6 +354,7 @@ export default function UserProfileScreen() {
             />
           </Pressable>
         </View>
+        </View>
       </View>
     );
   };
@@ -375,6 +392,26 @@ export default function UserProfileScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <OfflineBanner isOffline={isOffline} />
 
+      <View style={styles.topBar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
+          <Ionicons name="chevron-back" size={22} color={theme.COLORS.textPrimary} />
+        </Pressable>
+        <View style={styles.topBarCopy}>
+          <Text style={styles.topBarEyebrow}>COMMUNITY PROFILE</Text>
+          <Text style={styles.topBarTitle} numberOfLines={1}>
+            {username ? `@${username}` : "Profile"}
+          </Text>
+        </View>
+        <View style={styles.topBarMark}>
+          <Ionicons name="sparkles" size={17} color={theme.COLORS.primary} />
+        </View>
+      </View>
+
       <FlatList
         style={styles.list}
         data={listData}
@@ -399,7 +436,51 @@ export default function UserProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
+    backgroundColor: theme.COLORS.bgMain,
+  },
+  topBar: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    gap: theme.SPACING.md,
+    backgroundColor: theme.COLORS.bgMain,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+  },
+  topBarCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  topBarEyebrow: {
+    color: theme.COLORS.primary,
+    fontSize: 9,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: 1,
+  },
+  topBarTitle: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    marginTop: 2,
+  },
+  topBarMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
   },
   list: {
     flex: 1,
@@ -407,41 +488,85 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: theme.SPACING.xxxxxl,
   },
-  profileLoading: {
-    height: 300,
-    alignItems: 'center',
-    justifyContent: 'center',
+  profileHeaderCard: {
+    marginHorizontal: theme.LAYOUT.contentPadding,
+    marginTop: theme.SPACING.sm,
+    marginBottom: theme.SPACING.lg,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: theme.COLORS.cardBorder,
+    overflow: 'hidden',
+    ...theme.SHADOWS.sm,
+  },
+  profileContent: {
+    paddingBottom: theme.SPACING.xs,
   },
   coverContainer: {
     width: '100%',
-    height: 120,
-    backgroundColor: theme.COLORS.bgInput,
-    position: 'relative',
+    height: 134,
+    paddingHorizontal: theme.SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingTop: theme.SPACING.lg,
+    overflow: 'hidden',
   },
-  coverPlaceholder: {
-    flex: 1,
+  coverOrbLarge: {
+    position: 'absolute',
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    right: -45,
+    top: -82,
+  },
+  coverOrbSmall: {
+    position: 'absolute',
+    width: 102,
+    height: 102,
+    borderRadius: 51,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    right: 78,
+    bottom: -60,
+  },
+  coverLabel: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.COLORS.bgChat,
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    borderRadius: theme.BORDER_RADIUS.full,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.xs,
+  },
+  coverLabelText: {
+    color: theme.COLORS.white,
+    fontSize: 9,
+    letterSpacing: 0.8,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   avatarContainer: {
-    marginTop: -theme.SIZING.avatarXl / 2,
+    marginTop: -47,
     alignSelf: 'center',
+    marginBottom: theme.SPACING.xs,
   },
   avatarWrapper: {
-    width: theme.SIZING.avatarXl,
-    height: theme.SIZING.avatarXl,
-    borderRadius: theme.BORDER_RADIUS.full,
+    width: 94,
+    height: 94,
+    borderRadius: 47,
     borderWidth: 4,
     backgroundColor: theme.COLORS.bgWhite,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    ...theme.SHADOWS.md,
   },
   avatar: {
-    width: theme.SIZING.avatarXl - 4,
-    height: theme.SIZING.avatarXl - 4,
-    borderRadius: theme.BORDER_RADIUS.full,
+    width: 86,
+    height: 86,
+    borderRadius: 43,
   },
   avatarPlaceholder: {
     backgroundColor: theme.COLORS.primaryGhost,
@@ -454,7 +579,7 @@ const styles = StyleSheet.create({
   infoSection: {
     alignItems: 'center',
     paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.lg,
+    paddingTop: theme.SPACING.sm,
   },
   nameRow: {
     flexDirection: 'row',
@@ -510,8 +635,10 @@ const styles = StyleSheet.create({
     height: theme.SIZING.buttonHeight,
     borderRadius: theme.BORDER_RADIUS.lg,
     backgroundColor: theme.COLORS.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: theme.SPACING.xs,
     marginTop: theme.SPACING.md,
     ...theme.SHADOWS.primary,
   },

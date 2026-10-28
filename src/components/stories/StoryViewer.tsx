@@ -5,35 +5,48 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
-  TouchableWithoutFeedback,
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { router } from "expo-router";
+
 import { api, getAccessToken } from "@/services/api";
 import { StoryItem } from "@/types";
 import theme from "@/constants/theme";
 
-const { width, height } = Dimensions.get("window");
-
 interface StoryMediaProps {
   story: StoryItem;
+  paused: boolean;
   onVideoProgress?: (progress: number) => void;
   onVideoEnd?: () => void;
 }
 
-function StoryProgress({ progress, stories, activeIndex }: { progress: number; stories: StoryItem[]; activeIndex: number }) {
+function StoryProgress({
+  progress,
+  stories,
+  activeIndex,
+}: {
+  progress: number;
+  stories: StoryItem[];
+  activeIndex: number;
+}) {
   return (
     <View style={styles.progressContainer}>
-      {stories.map((story, idx) => (
-        <View key={story.id} style={styles.progressBarBg}>
+      {stories.map((story, index) => (
+        <View key={story.id} style={styles.progressTrack}>
           <View
             style={[
-              styles.progressBar,
+              styles.progressFill,
               {
-                width: idx < activeIndex ? "100%" : idx === activeIndex ? `${progress * 100}%` : "0%",
-                backgroundColor: theme.COLORS.white,
+                width:
+                  index < activeIndex
+                    ? "100%"
+                    : index === activeIndex
+                      ? `${Math.min(1, Math.max(0, progress)) * 100}%`
+                      : "0%",
               },
             ]}
           />
@@ -43,82 +56,94 @@ function StoryProgress({ progress, stories, activeIndex }: { progress: number; s
   );
 }
 
-function StoryMedia({ story, onVideoProgress, onVideoEnd }: StoryMediaProps) {
+function StoryMedia({ story, paused, onVideoProgress, onVideoEnd }: StoryMediaProps) {
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const player = useVideoPlayer(
     story.mediaType === "video" ? story.mediaUrl : null,
-    (p) => {
+    (videoPlayer) => {
       if (story.mediaType === "video") {
-        p.play();
-        p.muted = true;
-        p.timeUpdateEventInterval = 0.1;
+        videoPlayer.muted = true;
+        videoPlayer.timeUpdateEventInterval = 0.1;
       }
     },
   );
 
   useEffect(() => {
     if (story.mediaType !== "video") return;
+    if (paused) player.pause();
+    else player.play();
+  }, [paused, player, story.mediaType]);
 
-    const statusSub = player.addListener("statusChange", ({ status }) => {
-      if (status === "readyToPlay") {
+  useEffect(() => {
+    if (story.mediaType !== "video") return;
+
+    const statusSubscription = player.addListener("statusChange", ({ status }) => {
+      if (status === "readyToPlay") setLoaded(true);
+      if (status === "error") {
         setLoaded(true);
-      } else if (status === "error") {
-        setLoaded(true);
+        setFailed(true);
       }
     });
-
-    const timeSub = player.addListener("timeUpdate", () => {
+    const timeSubscription = player.addListener("timeUpdate", () => {
       const duration = player.duration;
       const position = player.currentTime;
-      const progress = duration > 0 ? position / duration : 0;
-      onVideoProgress?.(progress);
+      onVideoProgress?.(duration > 0 ? position / duration : 0);
     });
-
-    const endSub = player.addListener("playToEnd", () => {
-      onVideoEnd?.();
-    });
+    const endSubscription = player.addListener("playToEnd", () => onVideoEnd?.());
 
     return () => {
-      statusSub.remove();
-      timeSub.remove();
-      endSub.remove();
+      statusSubscription.remove();
+      timeSubscription.remove();
+      endSubscription.remove();
     };
   }, [player, onVideoProgress, onVideoEnd, story.mediaType]);
 
-  const handleImageLoaded = () => setLoaded(true);
-
   return (
     <View style={styles.mediaContainer}>
-      {story.mediaUrl ? (
+      {failed ? (
+        <View style={styles.mediaError}>
+          <View style={styles.mediaErrorIcon}>
+            <Ionicons name="videocam-off-outline" size={25} color="rgba(255,255,255,0.8)" />
+          </View>
+          <Text style={styles.mediaErrorText}>This story is unavailable</Text>
+        </View>
+      ) : story.mediaUrl ? (
         story.mediaType === "video" ? (
-          <VideoView
-            player={player}
-            style={styles.media}
-            contentFit="contain"
-          />
+          <VideoView player={player} style={styles.media} contentFit="cover" nativeControls={false} />
         ) : (
           <Image
             source={{ uri: story.mediaUrl }}
             style={styles.media}
-            resizeMode="contain"
-            onLoad={handleImageLoaded}
+            resizeMode="cover"
+            onLoad={() => setLoaded(true)}
+            onError={() => {
+              setLoaded(true);
+              setFailed(true);
+            }}
           />
         )
       ) : (
-        <View style={styles.media} />
+        <View style={styles.mediaError}>
+          <View style={styles.mediaErrorIcon}>
+            <Ionicons name="images-outline" size={25} color="rgba(255,255,255,0.8)" />
+          </View>
+          <Text style={styles.mediaErrorText}>No media in this story</Text>
+        </View>
       )}
 
-      {!loaded && (
-        <View style={styles.loadingOverlay}>
+      {!loaded && !failed && story.mediaUrl ? (
+        <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={theme.COLORS.white} />
         </View>
-      )}
-
-      {story.caption ? (
-        <View style={styles.captionContainer}>
-          <Text style={styles.caption}>{story.caption}</Text>
-        </View>
       ) : null}
+
+      <LinearGradient
+        pointerEvents="none"
+        colors={["rgba(5,5,10,0.14)", "transparent", "rgba(5,5,10,0.46)"]}
+        locations={[0, 0.43, 1]}
+        style={StyleSheet.absoluteFill}
+      />
     </View>
   );
 }
@@ -138,97 +163,79 @@ export default function StoryViewer({
   onClose?: () => void;
   onShare?: (story: StoryItem) => void;
 }) {
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const insets = useSafeAreaInsets();
+  const safeInitialIndex = Math.max(0, Math.min(initialIndex, Math.max(0, stories.length - 1)));
+  const [activeIndex, setActiveIndex] = useState(safeInitialIndex);
   const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevStoryIdRef = useRef<string | null>(null);
-  const activeIndexRef = useRef(initialIndex);
+  const activeIndexRef = useRef(safeInitialIndex);
 
   const story = stories[activeIndex];
+  const displayName = story?.displayName ?? story?.username ?? "Unknown";
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
 
-  // Auto-mark story as viewed immediately when it becomes active
   useEffect(() => {
     if (!story || story.id === "me") return;
 
     let cancelled = false;
-
-    const doMarkViewed = async () => {
+    const markViewed = async () => {
       try {
         const token = getAccessToken();
-        if (!token) {
-          console.warn("No token available, skipping mark viewed");
-          return;
-        }
+        if (!token) return;
         await api.post<{ success: boolean; data?: { viewed: boolean } }>(
           `/posts/stories/${story.id}/view`,
           {},
           token,
         );
-        if (!cancelled) {
-          onStoryViewed?.(story.id, true);
-        }
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error("Failed to mark story as viewed:", err?.message ?? err);
+        if (!cancelled) onStoryViewed?.(story.id, true);
+      } catch (error) {
+        if (!cancelled) console.warn("Could not mark story as viewed:", error);
       }
     };
 
-    doMarkViewed();
-
+    void markViewed();
     return () => {
       cancelled = true;
     };
-  }, [story, activeIndex]);
+  }, [story?.id, onStoryViewed]);
 
   const goToNext = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    setPaused(false);
     if (activeIndexRef.current < stories.length - 1) {
-      const newIndex = activeIndexRef.current + 1;
-      setActiveIndex(newIndex);
-      onIndexChange?.(newIndex);
+      const nextIndex = activeIndexRef.current + 1;
+      setActiveIndex(nextIndex);
+      setProgress(0);
+      onIndexChange?.(nextIndex);
     } else {
       onClose?.();
     }
   }, [stories.length, onIndexChange, onClose]);
 
-  const goToPrev = useCallback(() => {
+  const goToPrevious = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    setPaused(false);
     if (activeIndexRef.current > 0) {
-      const newIndex = activeIndexRef.current - 1;
-      setActiveIndex(newIndex);
-      onIndexChange?.(newIndex);
+      const previousIndex = activeIndexRef.current - 1;
+      setActiveIndex(previousIndex);
+      setProgress(0);
+      onIndexChange?.(previousIndex);
     } else {
       onClose?.();
     }
   }, [onIndexChange, onClose]);
 
-  // Progress timer
   useEffect(() => {
-    if (!story || story.id === "me") {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (!story || story.id === "me" || story.mediaType !== "image" || paused) return;
 
-    const isNewStory = prevStoryIdRef.current !== story.id;
-    prevStoryIdRef.current = story.id;
-
-    if (isNewStory) {
-      setProgress(0);
-    }
-
-    if (story.mediaType === "video") {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
-
-    // Image: smooth 5-second timer (100ms ticks, 0.02 per tick)
     timerRef.current = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 0.02;
+      setProgress((current) => {
+        const next = current + 0.02;
         if (next >= 1) {
           goToNext();
           return 1;
@@ -240,89 +247,134 @@ export default function StoryViewer({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeIndex, story, goToNext]);
+  }, [activeIndex, story?.id, story?.mediaType, paused, goToNext]);
 
   const handleVideoProgress = useCallback((videoProgress: number) => {
-    setProgress(videoProgress);
+    setProgress(Math.min(1, Math.max(0, videoProgress)));
   }, []);
 
-  const handleVideoEnd = useCallback(() => {
-    goToNext();
-  }, [goToNext]);
+  const handleVideoEnd = useCallback(() => goToNext(), [goToNext]);
 
-  if (!story) {
-    return null;
-  }
+  const handleProfilePress = () => {
+    if (!story?.username) return;
+    setPaused(true);
+    onClose?.();
+    setTimeout(() => router.push(`/user/${story.username}`), 100);
+  };
 
-  const displayName = story.displayName ?? story.username ?? "Unknown";
+  if (!story) return null;
 
   return (
     <View style={styles.fullScreen}>
-      <View style={styles.statusBar} />
-      <View style={styles.progressWrapper}>
+      <View style={[styles.progressWrapper, { paddingTop: insets.top + 7 }]}>
         <StoryProgress progress={progress} stories={stories} activeIndex={activeIndex} />
       </View>
 
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.avatarPlaceholder}>
-            {story.avatarUrl ? (
-              <Image source={{ uri: story.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <Text style={styles.avatarText}>
-                {displayName[0]?.toUpperCase() ?? "?"}
+      <View style={[styles.header, { paddingTop: insets.top + 25 }]}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${displayName}'s profile`}
+          onPress={handleProfilePress}
+          style={styles.headerProfile}
+          activeOpacity={0.82}
+        >
+          <LinearGradient
+            colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
+            style={styles.avatarRing}
+          >
+            <View style={styles.avatarInner}>
+              {story.avatarUrl ? (
+                <Image source={{ uri: story.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase() || "?"}</Text>
+              )}
+            </View>
+          </LinearGradient>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.username} numberOfLines={1}>{displayName}</Text>
+            <View style={styles.storyMetaRow}>
+              {story.username ? (
+                <Text style={styles.handle} numberOfLines={1}>@{story.username}</Text>
+              ) : null}
+              <View style={styles.metaDot} />
+              <Text style={styles.timestamp}>
+                {new Date(story.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </Text>
-            )}
+            </View>
           </View>
-          <View>
-            <Text style={styles.username}>{displayName}</Text>
-            <Text style={styles.timestamp}>
-              {new Date(story.createdAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
+        </TouchableOpacity>
+
+        <View style={styles.headerActions}>
           {onShare && story.id !== "me" ? (
-            <TouchableOpacity onPress={() => onShare(story)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="share-outline" size={22} color={theme.COLORS.white} />
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Share story"
+              onPress={() => onShare(story)}
+              style={styles.headerIconButton}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="share-outline" size={19} color={theme.COLORS.white} />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={28} color={theme.COLORS.white} />
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close story viewer"
+            onPress={onClose}
+            style={styles.headerIconButton}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="close" size={23} color={theme.COLORS.white} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <TouchableWithoutFeedback>
+      <View style={styles.stage}>
         <StoryMedia
+          key={story.id}
           story={story}
+          paused={paused}
           onVideoProgress={handleVideoProgress}
           onVideoEnd={handleVideoEnd}
         />
-      </TouchableWithoutFeedback>
+        <View style={styles.tapZones} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.leftTapZone}
+            onPress={goToPrevious}
+            onPressIn={() => setPaused(true)}
+            onPressOut={() => setPaused(false)}
+            onLongPress={() => setPaused(true)}
+            delayLongPress={180}
+            activeOpacity={1}
+            accessibilityLabel="Previous story"
+          />
+          <TouchableOpacity
+            style={styles.rightTapZone}
+            onPress={goToNext}
+            onPressIn={() => setPaused(true)}
+            onPressOut={() => setPaused(false)}
+            onLongPress={() => setPaused(true)}
+            delayLongPress={180}
+            activeOpacity={1}
+            accessibilityLabel="Next story"
+          />
+        </View>
+      </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 17) }]} pointerEvents="box-none">
+        {story.caption ? (
+          <Text style={styles.caption} numberOfLines={3}>{story.caption}</Text>
+        ) : null}
         <View style={styles.viewersContainer}>
+          <Ionicons name="eye-outline" size={15} color="rgba(255,255,255,0.85)" />
           <Text style={styles.viewersText}>
-            {story.isViewed ? "You and " : ""}
+            {story.isViewed ? "Viewed · " : ""}
             {story.viewsCount ?? 0} {story.viewsCount === 1 ? "view" : "views"}
           </Text>
         </View>
       </View>
-
-      <TouchableOpacity
-        style={styles.leftHalf}
-        onPress={goToPrev}
-        activeOpacity={1}
-      />
-      <TouchableOpacity
-        style={styles.rightHalf}
-        onPress={goToNext}
-        activeOpacity={1}
-      />
     </View>
   );
 }
@@ -330,144 +382,207 @@ export default function StoryViewer({
 const styles = StyleSheet.create({
   fullScreen: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-  },
-  statusBar: {
-    height: 40,
+    backgroundColor: "#09080E",
   },
   progressWrapper: {
     position: "absolute",
-    top: 44,
+    top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 2,
-    paddingBottom: 8,
+    paddingHorizontal: 11,
     zIndex: 10,
   },
   progressContainer: {
     flexDirection: "row",
-    gap: 3,
+    gap: 4,
   },
-  progressBarBg: {
+  progressTrack: {
     flex: 1,
-    height: 2.5,
+    height: 3,
     backgroundColor: "rgba(255,255,255,0.3)",
-    borderRadius: 1,
+    borderRadius: 3,
     overflow: "hidden",
   },
-  progressBar: {
+  progressFill: {
     height: "100%",
     backgroundColor: theme.COLORS.white,
-    borderRadius: 1,
+    borderRadius: 3,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
-    marginBottom: 10,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.md,
+    gap: theme.SPACING.sm,
+    zIndex: 12,
   },
-  headerLeft: {
+  headerProfile: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.sm,
   },
-  headerRight: {
-    flexDirection: "row",
+  avatarRing: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    padding: 2,
     alignItems: "center",
-    gap: theme.SPACING.md,
+    justifyContent: "center",
   },
-  avatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.COLORS.bgLight,
+  avatarInner: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    backgroundColor: "#2D2937",
+    borderWidth: 2,
+    borderColor: "#09080E",
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: "100%",
+    height: "100%",
   },
   avatarText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: theme.COLORS.textPrimary,
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  headerTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   username: {
     color: theme.COLORS.white,
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  storyMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 2,
+  },
+  handle: {
+    maxWidth: 110,
+    color: "rgba(255,255,255,0.66)",
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.55)",
   },
   timestamp: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-    marginTop: 2,
+    color: "rgba(255,255,255,0.66)",
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+  },
+  headerIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.13)",
+  },
+  stage: {
+    flex: 1,
+    minHeight: 0,
+    position: "relative",
+    backgroundColor: "#14111C",
+    overflow: "hidden",
   },
   mediaContainer: {
     flex: 1,
+    width: "100%",
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
   media: {
-    width: width,
-    height: height - 120,
+    width: "100%",
+    height: "100%",
   },
   loadingOverlay: {
-    position: "absolute",
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(9,8,14,0.22)",
+  },
+  mediaError: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#17131F",
+    gap: theme.SPACING.md,
+  },
+  mediaErrorIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.09)",
     alignItems: "center",
     justifyContent: "center",
   },
-  captionContainer: {
-    position: "absolute",
-    bottom: 60,
-    left: 0,
-    right: 0,
-    alignItems: "center",
+  mediaErrorText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  },
+  tapZones: {
+    ...StyleSheet.absoluteFill,
+    flexDirection: "row",
+    zIndex: 2,
+  },
+  leftTapZone: {
+    flex: 1,
+  },
+  rightTapZone: {
+    flex: 1,
+  },
+  footer: {
+    minHeight: 62,
     paddingHorizontal: theme.SPACING.xl,
+    paddingTop: theme.SPACING.md,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    zIndex: 3,
   },
   caption: {
     color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-    textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.5)",
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    lineHeight: 20,
+    textShadowColor: "rgba(0,0,0,0.45)",
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  footer: {
-    position: "absolute",
-    bottom: 60,
-    left: 0,
-    right: 0,
-    padding: theme.SPACING.md,
-    alignItems: "center",
+    textShadowRadius: 4,
   },
   viewersContainer: {
-    backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: theme.BORDER_RADIUS.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.13)",
+    borderRadius: theme.BORDER_RADIUS.full,
     paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
+    paddingVertical: theme.SPACING.xs,
   },
   viewersText: {
-    color: theme.COLORS.white,
-    fontSize: 12,
-  },
-  leftHalf: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    width: "50%",
-    height: height - 200,
-  },
-  rightHalf: {
-    position: "absolute",
-    top: 80,
-    right: 0,
-    width: "50%",
-    height: height - 200,
+    color: "rgba(255,255,255,0.9)",
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
 });

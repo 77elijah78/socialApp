@@ -56,6 +56,7 @@ export default function MessageCard({
   type,
   message,
   time,
+  sender,
   isSent,
   isRead,
   status,
@@ -149,7 +150,10 @@ export default function MessageCard({
                 onPress={() =>
                   router.push({
                     pathname: "/(chatRoom)/imageViewer",
-                    params: { uri },
+                    params: {
+                      uri,
+                      name: sender || (isSent ? "Your photo" : "Received image"),
+                    },
                   })
                 }
               >

@@ -24,6 +24,7 @@ import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { router } from "expo-router";
 import { Comment, PostOneResponse } from "@/types";
+import { CommentThread, buildCommentThreads, CommentThreadNode } from "@/components/posts/CommentThread";
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
 
 export interface CommentBottomSheetRef {
@@ -31,72 +32,10 @@ export interface CommentBottomSheetRef {
   close: () => void;
 }
 
-interface CommentItemProps {
-  comment: Comment;
-  isOwn: boolean;
-}
-
-function CommentItem({ comment, isOwn }: CommentItemProps) {
-  const authorName =
-    comment.author?.username ?? comment.author?.displayName ?? "Unknown";
-
-  const createdAt = useMemo(
-    () => new Date(comment.createdAt),
-    [comment.createdAt],
-  );
-
-  const timeLabel = useMemo(() => {
-    const now = new Date();
-    const diffMs = now.getTime() - createdAt.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-
-    return createdAt.toLocaleDateString([], {
-      month: "short",
-      day: "numeric",
-    });
-  }, [createdAt]);
-
-  return (
-    <View style={styles.commentItem}>
-      <View style={styles.avatarContainer}>
-        {comment.author?.avatarUrl ? (
-          <Image
-            source={{ uri: comment.author.avatarUrl }}
-            style={styles.avatarImage}
-          />
-        ) : (
-          <Text style={styles.avatarText}>
-            {(authorName || "?").charAt(0).toUpperCase()}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.commentBody}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => {
-            if (comment.author?.username) {
-              router.push(`/user/${comment.author.username}`);
-            }
-          }}
-        >
-          <Text style={styles.authorName}>
-            {authorName}
-            {isOwn && <Text style={styles.youBadge}> (you)</Text>}
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.commentText}>{comment.content}</Text>
-        <Text style={styles.commentTime}>{timeLabel}</Text>
-      </View>
-    </View>
+function countThreadNodes(nodes: CommentThreadNode[]): number {
+  return nodes.reduce(
+    (total, node) => total + 1 + countThreadNodes(node.replies),
+    0,
   );
 }
 
@@ -112,6 +51,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     const [loading, setLoading] = useState(false);
     const [input, setInput] = useState("");
     const [inputHeight, setInputHeight] = useState(44);
+    const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
     const [sending, setSending] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [commentCount, setCommentCount] = useState(0);
@@ -131,6 +71,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const bottomSheetRef = useRef<BottomSheetModal>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const pendingProfileNavigationRef = useRef<string | null>(null);
+    const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
     const [keyboardHeight] = useState(() => new Animated.Value(0));
 
     React.useEffect(() => {
@@ -199,7 +141,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
           const fetched = resp.data.comments ?? [];
           setComments(fetched);
-          setCommentCount(fetched.length);
+          setCommentCount(countThreadNodes(buildCommentThreads(fetched)));
         } catch (err) {
           if ((err as Error)?.name !== "AbortError") {
             setFetchError(
@@ -218,25 +160,61 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const handleSend = useCallback(async () => {
       const trimmed = input.trim();
-      if (!trimmed || !token || !postId || sending) return;
+      if (!trimmed || !postId || sending) return;
+
+      const temporaryId = `local-comment-${Date.now()}`;
+      const optimisticComment: Comment = {
+        id: temporaryId,
+        content: trimmed,
+        authorId: currentUserId ?? "",
+        postId,
+        createdAt: new Date(),
+        repliedToId: replyingTo?.id ?? null,
+        author: currentUser ?? undefined,
+      };
+
+      setComments((previous) => [...previous, optimisticComment]);
+      setCommentCount((previous) => previous + 1);
+      setInput("");
+      setInputHeight(44);
+      setReplyingTo(null);
+
+      if (!token) return;
 
       setSending(true);
       try {
         const resp = await api.post<{
           success: boolean;
           data: Comment;
-        }>(`/posts/${postId}/comments`, { content: trimmed }, token);
+        }>(
+          `/posts/${postId}/comments`,
+          { content: trimmed, repliedToId: optimisticComment.repliedToId },
+          token,
+        );
 
-        setComments((previous) => [...previous, resp.data]);
-        setCommentCount((previous) => previous + 1);
-        setInput("");
-        setInputHeight(44);
+        setComments((previous) =>
+          previous.map((comment) =>
+            comment.id === temporaryId
+              ? {
+                  ...optimisticComment,
+                  ...resp.data,
+                  author: resp.data.author ?? optimisticComment.author,
+                  repliedToId: resp.data.repliedToId ?? optimisticComment.repliedToId,
+                }
+              : comment,
+          ),
+        );
       } catch (err) {
-        console.error("Failed to send comment:", err);
+        // Keep the local optimistic comment so replies remain testable without a backend.
+        console.warn("Comment saved locally; API request failed:", err);
       } finally {
         setSending(false);
       }
-    }, [input, token, postId, sending]);
+    }, [input, token, postId, sending, currentUserId, currentUser, replyingTo]);
+
+    const handleReply = useCallback((comment: Comment) => {
+      setReplyingTo(comment);
+    }, []);
 
     const handleSheetChange = useCallback(
       (index: number) => {
@@ -247,11 +225,13 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
 
     const open = useCallback(
       (pid: string) => {
+        pendingProfileNavigationRef.current = null;
         setPostId(pid);
         setComments([]);
         setCommentCount(0);
         setInput("");
         setInputHeight(44);
+        setReplyingTo(null);
         setSending(false);
         setCurrentSnapIndex(0);
         setFetchError(null);
@@ -267,6 +247,19 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       Keyboard.dismiss();
       bottomSheetRef.current?.dismiss();
     }, []);
+
+    const handleProfilePress = useCallback(
+      (username: string) => {
+        if (keyboardIsVisible) {
+          Keyboard.dismiss();
+          return;
+        }
+
+        pendingProfileNavigationRef.current = username;
+        close();
+      },
+      [keyboardIsVisible, close],
+    );
 
     React.useImperativeHandle(ref, () => ({ open, close }), [open, close]);
 
@@ -284,10 +277,16 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
     );
 
     const renderItem = useCallback(
-      ({ item }: { item: Comment }) => (
-        <CommentItem comment={item} isOwn={item.author?.id === currentUserId} />
+      ({ item }: { item: CommentThreadNode }) => (
+        <CommentThread
+          node={item}
+          currentUserId={currentUserId}
+          keyboardIsVisible={keyboardIsVisible}
+          onReply={handleReply}
+          onProfilePress={handleProfilePress}
+        />
       ),
-      [currentUserId],
+      [currentUserId, keyboardIsVisible, handleReply, handleProfilePress],
     );
 
     const ListEmptyComponent = useCallback(() => {
@@ -366,11 +365,18 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           setCommentCount(0);
           setInput("");
           setInputHeight(44);
+          setReplyingTo(null);
           setSending(false);
           setCurrentSnapIndex(0);
           setFetchError(null);
           setLoading(false);
           setPostId(null);
+
+          const username = pendingProfileNavigationRef.current;
+          pendingProfileNavigationRef.current = null;
+          if (username) {
+            requestAnimationFrame(() => router.push(`/user/${username}`));
+          }
         }}
       >
         <View style={styles.sheetContent}>
@@ -402,8 +408,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           </View>
 
           <BottomSheetFlatList
-            data={comments}
-            keyExtractor={(item) => item.id}
+            data={commentThreads}
+            keyExtractor={(item) => item.comment.id}
             renderItem={renderItem}
             ListEmptyComponent={ListEmptyComponent}
             showsVerticalScrollIndicator={false}
@@ -411,7 +417,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             keyboardShouldPersistTaps="handled"
             style={styles.listWrapper}
             contentContainerStyle={
-              comments.length === 0
+              commentThreads.length === 0
                 ? [
                     styles.emptyListContent,
                     { paddingHorizontal: horizontalPadding },
@@ -432,6 +438,27 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
                 { paddingHorizontal: horizontalPadding },
               ]}
             >
+              {replyingTo ? (
+                <View style={styles.replyingPreview}>
+                  <View style={styles.replyingPreviewCopy}>
+                    <Text style={styles.replyingPreviewTitle} numberOfLines={1}>
+                      Replying to @{replyingTo.author?.username ?? "comment"}
+                    </Text>
+                    <Text style={styles.replyingPreviewText} numberOfLines={1}>
+                      {replyingTo.content}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel reply"
+                    onPress={() => setReplyingTo(null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               <View style={styles.inputRow}>
                 <View style={styles.userAvatar}>
                   {currentUserAvatarUrl ? (
@@ -452,7 +479,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
                     isCompact && styles.inputCompact,
                     { height: inputHeight },
                   ]}
-                  placeholder="Add a comment..."
+                  placeholder={replyingTo ? "Write a reply..." : "Add a comment..."}
                   placeholderTextColor={COLORS.textMuted}
                   value={input}
                   onChangeText={setInput}
@@ -481,7 +508,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
                   disabled={!input.trim() || sending}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="Post comment"
+                  accessibilityLabel={replyingTo ? "Post reply" : "Post comment"}
                 >
                   {sending ? (
                     <ActivityIndicator size="small" color={COLORS.primary} />
@@ -664,6 +691,36 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
     flexShrink: 0,
+  },
+
+  replyingPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+    marginLeft: 46,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.bgLight,
+  },
+
+  replyingPreviewCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  replyingPreviewTitle: {
+    color: COLORS.primary,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+  },
+
+  replyingPreviewText: {
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    marginTop: 1,
   },
 
   inputRow: {

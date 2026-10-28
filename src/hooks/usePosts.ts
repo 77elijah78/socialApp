@@ -26,6 +26,7 @@ interface UsePostsReturn {
   unlike: (postId: string) => Promise<void>;
   save: (postId: string) => Promise<void>;
   unsave: (postId: string) => Promise<void>;
+  deletePost: (postId: string) => Promise<void>;
 }
 
 function mapPostResponse(post: PostResponse): SocialPost {
@@ -308,6 +309,26 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     [token, updatePostOptimistic],
   );
 
+  const deletePost = useCallback(
+    async (postId: string) => {
+      const previousPosts = postsRef.current;
+      const nextPosts = previousPosts.filter((post) => post.id !== postId);
+      postsRef.current = nextPosts;
+      setPosts(nextPosts);
+      void setCached(FEED_CACHE_KEY, nextPosts, FEED_CACHE_TTL);
+
+      try {
+        await api.delete(`/posts/${postId}`, token ?? undefined);
+      } catch (error) {
+        postsRef.current = previousPosts;
+        setPosts(previousPosts);
+        void setCached(FEED_CACHE_KEY, previousPosts, FEED_CACHE_TTL);
+        throw error;
+      }
+    },
+    [token],
+  );
+
   return {
     posts,
     loading,
@@ -322,5 +343,6 @@ export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
     unlike,
     save,
     unsave,
+    deletePost,
   };
 }
