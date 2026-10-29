@@ -104,6 +104,12 @@ export default function PrivateRoom() {
   const [sending, setSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
+  const [jumpButtonRoomKey, setJumpButtonRoomKey] = useState<string | null>(
+    null,
+  );
+  const currentRoomKey = String(conversationId || roomId || "");
+  const shouldShowJumpToUnread =
+    jumpButtonRoomKey === currentRoomKey ? showJumpToUnread : true;
   const textInputRef = useRef<TextInput>(null);
   const initialScrollRoomRef = useRef<string | null>(null);
   const pendingLatestScrollRef = useRef(false);
@@ -608,6 +614,7 @@ export default function PrivateRoom() {
       scrollOffsetRef.current = offset;
       nearBottomRef.current = isNearBottom;
       schedulePositionSave(offset);
+      setJumpButtonRoomKey(currentRoomKey);
 
       if (unreadMessageCount === 0 || isNearBottom) {
         setShowJumpToUnread(false);
@@ -615,7 +622,7 @@ export default function PrivateRoom() {
         setShowJumpToUnread(true);
       }
     },
-    [unreadMessageCount, schedulePositionSave],
+    [currentRoomKey, unreadMessageCount, schedulePositionSave],
   );
 
   const handleScrollBeginDrag = useCallback(() => {
@@ -876,8 +883,6 @@ export default function PrivateRoom() {
     // server when there is no cached page to position yet.
     if (messages.length === 0 && isSyncing) return;
 
-    setShowJumpToUnread(lastUnreadIndex >= 0);
-
     const scheduleRestore = (viewPosition: number, scroll: () => void) => {
       initialScrollRoomRef.current = roomKey;
       pendingScrollViewPositionRef.current = viewPosition;
@@ -1100,7 +1105,7 @@ export default function PrivateRoom() {
       </SafeAreaView>
 
       {/* UNREAD JUMP BUTTON */}
-      {showJumpToUnread && lastUnreadIndex >= 0 ? (
+      {shouldShowJumpToUnread && lastUnreadIndex >= 0 ? (
         <TouchableOpacity
           style={styles.jumpToUnreadTouchable}
           onPress={() => {
@@ -1118,6 +1123,7 @@ export default function PrivateRoom() {
               };
             }
             scrollToLastUnread(true);
+            setJumpButtonRoomKey(currentRoomKey);
             setShowJumpToUnread(false);
           }}
           activeOpacity={0.9}
