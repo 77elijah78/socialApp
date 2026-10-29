@@ -36,7 +36,10 @@ import { mediaService } from "@/services/MediaService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
-import { useKeyboardState } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  useKeyboardState,
+} from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -119,6 +122,8 @@ export default function PrivateRoom() {
   } | null>(null);
   const visibleMessageIdsRef = useRef<string[]>([]);
   const nearBottomRef = useRef(true);
+  const keyboardWasVisibleRef = useRef(false);
+  const stickToLatestOnKeyboardOpenRef = useRef(false);
   const scrollOffsetRef = useRef(0);
   const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -141,6 +146,18 @@ export default function PrivateRoom() {
   });
   const insets = useSafeAreaInsets();
   const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
+
+  useEffect(() => {
+    if (keyboardIsVisible && !keyboardWasVisibleRef.current) {
+      // Keep the latest message in view when the keyboard reduces the viewport,
+      // but preserve the reader's position if they were viewing older messages.
+      stickToLatestOnKeyboardOpenRef.current = nearBottomRef.current;
+    }
+    keyboardWasVisibleRef.current = keyboardIsVisible;
+    if (!keyboardIsVisible) {
+      stickToLatestOnKeyboardOpenRef.current = false;
+    }
+  }, [keyboardIsVisible]);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -680,6 +697,17 @@ export default function PrivateRoom() {
         duration: e.duration ?? 250,
         useNativeDriver: true,
       }).start();
+
+      if (
+        Platform.OS === "android" &&
+        stickToLatestOnKeyboardOpenRef.current
+      ) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          });
+        });
+      }
     });
 
     const hideSub = Keyboard.addListener(hideEvent, (e) => {
@@ -694,7 +722,7 @@ export default function PrivateRoom() {
       showSub.remove();
       hideSub.remove();
     };
-  }, [keyboardHeight]);
+  }, [flatListRef, keyboardHeight]);
 
   const inputTranslateY = keyboardHeight.interpolate({
     inputRange: [0, 400],
@@ -1145,62 +1173,69 @@ export default function PrivateRoom() {
         </TouchableOpacity>
       ) : null}
 
-      {/* MESSAGES */}
-      <FlatList
-        ref={flatListRef}
-        style={styles.messageList}
-        data={flatData}
-        extraData={messages}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        onContentSizeChange={handleInitialContentSizeChange}
-        keyExtractor={keyExtractor}
-        keyboardShouldPersistTaps="handled"
-        //keyboardDismissMode="on-drag"
-        contentContainerStyle={{
-          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
-          paddingTop: theme.SPACING.md,
-        }}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          !isSyncing && messages.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyStateIcon}>
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={28}
-                  color={theme.COLORS.primary}
-                />
+      {/* Keep the message viewport above the keyboard without changing the input animation. */}
+      <KeyboardAvoidingView
+        style={styles.messageViewport}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        automaticOffset
+      >
+        {/* MESSAGES */}
+        <FlatList
+          ref={flatListRef}
+          style={styles.messageList}
+          data={flatData}
+          extraData={messages}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onContentSizeChange={handleInitialContentSizeChange}
+          keyExtractor={keyExtractor}
+          keyboardShouldPersistTaps="handled"
+          //keyboardDismissMode="on-drag"
+          contentContainerStyle={{
+            paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
+            paddingTop: theme.SPACING.md,
+          }}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            !isSyncing && messages.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyStateIcon}>
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={28}
+                    color={theme.COLORS.primary}
+                  />
+                </View>
+                <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
+                <Text style={styles.emptyStateText}>
+                  Send a message to start the conversation.
+                </Text>
               </View>
-              <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
-              <Text style={styles.emptyStateText}>
-                Send a message to start the conversation.
-              </Text>
-            </View>
-          ) : null
-        }
-        ListFooterComponent={
-          isSyncing && messages.length === 0 ? (
-            <View style={{ paddingVertical: theme.SPACING.xl }}>
-              <ChatBubbleSkeleton isOwn={false} />
-              <ChatBubbleSkeleton isOwn={true} />
-              <ChatBubbleSkeleton isOwn={false} />
-            </View>
-          ) : isSyncing && messages.length > 0 ? (
-            <View style={styles.loadingMore}>
-              <Text style={styles.loadingMoreText}>Loading...</Text>
-            </View>
-          ) : null
-        }
-        onScrollToIndexFailed={handleScrollToIndexFailed}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollEnd={handleScrollEnd}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        onViewableItemsChanged={handleViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-      />
+            ) : null
+          }
+          ListFooterComponent={
+            isSyncing && messages.length === 0 ? (
+              <View style={{ paddingVertical: theme.SPACING.xl }}>
+                <ChatBubbleSkeleton isOwn={false} />
+                <ChatBubbleSkeleton isOwn={true} />
+                <ChatBubbleSkeleton isOwn={false} />
+              </View>
+            ) : isSyncing && messages.length > 0 ? (
+              <View style={styles.loadingMore}>
+                <Text style={styles.loadingMoreText}>Loading...</Text>
+              </View>
+            ) : null
+          }
+          onScrollToIndexFailed={handleScrollToIndexFailed}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEnd}
+          onMomentumScrollEnd={handleScrollEnd}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+        />
+      </KeyboardAvoidingView>
 
       {/* FLOATING INPUT */}
       <Animated.View
@@ -1316,6 +1351,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     elevation: 5,
     backgroundColor: theme.COLORS.bgWhite,
+  },
+  messageViewport: {
+    flex: 1,
   },
   messageList: {
     flex: 1,
