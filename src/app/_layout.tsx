@@ -1,61 +1,75 @@
 import { Stack, useRouter } from "expo-router";
 import { PaperProvider } from "react-native-paper";
 import { runMigrations } from "../db/migrations";
-import { useEffect, useState } from "react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Provider } from "react-redux";
 import { store, persistor } from "@/store/index";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, View, Text, Linking } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import theme from "@/constants/theme";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { mediaService } from "@/services/MediaService";
 import { messageStore } from "@/db/MessageStore";
-import api, {
+import { mediaService } from "@/services/MediaService";
+import {
   setTokens as setApiTokens,
   setTokenRefreshCallback,
 } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
-import {
-  addNotification as addNotificationToStore,
-  incrementUnreadCount,
-} from "@/store/slices/notificationsSlice";
+import { addNotification as addNotificationToStore } from "@/store/slices/notificationsSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Linking } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
 
-const TAG = "[RootLayout]";
+import { prepareMessagingAccount } from "@/services/MessagingCache";
 
 function PersistGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    let initializing = false;
     const initTokens = async () => {
-      const state = store.getState();
-      let refreshToken = state.auth.refreshToken;
+      if (initializing) return;
+      initializing = true;
+      try {
+        await runMigrations();
+        const state = store.getState();
+        let refreshToken = state.auth.refreshToken;
 
-      if (!refreshToken) {
-        try {
-          const stored = await AsyncStorage.getItem("refreshToken");
-          if (stored) {
-            refreshToken = stored;
-            store.dispatch(
-              setReduxTokens({
-                token: state.auth.token ?? "",
-                refreshToken: stored,
-              }),
-            );
+        if (!refreshToken) {
+          try {
+            const stored = await AsyncStorage.getItem("refreshToken");
+            if (stored) {
+              refreshToken = stored;
+              store.dispatch(
+                setReduxTokens({
+                  token: state.auth.token ?? "",
+                  refreshToken: stored,
+                }),
+              );
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
-      }
 
-      setApiTokens(state.auth.token, refreshToken);
-      setReady(true);
+        await prepareMessagingAccount(
+          state.auth.isAuthenticated ? (state.auth.user?.id ?? null) : null,
+        );
+        await messageStore.recoverUnfinishedSends();
+        setApiTokens(state.auth.token, refreshToken);
+        if (!cancelled) setReady(true);
+      } catch (error) {
+        if (!cancelled)
+          setStorageError(
+            error instanceof Error
+              ? error.message
+              : "Local storage initialization failed",
+          );
+      }
     };
 
     const unsub = persistor.subscribe(() => {
@@ -67,17 +81,25 @@ function PersistGate({ children }: { children: React.ReactNode }) {
 
     if (persistor.getState().bootstrapped) {
       initTokens();
-    } else {
-      setTimeout(() => setReady(true), 2000);
     }
 
-    return unsub;
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []);
 
   if (!ready) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator />
+        {storageError ? (
+          <Text accessibilityRole="alert">
+            Couldn’t open local messaging storage. Restart the app to retry.{" "}
+            {storageError}
+          </Text>
+        ) : (
+          <ActivityIndicator />
+        )}
       </View>
     );
   }
@@ -98,6 +120,7 @@ function SocketProvider() {
     } else if (!isAuthenticated) {
       mediaService.disconnectSocket();
     }
+    return () => mediaService.disconnectSocket();
   }, [isAuthenticated, token, userId]);
 
   useEffect(() => {
@@ -107,28 +130,7 @@ function SocketProvider() {
       }
     });
 
-    const unsubDelivered = mediaService.socket.on(
-      "message:delivered",
-      async (payload: any) => {
-        try {
-          const messageId = payload?.messageId;
-          const conversationId = payload?.conversationId;
-          if (messageId && conversationId) {
-            await messageStore.markDelivered(messageId, conversationId);
-          }
-        } catch (error) {
-          console.warn(
-            "[SocketProvider] global delivery persist failed:",
-            error,
-          );
-        }
-      },
-    );
-
-    return () => {
-      unsub();
-      unsubDelivered();
-    };
+    return unsub;
   }, [dispatch]);
 
   return null;
@@ -137,8 +139,6 @@ function SocketProvider() {
 export default function RootLayout() {
   const router = useRouter();
   useEffect(() => {
-    runMigrations();
-
     setTokenRefreshCallback((token, refreshToken) => {
       try {
         const state = store.getState().auth;
@@ -181,7 +181,7 @@ export default function RootLayout() {
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [router]);
 
   return (
     <SafeAreaProvider>

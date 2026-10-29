@@ -28,3 +28,11 @@ export function setRecentMessageCache(
     if (oldestConversation) recentMessagesByConversation.delete(oldestConversation);
   }
 }
+
+export function invalidateRecentMessageCache(conversationId: string): void {
+  recentMessagesByConversation.delete(conversationId);
+}
+
+export function clearRecentMessageCache(): void {
+  recentMessagesByConversation.clear();
+}

@@ -1,5 +1,11 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { View, StyleSheet, StatusBar } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  StatusBar,
+} from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import StoryViewer from "@/components/stories/StoryViewer";
 import { StoryItem } from "@/types";
@@ -24,7 +30,10 @@ interface BackendStory {
   views: { viewerId: string }[];
 }
 
-function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem {
+function mapBackendStory(
+  story: BackendStory,
+  currentUserId: string,
+): StoryItem {
   return {
     id: story.id,
     userId: story.user.id,
@@ -46,8 +55,8 @@ let storyCacheTime: number = 0;
 const CACHE_TTL = 30 * 1000;
 
 export default function StoryViewerScreen() {
-  const params = useLocalSearchParams<{ index?: string }>();
-  const initialIndex = params.index ? parseInt(params.index, 10) : 0;
+  const params = useLocalSearchParams<{ index?: string; storyId?: string }>();
+  const requestedIndex = params.index ? parseInt(params.index, 10) : 0;
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
 
@@ -56,21 +65,26 @@ export default function StoryViewerScreen() {
     return isFresh ? storyCache : [];
   });
   const [loading, setLoading] = useState(stories.length > 0 ? false : true);
+  const sharedIndex = params.storyId
+    ? stories.findIndex((story) => story.id === params.storyId)
+    : -1;
+  const initialIndex =
+    sharedIndex >= 0
+      ? sharedIndex
+      : Math.max(0, Number.isFinite(requestedIndex) ? requestedIndex : 0);
 
   useEffect(() => {
     if (!token || stories.length > 0) return;
 
     let cancelled = false;
 
-    setLoading(true);
     api
-      .get<{ success: boolean; data: BackendStory[] }>(
-        "/posts/stories",
-        token,
-      )
+      .get<{ success: boolean; data: BackendStory[] }>("/posts/stories", token)
       .then((response) => {
         if (!cancelled) {
-          const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
+          const mapped = response.data.map((s) =>
+            mapBackendStory(s, currentUserId),
+          );
           storyCache = mapped;
           storyCacheTime = Date.now();
           setStories(mapped);
@@ -98,16 +112,51 @@ export default function StoryViewerScreen() {
   const handleStoryViewed = useCallback(
     (storyId: string, isViewed: boolean) => {
       setStories((prev) =>
-        prev.map((s) => (s.id === storyId ? { ...s, isViewed } : s))
+        prev.map((s) => (s.id === storyId ? { ...s, isViewed } : s)),
       );
     },
-    []
+    [],
   );
 
   if (loading && stories.length === 0) {
     return (
-      <View style={[styles.container, { alignItems: "center", justifyContent: "center" }]}>
-        <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.95)" />
+      <View
+        style={[
+          styles.container,
+          { alignItems: "center", justifyContent: "center" },
+        ]}
+      >
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor="rgba(0,0,0,0.95)"
+        />
+      </View>
+    );
+  }
+
+  if (params.storyId && sharedIndex < 0) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { alignItems: "center", justifyContent: "center" },
+        ]}
+      >
+        <StatusBar barStyle="light-content" />
+        <Text
+          accessibilityRole="alert"
+          style={{ color: "white", textAlign: "center", padding: 20 }}
+        >
+          This shared story isn’t available in your stories feed.
+        </Text>
+        <TouchableOpacity
+          onPress={handleClose}
+          accessibilityRole="button"
+          accessibilityLabel="Back to conversation"
+          style={{ padding: 16 }}
+        >
+          <Text style={{ color: "white" }}>Back to conversation</Text>
+        </TouchableOpacity>
       </View>
     );
   }

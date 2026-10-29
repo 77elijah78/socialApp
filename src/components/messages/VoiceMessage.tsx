@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+} from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -7,15 +13,22 @@ import {
   TouchableOpacity,
   View,
   type ViewStyle,
-} from 'react-native';
-import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
-import { Ionicons } from '@expo/vector-icons';
-import theme from '@/constants/theme';
+} from "react-native";
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  setAudioModeAsync,
+} from "expo-audio";
+import { Ionicons } from "@expo/vector-icons";
+import theme from "@/constants/theme";
+import { useChatMediaPlayback } from "@/hooks/useChatMediaPlayback";
+import { useMediaVisibility } from "@/utils/messaging/mediaVisibility";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface VoiceMessageBubbleProps {
   audioUri: string;
+  playbackId?: string;
   duration: number;
   waveform?: number[];
   isOwn?: boolean;
@@ -26,17 +39,16 @@ interface VoiceMessageBubbleProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const WAVEFORM_BARS   = 40;
-const BAR_WIDTH       = theme.SIZING.sendButton;
-const BAR_GAP         = theme.BORDER_RADIUS.sm;
-const EQ_BARS         = 5;
-const EQ_INTERVAL_MS  = 80;
+const WAVEFORM_BARS = 40;
+const BAR_WIDTH = 3;
+const BAR_GAP = theme.BORDER_RADIUS.sm;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateWaveform(seed: string, count: number): number[] {
   let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+  for (let i = 0; i < seed.length; i++)
+    h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
   return Array.from({ length: count }, (_, i) => {
     h = (Math.imul(1664525, h) + 1013904223) | 0;
     const base = 10 + (Math.abs(h) % 60);
@@ -48,57 +60,40 @@ function generateWaveform(seed: string, count: number): number[] {
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ─── Equalizer Hook ───────────────────────────────────────────────────────────
 
-function useEqualizer(bars: number[], isPlaying: boolean, progress: number) {
-  const animValues = useRef<Animated.Value[]>(
-    Array.from({ length: bars.length }, () => new Animated.Value(1)),
-  ).current;
-
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
+function useEqualizer(count: number, isPlaying: boolean) {
+  const [values] = useState(() =>
+    Array.from({ length: count }, () => new Animated.Value(1)),
+  );
   useEffect(() => {
     if (!isPlaying) {
-      if (tickRef.current) clearInterval(tickRef.current);
-      animValues.forEach(v => Animated.spring(v, { toValue: 1, useNativeDriver: false, speed: 20, bounciness: 0 }).start());
+      values.forEach((value) => value.setValue(1));
       return;
     }
-
-    tickRef.current = setInterval(() => {
-      const cursor = Math.round(progress * bars.length);
-
-      animValues.forEach((v, i) => {
-        const dist = Math.abs(i - cursor);
-        if (dist <= EQ_BARS) {
-          const intensity = 1 - dist / (EQ_BARS + 1);
-          const lo = Math.max(0.55, 1 - intensity * 0.55);
-          const hi = Math.min(1.5, 1 + intensity * 0.6 * (0.5 + Math.random() * 0.5));
-          const target = lo + Math.random() * (hi - lo);
-          Animated.timing(v, {
-            toValue: target,
-            duration: EQ_INTERVAL_MS * 0.85,
-            useNativeDriver: false,
-          }).start();
-        } else {
-          Animated.timing(v, {
-            toValue: 1,
-            duration: EQ_INTERVAL_MS,
-            useNativeDriver: false,
-          }).start();
-        }
-      });
-    }, EQ_INTERVAL_MS);
-
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, progress]);
-
-  return animValues;
+    const animations = values.map((value, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(value, {
+            toValue: 0.6 + (index % 5) * 0.15,
+            duration: 180 + (index % 3) * 50,
+            useNativeDriver: true,
+          }),
+          Animated.timing(value, {
+            toValue: 1.2,
+            duration: 220,
+            useNativeDriver: true,
+          }),
+        ]),
+      ),
+    );
+    animations.forEach((animation) => animation.start());
+    return () => animations.forEach((animation) => animation.stop());
+  }, [isPlaying, values]);
+  return values;
 }
 
 // ─── Waveform Component ───────────────────────────────────────────────────────
@@ -110,17 +105,23 @@ interface WaveformProps {
   onSeek?: (progress: number) => void;
 }
 
-const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek }) => {
+const Waveform: React.FC<WaveformProps> = ({
+  bars,
+  animValues,
+  progress,
+  onSeek,
+}) => {
   const playedCount = Math.round(progress * bars.length);
 
+  const trackWidth = useRef(1);
   const handleTouch = useCallback(
-    (evt: any) => {
-      if (!onSeek) return;
-      const { locationX, target } = evt.nativeEvent;
-      target.measure((_: number, __: number, width: number) => {
-        const p = Math.max(0, Math.min(1, locationX / width));
-        onSeek(p);
-      });
+    (event: { nativeEvent: { locationX: number } }) => {
+      onSeek?.(
+        Math.max(
+          0,
+          Math.min(1, event.nativeEvent.locationX / trackWidth.current),
+        ),
+      );
     },
     [onSeek],
   );
@@ -129,20 +130,19 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
     <TouchableOpacity
       activeOpacity={theme.OPACITY.pressed}
       onPress={handleTouch}
+      onLayout={(event) => {
+        trackWidth.current = Math.max(1, event.nativeEvent.layout.width);
+      }}
       style={styles.waveformContainer}
       accessible
       accessibilityLabel="Voice message waveform, tap to seek"
     >
       {bars.map((amplitude, i) => {
         const played = i < playedCount;
-        const staticHeight = Math.max(3, (amplitude / 100) * theme.SIZING.waveformHeight);
-        const animatedHeight = animValues[i].interpolate({
-          inputRange: [0, 2],
-          outputRange: [0, theme.SIZING.waveformHeight * 2],
-          extrapolate: 'clamp',
-        });
-
-        const barHeight = Animated.multiply(animValues[i], staticHeight);
+        const staticHeight = Math.max(
+          3,
+          (amplitude / 100) * theme.SIZING.waveformHeight,
+        );
 
         return (
           <Animated.View
@@ -150,8 +150,11 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
             style={[
               styles.bar,
               {
-                height: barHeight,
-                backgroundColor: played ? theme.COLORS.playedWave : theme.COLORS.unplayedWave,
+                height: staticHeight,
+                transform: [{ scaleY: animValues[i] }],
+                backgroundColor: played
+                  ? theme.COLORS.playedWave
+                  : theme.COLORS.unplayedWave,
               },
             ]}
           />
@@ -165,6 +168,7 @@ const Waveform: React.FC<WaveformProps> = ({ bars, animValues, progress, onSeek 
 
 const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   audioUri,
+  playbackId,
   duration,
   waveform,
   isOwn = false,
@@ -172,111 +176,85 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
   isRead = false,
   style,
 }) => {
-
-  const bars = waveform && waveform.length >= 10
-    ? waveform
-    : generateWaveform(audioUri, WAVEFORM_BARS);
-
-  const player = useAudioPlayer({ uri: audioUri });
+  const bars = useMemo(
+    () =>
+      waveform && waveform.length >= 10
+        ? waveform
+        : generateWaveform(audioUri, WAVEFORM_BARS),
+    [waveform, audioUri],
+  );
+  const visible = useMediaVisibility(playbackId);
+  const player = useAudioPlayer(null);
   const playerStatus = useAudioPlayerStatus(player);
-
-  const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error'>('idle');
-  const [progress, setProgress] = useState(0);
-  const [elapsed, setElapsed]   = useState(0);
-
-  useEffect(() => {
-    setAudioModeAsync({
-      allowsRecording: false,
-      playsInSilentMode: true,
-    });
-
-    return () => {
-      try {
-        player.pause();
-        player.remove();
-      } catch (e) {
-       // prevent crash if already removed
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!playerStatus) return;
-
-    const pos = playerStatus.currentTime ?? 0;
-    const dur = playerStatus.duration && playerStatus.duration > 0
-      ? playerStatus.duration
-      : duration;
-
-    setElapsed(pos);
-    setProgress(dur > 0 ? pos / dur : 0);
-
-    if (playerStatus.didJustFinish) {
-      setStatus('idle');
-      setProgress(0);
-      setElapsed(0);
-    } else if (playerStatus.playing) {
-      setStatus('playing');
-    } else if (status === 'loading' || status === 'playing') {
-      setStatus('paused');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerStatus]);
-
+  const loaded = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const isPlaying = Boolean(playerStatus.playing);
+  const elapsed = playerStatus.currentTime ?? 0;
+  const actualDuration =
+    playerStatus.duration > 0 ? playerStatus.duration : duration;
+  const progress = actualDuration > 0 ? elapsed / actualDuration : 0;
+  const status = failed
+    ? "error"
+    : playerStatus.isBuffering
+      ? "loading"
+      : isPlaying
+        ? "playing"
+        : elapsed > 0
+          ? "paused"
+          : "idle";
+  const animValues = useEqualizer(bars.length, isPlaying && visible);
+  const canPlay = useChatMediaPlayback(player, visible);
   const handlePlayPause = async () => {
     try {
-      if (status === 'playing') {
+      setFailed(false);
+      if (player.playing) {
         player.pause();
-        setStatus('paused');
         return;
       }
-      if (status === 'paused') {
-        player.play();
-        setStatus('playing');
-        return;
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      });
+      if (!canPlay()) return;
+      if (!loaded.current) {
+        player.replace({ uri: audioUri });
+        loaded.current = true;
       }
-      setStatus('loading');
-      player.seekTo(0);
-      player.play();
+      if (playerStatus.didJustFinish) await player.seekTo(0);
+      if (canPlay()) player.play();
     } catch {
-      setStatus('error');
+      setFailed(true);
     }
   };
-
-  const handleSeek = (p: number) => {
-    const dur = (playerStatus?.duration && playerStatus.duration > 0)
-      ? playerStatus.duration
-      : duration;
-    player.seekTo(p * dur);
-    setProgress(p);
-    setElapsed(p * dur);
+  const handleSeek = (position: number) => {
+    if (loaded.current)
+      void player
+        .seekTo(position * actualDuration)
+        .catch(() => setFailed(true));
   };
-
-  const isPlaying = status === 'playing';
-  const animValues = useEqualizer(bars, isPlaying, progress);
-
-  const displayTime = status === 'idle' ? formatTime(duration) : formatTime(elapsed);
+  const displayTime =
+    status === "idle" ? formatTime(actualDuration) : formatTime(elapsed);
 
   return (
     <View style={[styles.row, isOwn ? styles.rowOwn : styles.rowOther, style]}>
-      <View style={[
-        styles.bubble,
-        isOwn ? styles.bubbleOwn : styles.bubbleOther,
-      ]}>
-
+      <View
+        style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}
+      >
         <TouchableOpacity
           onPress={handlePlayPause}
           style={styles.playBtn}
           activeOpacity={theme.OPACITY.pressed}
           accessibilityRole="button"
-          accessibilityLabel={isPlaying ? 'Pause voice message' : 'Play voice message'}
-          disabled={status === 'loading'}
+          accessibilityLabel={
+            isPlaying ? "Pause voice message" : "Play voice message"
+          }
+          disabled={status === "loading"}
         >
-          {status === 'loading' ? (
+          {status === "loading" ? (
             <ActivityIndicator size="small" color={theme.COLORS.textWhite} />
           ) : (
             <Ionicons
-              name={isPlaying ? 'pause' : 'play'}
+              name={isPlaying ? "pause" : "play"}
               size={theme.SIZING.avatarXs}
               color={theme.COLORS.textWhite}
             />
@@ -298,9 +276,13 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
                 <Text style={styles.timestampText}>{timestamp}</Text>
                 {isOwn && (
                   <Ionicons
-                    name={isRead ? 'checkmark-done' : 'checkmark'}
+                    name={isRead ? "checkmark-done" : "checkmark"}
                     size={theme.SIZING.avatarXs}
-                    color={isRead ? theme.COLORS.playedWave : theme.COLORS.unplayedWave}
+                    color={
+                      isRead
+                        ? theme.COLORS.playedWave
+                        : theme.COLORS.unplayedWave
+                    }
                     style={styles.tick}
                   />
                 )}
@@ -308,7 +290,6 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
             )}
           </View>
         </View>
-
       </View>
     </View>
   );
@@ -318,20 +299,20 @@ const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    alignItems: "flex-end",
     marginVertical: theme.SPACING.xs,
   },
   rowOther: {
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   rowOwn: {
-    justifyContent: 'flex-start',
+    justifyContent: "flex-start",
   },
 
   bubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: theme.SPACING.md,
     paddingHorizontal: theme.SPACING.lg,
     width: theme.SIZING.messageWidth,
@@ -352,8 +333,8 @@ const styles = StyleSheet.create({
     height: theme.SIZING.voicePlayButton,
     borderRadius: theme.SIZING.voicePlayButton / 2,
     backgroundColor: theme.COLORS.playedWave,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     flexShrink: 0,
   },
 
@@ -363,11 +344,11 @@ const styles = StyleSheet.create({
   },
 
   waveformContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     height: theme.SIZING.waveformHeight,
     maxHeight: theme.SIZING.waveformHeight,
-    overflow: 'hidden',
+    overflow: "hidden",
     gap: BAR_GAP,
   },
   bar: {
@@ -377,17 +358,17 @@ const styles = StyleSheet.create({
   },
 
   meta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   durationText: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     color: theme.COLORS.textBlack,
   },
   timestampRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: theme.BORDER_RADIUS.xs,
   },
   timestampText: {
@@ -399,4 +380,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default VoiceMessageBubble;
+export default React.memo(VoiceMessageBubble);

@@ -367,7 +367,7 @@ export interface PrivateMessageCardProps {
 
 export interface MessageCardProps {
   message: string | null;
-  time: string;
+  time: string | number;
   sender: string;
   isRead: boolean;
   isSent: boolean;
@@ -376,6 +376,10 @@ export interface MessageCardProps {
   onLongPress?: () => void;
   type: string;
   uri: string;
+  thumbnailUri?: string;
+  playbackId?: string;
+  duration?: number;
+  onRetry?: () => void;
   repliedTo?: {
     id: string;
     content: string;

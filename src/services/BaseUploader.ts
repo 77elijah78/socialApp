@@ -44,6 +44,7 @@ export class BaseUploader {
       const xhr = new XMLHttpRequest();
 
       xhr.open("POST", `${this.baseUrl}${endpoint}`);
+      xhr.timeout = 30_000;
 
       Object.entries(this.defaultHeaders).forEach(([key, value]) => {
         xhr.setRequestHeader(key, value);
@@ -73,6 +74,7 @@ export class BaseUploader {
       };
 
       xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.onabort = () => reject(new Error("Upload cancelled"));
       xhr.ontimeout = () => reject(new Error("Upload timed out"));
 
       xhr.send(formData);

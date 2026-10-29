@@ -5,11 +5,11 @@ import {
   Text,
   StyleSheet,
   useWindowDimensions,
-  Image,
   TouchableOpacity,
   Linking,
 } from "react-native";
-import { useState, useMemo, useRef } from "react";
+import { memo, useMemo, useRef } from "react";
+import { Image } from "expo-image";
 import VoiceMessageBubble from "./VoiceMessage";
 import VideoPlayer from "./Videoplayer";
 import SharedPostCard from "./SharedPostCard";
@@ -31,7 +31,12 @@ function StatusCheckmarks({
     return (
       <View style={{ flexDirection: "row", marginLeft: 4 }}>
         <Ionicons name="checkmark-sharp" size={12} color="#2196F3" />
-        <Ionicons name="checkmark-sharp" size={12} color="#2196F3" style={{ marginLeft: -6 }} />
+        <Ionicons
+          name="checkmark-sharp"
+          size={12}
+          color="#2196F3"
+          style={{ marginLeft: -6 }}
+        />
       </View>
     );
   }
@@ -40,11 +45,26 @@ function StatusCheckmarks({
     return (
       <View style={{ flexDirection: "row", marginLeft: 4 }}>
         <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
-        <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" style={{ marginLeft: -6 }} />
+        <Ionicons
+          name="checkmark-sharp"
+          size={12}
+          color="#9E9E9E"
+          style={{ marginLeft: -6 }}
+        />
       </View>
     );
   }
 
+  if (status === "SENDING")
+    return <Ionicons name="time-outline" size={12} color="#9E9E9E" />;
+  if (status === "FAILED")
+    return (
+      <Ionicons
+        name="alert-circle-outline"
+        size={14}
+        color={theme.COLORS.danger}
+      />
+    );
   return (
     <View style={{ flexDirection: "row", marginLeft: 4 }}>
       <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
@@ -52,24 +72,26 @@ function StatusCheckmarks({
   );
 }
 
-export default function MessageCard({
+function MessageCard({
   type,
   message,
   time,
   sender,
   isSent,
-  isRead,
   status,
   uri,
   onLongPress,
   repliedTo,
+  thumbnailUri,
+  playbackId,
+  duration,
+  onRetry,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
   const { openActionMenu } = useOverlay();
   const maxContentWidth = width * 0.7;
   const maxContentHeight = width * 0.55;
-  const [aspectRatio, setAspectRatio] = useState(1);
-  const downloadButtonRef = useRef<any>(null);
+  const downloadButtonRef = useRef<View>(null);
 
   const safeTime = useMemo(() => {
     if (time == null) return null;
@@ -77,14 +99,35 @@ export default function MessageCard({
     return Number.isNaN(d.getTime()) ? null : d;
   }, [time]);
 
+  const shared = useMemo(() => {
+    if (type !== "SHARED_POST" && type !== "SHARED_STORY") return null;
+    try {
+      return JSON.parse(message ?? "{}") as Record<string, string | null>;
+    } catch {
+      return null;
+    }
+  }, [message, type]);
+
   const handleDownload = () => {
     const items: ActionMenuItem[] = [
-      { key: 'open', icon: 'open-outline', label: 'Open in browser', onPress: () => Linking.openURL(uri) },
-      { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
+      {
+        key: "open",
+        icon: "open-outline",
+        label: "Open in browser",
+        onPress: () => Linking.openURL(uri),
+      },
+      {
+        key: "cancel",
+        icon: "close-outline",
+        label: "Cancel",
+        onPress: () => {},
+      },
     ];
-    downloadButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-      openActionMenu(items, { x, y, width, height });
-    });
+    downloadButtonRef.current?.measureInWindow(
+      (x: number, y: number, width: number, height: number) => {
+        openActionMenu(items, { x, y, width, height });
+      },
+    );
   };
 
   const sentBubble = {
@@ -152,7 +195,8 @@ export default function MessageCard({
                     pathname: "/(chatRoom)/imageViewer",
                     params: {
                       uri,
-                      name: sender || (isSent ? "Your photo" : "Received image"),
+                      name:
+                        sender || (isSent ? "Your photo" : "Received image"),
                     },
                   })
                 }
@@ -167,15 +211,13 @@ export default function MessageCard({
                   ]}
                 >
                   <Image
-                    source={{ uri }}
-                    style={[styles.thumbnail, { aspectRatio }]}
-                    resizeMode="contain"
-                    onLoad={(e) =>
-                      setAspectRatio(
-                        e.nativeEvent.source.width /
-                          e.nativeEvent.source.height,
-                      )
-                    }
+                    source={{ uri: thumbnailUri || uri }}
+                    style={[styles.thumbnail, { height: maxContentHeight }]}
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    recyclingKey={thumbnailUri || uri}
+                    transition={0}
+                    allowDownscaling
                   />
                 </View>
               </TouchableOpacity>
@@ -196,29 +238,14 @@ export default function MessageCard({
           {type === "video/mp4" && (
             <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
               <VideoPlayer
-                style={{}}
+                playbackId={playbackId}
+                width={maxContentWidth}
                 uri={uri}
-                thumbnail=""
+                thumbnail={thumbnailUri}
                 borderRadius={theme.BORDER_RADIUS.lg}
-               />
-               <TouchableOpacity
-                 ref={downloadButtonRef}
-                 style={styles.downloadButtonOverlay}
-                 onPress={handleDownload}
-               >
-                <Ionicons
-                  name="download-outline"
-                  size={22}
-                  color={theme.COLORS.textWhite}
-                />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === "audio/mpeg" && (
-            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-              <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
+              />
               <TouchableOpacity
+                ref={downloadButtonRef}
                 style={styles.downloadButtonOverlay}
                 onPress={handleDownload}
               >
@@ -231,48 +258,73 @@ export default function MessageCard({
             </View>
           )}
 
-          {type === "SHARED_POST" && (() => {
-            try {
-              const parsed = JSON.parse(message || "{}");
-              return (
-                <SharedPostCard
-                  content={parsed.content ?? "Shared post"}
-                  authorName={parsed.authorName ?? "User"}
-                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
-                  imageUrl={parsed.imageUrl ?? null}
-                  onPress={() => parsed.postId && router.push(`/posts/${parsed.postId}/comments`)}
+          {type === "audio/mpeg" && (
+            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
+              <VoiceMessageBubble
+                playbackId={playbackId}
+                audioUri={uri}
+                duration={duration ?? 0}
+                isOwn={isSent}
+              />
+              <TouchableOpacity
+                ref={downloadButtonRef}
+                style={styles.downloadButtonOverlay}
+                onPress={handleDownload}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={22}
+                  color={theme.COLORS.textWhite}
                 />
-              );
-            } catch {
-              return (
-                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
-                  <Text style={{ color: textColor }}>Shared post</Text>
-                </View>
-              );
-            }
-          })()}
+              </TouchableOpacity>
+            </View>
+          )}
 
-          {type === "SHARED_STORY" && (() => {
-            try {
-              const parsed = JSON.parse(message || "{}");
-              return (
-                <SharedStoryCard
-                  mediaUrl={parsed.mediaUrl ?? ""}
-                  mediaType={parsed.mediaType ?? "image"}
-                  caption={parsed.caption ?? null}
-                  authorName={parsed.authorName ?? "User"}
-                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
-                  onPress={() => parsed.storyId && router.push(`/stories/${parsed.storyId}`)}
-                />
-              );
-            } catch {
-              return (
-                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
-                  <Text style={{ color: textColor }}>Shared story</Text>
-                </View>
-              );
-            }
-          })()}
+          {type === "document" && (
+            <TouchableOpacity
+              ref={downloadButtonRef}
+              onPress={handleDownload}
+              style={{ maxWidth: maxContentWidth, padding: theme.SPACING.md }}
+            >
+              <Text style={{ color: textColor }}>
+                📄 {message || "Document · Tap to open"}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {type === "SHARED_POST" &&
+            (shared ? (
+              <SharedPostCard
+                content={shared.content ?? "Shared post"}
+                authorName={shared.authorName ?? "User"}
+                authorAvatarUrl={shared.authorAvatarUrl ?? null}
+                imageUrl={shared.imageUrl ?? null}
+                onPress={() => {
+                  const id = shared.sharedPostId ?? shared.postId;
+                  if (id) router.push(`/posts/${id}/comments`);
+                }}
+              />
+            ) : (
+              <Text style={{ color: textColor }}>Shared post</Text>
+            ))}
+          {type === "SHARED_STORY" &&
+            (shared ? (
+              <SharedStoryCard
+                mediaUrl={shared.mediaUrl ?? ""}
+                mediaType={shared.mediaType ?? "image"}
+                caption={shared.caption ?? null}
+                authorName={shared.authorName ?? "User"}
+                authorAvatarUrl={shared.authorAvatarUrl ?? null}
+                onPress={() => {
+                  const id = shared.sharedStoryId ?? shared.storyId;
+                  if (id)
+                    router.push(
+                      `/stories/viewer?storyId=${encodeURIComponent(id)}`,
+                    );
+                }}
+              />
+            ) : (
+              <Text style={{ color: textColor }}>Shared story</Text>
+            ))}
 
           <View
             style={{
@@ -293,12 +345,25 @@ export default function MessageCard({
               <Text style={[styles.time, { color: timeColor }]} />
             )}
             <StatusCheckmarks status={status} isSent={isSent} />
+            {isSent && status === "FAILED" && (
+              <TouchableOpacity
+                onPress={onRetry}
+                accessibilityLabel="Retry failed message"
+                style={{ marginLeft: theme.SPACING.sm }}
+              >
+                <Text style={{ color: timeColor, fontWeight: "600" }}>
+                  Retry
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </TouchableOpacity>
     </View>
   );
 }
+
+export default memo(MessageCard);
 
 const styles = StyleSheet.create({
   container: {

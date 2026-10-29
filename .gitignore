@@ -4,3 +4,6 @@ node_modules
 .env
 android
 test/socket-test-bob.js
+
+# Generated Expo exports
+/dist/

@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Animated, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  TouchableOpacity,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import theme from "@/constants/theme";
 
@@ -46,10 +52,12 @@ export function OfflineBanner({
   isOffline,
   onRetry,
   visible = true,
+  message = "No internet connection",
 }: {
   isOffline: boolean;
   onRetry?: () => void;
   visible?: boolean;
+  message?: string;
 }) {
   const [anim] = useState(() => new Animated.Value(0));
 
@@ -70,14 +78,11 @@ export function OfflineBanner({
 
   return (
     <Animated.View
-      style={[
-        styles.container,
-        { transform: [{ translateY }], opacity: anim },
-      ]}
+      style={[styles.container, { transform: [{ translateY }], opacity: anim }]}
       pointerEvents={visible ? "auto" : "none"}
     >
       <Ionicons name="wifi-outline" size={18} color={theme.COLORS.textWhite} />
-      <Text style={styles.text}>No internet connection</Text>
+      <Text style={styles.text}>{message}</Text>
       {onRetry ? (
         <TouchableOpacity onPress={onRetry} style={styles.retryBtn}>
           <Text style={styles.retryText}>Retry</Text>

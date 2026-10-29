@@ -5,20 +5,29 @@ const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
 let currentToken: string | null = null;
 let currentRefreshToken: string | null = null;
-let onTokenRefresh: ((token: string, refreshToken?: string) => void) | null = null;
+let onTokenRefresh: ((token: string, refreshToken?: string) => void) | null =
+  null;
 
 // Request deduplication for GET requests
 const pendingGetRequests = new Map<string, Promise<any>>();
 
 // Token refresh state
-let isRefreshing = false;
-let pendingRefreshCallbacks: ((token: string | null) => void)[] = [];
+let authGeneration = 0;
+let allowStoredRefresh = true;
+let refreshInFlight: {
+  generation: number;
+  work: Promise<string | null>;
+} | null = null;
 
 export function setTokens(token: string | null, refreshToken: string | null) {
-  currentToken = token;
-  if (refreshToken) {
-    currentRefreshToken = refreshToken;
+  if (token !== currentToken || refreshToken !== currentRefreshToken) {
+    authGeneration += 1;
+    refreshInFlight = null;
+    pendingGetRequests.clear();
   }
+  currentToken = token;
+  currentRefreshToken = refreshToken;
+  allowStoredRefresh = Boolean(token || refreshToken);
 }
 
 export function setTokenRefreshCallback(cb: typeof onTokenRefresh) {
@@ -61,12 +70,13 @@ async function request<T>(
     ...fetchOptions
   } = options;
 
+  const generation = authGeneration;
   const url = `${BASE_URL}${path}`;
   const body = fetchOptions.body;
 
   const isJsonBody = typeof body === "string";
   const headers: Record<string, string> = {
-    ...(fetchOptions.headers as Record<string, string> ?? {}),
+    ...((fetchOptions.headers as Record<string, string>) ?? {}),
   };
 
   if (isJsonBody) {
@@ -79,139 +89,133 @@ async function request<T>(
   }
 
   // Deduplication key for GET requests
-  const dedupeKey = deduplicate && fetchOptions.method === "GET" ? `${path}?${JSON.stringify(fetchOptions)}` : null;
+  const dedupeKey =
+    deduplicate && !signal && fetchOptions.method === "GET"
+      ? `${generation}:${authToken ?? "anonymous"}:${timeout}:${path}?${JSON.stringify(fetchOptions)}`
+      : null;
 
   // Check for existing pending GET request
   if (dedupeKey && pendingGetRequests.has(dedupeKey)) {
     return pendingGetRequests.get(dedupeKey) as Promise<T>;
   }
 
-  // Create abort controller for timeout
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const work = (async (): Promise<T> => {
+    // Create abort controller for timeout
+    const controller = new AbortController();
 
-  // Handle external signal
-  let aborted = false;
-  if (signal) {
-    if (signal.aborted) {
-      controller.abort();
-    } else {
-      signal.addEventListener("abort", () => controller.abort());
-    }
-  }
-
-  const performRequest = async (attemptToken: string | null): Promise<Response> => {
-    const requestHeaders = { ...headers };
-    if (attemptToken) {
-      requestHeaders.Authorization = `Bearer ${attemptToken}`;
-    }
-
-    return fetch(url, {
-      ...fetchOptions,
-      headers: requestHeaders,
-      signal: controller.signal,
-    });
-  };
-
-  let response: Response;
-
-  try {
-    response = await performRequest(authToken);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Request timeout");
-    }
-    throw err;
-  }
-
-  clearTimeout(timeoutId);
-
-  // Handle 429 rate limiting with retry
-  if (response.status === 429) {
-    console.log("[api.ts] 429 rate limited for", path, "- retrying after 1s");
-    const retryAfter = response.headers.get("Retry-After");
-    const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000;
-    await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 3000)));
-    
-    const retry = await fetch(url, { ...fetchOptions, headers });
-    if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-    if (!retry.ok) {
-      const error = await retry.json().catch(() => ({}));
-      throw new Error(error.message || `Request failed [${retry.status}]`);
-    }
-    return retry.json();
-  }
-
-  // Handle 401 with token refresh
-  if (response.status === 401) {
-    console.log("[api.ts] 401 received for", path, "- attempting refresh");
-    
-    if (isRefreshing) {
-      // Wait for ongoing refresh
-      const newToken = await new Promise<string | null>((resolve) => {
-        pendingRefreshCallbacks.push(resolve);
-      });
-      
-      if (newToken) {
-        const retry = await performRequest(newToken);
-        if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-        if (!retry.ok) {
-          const error = await retry.json().catch(() => ({}));
-          throw new Error(error.message || `Request failed [${retry.status}]`);
-        }
-        return retry.json();
+    // Handle external signal
+    const abort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener("abort", abort, { once: true });
       }
-      throw new Error("Authentication failed");
     }
 
-    isRefreshing = true;
+    const performRequest = async (
+      attemptToken: string | null,
+    ): Promise<Response> => {
+      const requestHeaders = { ...headers };
+      if (attemptToken) {
+        requestHeaders.Authorization = `Bearer ${attemptToken}`;
+      }
+
+      const timeoutId = setTimeout(abort, timeout);
+      try {
+        return await fetch(url, {
+          ...fetchOptions,
+          headers: requestHeaders,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
     try {
-      const newToken = await refreshAccessToken();
-      isRefreshing = false;
-      
-      // Notify all waiters
-      pendingRefreshCallbacks.forEach((cb) => cb(newToken));
-      pendingRefreshCallbacks = [];
+      let response: Response;
 
-      if (newToken) {
-        const retry = await performRequest(newToken);
-        if (dedupeKey) pendingGetRequests.delete(dedupeKey);
+      try {
+        response = await performRequest(authToken);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error("Request timeout");
+        }
+        throw err;
+      }
+
+      // Handle 429 rate limiting with retry
+      if (response.status === 429) {
+        console.log(
+          "[api.ts] 429 rate limited for",
+          path,
+          "- retrying after 1s",
+        );
+        const retryAfter = response.headers.get("Retry-After");
+        const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(delay, 3000)),
+        );
+
+        if (generation !== authGeneration)
+          throw new Error("Authentication changed during request");
+        const retry = await performRequest(authToken);
         if (!retry.ok) {
           const error = await retry.json().catch(() => ({}));
           throw new Error(error.message || `Request failed [${retry.status}]`);
         }
-        return retry.json();
+        return await retry.json();
       }
 
-      throw new Error("Authentication failed");
-    } catch (err) {
-      isRefreshing = false;
-      pendingRefreshCallbacks.forEach((cb) => cb(null));
-      pendingRefreshCallbacks = [];
-      if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-      throw err;
+      // Handle 401 with token refresh
+      if (response.status === 401) {
+        console.log("[api.ts] 401 received for", path, "- attempting refresh");
+
+        if (generation !== authGeneration)
+          throw new Error("Authentication changed during request");
+        const newToken = await _getRefreshedToken();
+        if (!newToken || generation !== authGeneration)
+          throw new Error("Authentication failed");
+        const retry = await performRequest(newToken);
+        if (!retry.ok) {
+          const error = await retry.json().catch(() => ({}));
+          throw new Error(error.message || `Request failed [${retry.status}]`);
+        }
+        return await retry.json();
+      }
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `Request failed [${response.status}]`);
+      }
+
+      return await response.json();
+    } finally {
+      signal?.removeEventListener("abort", abort);
     }
+  })();
+  if (dedupeKey) {
+    pendingGetRequests.set(dedupeKey, work);
+    void work
+      .finally(() => {
+        if (pendingGetRequests.get(dedupeKey) === work)
+          pendingGetRequests.delete(dedupeKey);
+      })
+      .catch(() => {});
   }
-
-  if (!response.ok) {
-    if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `Request failed [${response.status}]`);
-  }
-
-  if (dedupeKey) pendingGetRequests.delete(dedupeKey);
-  return response.json();
+  return work;
 }
 
 /**
  * Refresh access token using refresh token
  */
-async function refreshAccessToken(): Promise<string | null> {
+async function refreshAccessToken(generation: number): Promise<string | null> {
+  if (!allowStoredRefresh || generation !== authGeneration) return null;
   if (!currentRefreshToken) {
     try {
       const stored = await AsyncStorage.getItem("refreshToken");
+      if (generation !== authGeneration) return null;
       if (stored) {
         currentRefreshToken = stored;
       }
@@ -223,18 +227,26 @@ async function refreshAccessToken(): Promise<string | null> {
     console.warn("[api.ts] refreshAccessToken: no refresh token available");
     return null;
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
   try {
     const resp = await fetch(`${BASE_URL}/auth/refresh`, {
+      signal: controller.signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: currentRefreshToken }),
     });
     if (!resp.ok) {
       const errBody = await resp.json().catch(() => ({}));
-      console.warn("[api.ts] refreshAccessToken: refresh failed", resp.status, errBody.message);
+      console.warn(
+        "[api.ts] refreshAccessToken: refresh failed",
+        resp.status,
+        errBody.message,
+      );
       return null;
     }
     const data = await resp.json();
+    if (generation !== authGeneration) return null;
     const newToken = data.data?.accessToken ?? data.accessToken;
     if (newToken) {
       currentToken = newToken;
@@ -243,7 +255,7 @@ async function refreshAccessToken(): Promise<string | null> {
       }
       if (onTokenRefresh) {
         try {
-          onTokenRefresh(newToken, data.data?.refreshToken);
+          onTokenRefresh(newToken, currentRefreshToken ?? undefined);
         } catch (cbErr) {
           console.warn("[api.ts] onTokenRefresh callback threw:", cbErr);
         }
@@ -255,6 +267,8 @@ async function refreshAccessToken(): Promise<string | null> {
   } catch (err) {
     console.warn("[api.ts] refreshAccessToken: network error", err);
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -262,11 +276,8 @@ export const api = {
   /**
    * GET request with optional deduplication and AbortSignal support
    */
-  get: <T>(
-    path: string,
-    token?: string,
-    options?: ApiRequestOptions
-  ) => request<T>(path, { method: "GET", deduplicate: true, ...options }, token),
+  get: <T>(path: string, token?: string, options?: ApiRequestOptions) =>
+    request<T>(path, { method: "GET", deduplicate: true, ...options }, token),
 
   /**
    * POST request with AbortSignal support
@@ -275,8 +286,13 @@ export const api = {
     path: string,
     body: unknown,
     token?: string,
-    options?: ApiRequestOptions
-  ) => request<T>(path, { method: "POST", body: JSON.stringify(body), ...options }, token),
+    options?: ApiRequestOptions,
+  ) =>
+    request<T>(
+      path,
+      { method: "POST", body: JSON.stringify(body), ...options },
+      token,
+    ),
 
   /**
    * PATCH request with AbortSignal support
@@ -285,17 +301,19 @@ export const api = {
     path: string,
     body: unknown,
     token?: string,
-    options?: ApiRequestOptions
-  ) => request<T>(path, { method: "PATCH", body: JSON.stringify(body), ...options }, token),
+    options?: ApiRequestOptions,
+  ) =>
+    request<T>(
+      path,
+      { method: "PATCH", body: JSON.stringify(body), ...options },
+      token,
+    ),
 
   /**
    * DELETE request with AbortSignal support
    */
-  delete: <T>(
-    path: string,
-    token?: string,
-    options?: ApiRequestOptions
-  ) => request<T>(path, { method: "DELETE", ...options }, token),
+  delete: <T>(path: string, token?: string, options?: ApiRequestOptions) =>
+    request<T>(path, { method: "DELETE", ...options }, token),
 
   /**
    * Upload file with FormData
@@ -303,9 +321,12 @@ export const api = {
   upload: (
     path: string,
     formData: FormData,
-    token?: string
-  ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
-    _uploadFile(path, formData, token),
+    token?: string,
+  ): Promise<{
+    success: boolean;
+    data: MediaUploadResponse;
+    message?: string;
+  }> => _uploadFile(path, formData, token),
 
   /**
    * Upload file from URI
@@ -316,18 +337,27 @@ export const api = {
     mimeType: string,
     fieldName: string = "file",
     filename?: string,
-    token?: string
-  ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> =>
-    _uploadFile(path, _buildFormData(uri, mimeType, fieldName, filename), token),
+    token?: string,
+  ): Promise<{
+    success: boolean;
+    data: MediaUploadResponse;
+    message?: string;
+  }> =>
+    _uploadFile(
+      path,
+      _buildFormData(uri, mimeType, fieldName, filename),
+      token,
+    ),
 };
 
 async function _uploadFile(
   path: string,
   formData: FormData,
-  token?: string
+  token?: string,
 ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
+  const generation = authGeneration;
   const url = `${BASE_URL}${path}`;
-  let authToken = token ?? currentToken;
+  const authToken = token ?? currentToken;
 
   if (!authToken) {
     throw new Error("No authentication token available");
@@ -349,9 +379,9 @@ async function _uploadFile(
     return await _sendXHR(url, form, authToken);
   } catch (err) {
     const msg = (err as Error).message;
-    if (msg.includes("401")) {
+    if (msg.includes("401") && generation === authGeneration) {
       const newToken = await _getRefreshedToken();
-      if (newToken) {
+      if (newToken && generation === authGeneration) {
         return _sendXHR(url, form, newToken);
       }
     }
@@ -359,27 +389,26 @@ async function _uploadFile(
   }
 }
 
-async function _getRefreshedToken(): Promise<string | null> {
-  if (isRefreshing) {
-    return new Promise<string | null>((resolve) => {
-      pendingRefreshCallbacks.push(resolve);
-    });
-  }
-
-  isRefreshing = true;
-  const newToken = await refreshAccessToken();
-  isRefreshing = false;
-  
-  pendingRefreshCallbacks.forEach((cb) => cb(newToken));
-  pendingRefreshCallbacks = [];
-  
-  return newToken;
+function _getRefreshedToken(): Promise<string | null> {
+  if (refreshInFlight?.generation === authGeneration)
+    return refreshInFlight.work;
+  const flight = {
+    generation: authGeneration,
+    work: refreshAccessToken(authGeneration),
+  };
+  refreshInFlight = flight;
+  void flight.work
+    .finally(() => {
+      if (refreshInFlight === flight) refreshInFlight = null;
+    })
+    .catch(() => {});
+  return flight.work;
 }
 
 function _sendXHR(
   url: string,
   formData: FormData,
-  authToken: string
+  authToken: string,
 ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -422,9 +451,9 @@ function _buildFormData(
   uri: string,
   mimeType: string,
   fieldName: string,
-  filename?: string
+  filename?: string,
 ): FormData {
-  const name = filename ?? (uri.split("/").pop() ?? "upload");
+  const name = filename ?? uri.split("/").pop() ?? "upload";
   const form = new FormData();
   form.append(fieldName, {
     uri,
@@ -445,7 +474,12 @@ function _extractFileFromFormData(formData: FormData): FilePart | null {
   const entries = (formData as any)._parts ?? (formData as any)._entries ?? [];
   for (const entry of entries) {
     const value = entry[1];
-    if (typeof value === "object" && value !== null && "uri" in value && "name" in value) {
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "uri" in value &&
+      "name" in value
+    ) {
       return {
         uri: (value as any).uri,
         fieldName: entry[0],
@@ -456,7 +490,12 @@ function _extractFileFromFormData(formData: FormData): FilePart | null {
   }
   if (typeof (formData as any).entries === "function") {
     for (const [name, value] of (formData as any).entries()) {
-      if (typeof value === "object" && value !== null && "uri" in value && "name" in value) {
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "uri" in value &&
+        "name" in value
+      ) {
         return {
           uri: (value as any).uri,
           fieldName: name,

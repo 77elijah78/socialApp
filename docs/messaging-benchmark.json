@@ -1,0 +1,44 @@
+{
+  "environment": {
+    "node": "v22.22.3",
+    "platform": "linux",
+    "baseline": "c0b7d994b274a9aa7bf06274edae3ddd9c402a1b",
+    "nativeViewsMocked": true,
+    "note": "React test renderer in Node; not native frame/FPS measurements. Baseline typing count is not comparable to native CellRenderer memoization."
+  },
+  "receiptRendering": {
+    "before": {
+      "rows": 30,
+      "receiptUpdates": 50,
+      "messageRowRenders": 1500,
+      "reactCommitMilliseconds": 133.81,
+      "wallMilliseconds": 179.46,
+      "typingRowRenders": 300
+    },
+    "after": {
+      "rows": 30,
+      "receiptUpdates": 50,
+      "messageRowRenders": 50,
+      "reactCommitMilliseconds": 22.63,
+      "wallMilliseconds": 36.35,
+      "typingRowRenders": 0
+    },
+    "rowRenderReductionPercent": 96.67
+  },
+  "longConversationModel": {
+    "before": {
+      "rows": 5000,
+      "iterations": 50,
+      "medianMilliseconds": 2.269,
+      "p95Milliseconds": 4.176,
+      "changedRowModelsPerReceipt": 5001
+    },
+    "after": {
+      "rows": 5000,
+      "iterations": 50,
+      "medianMilliseconds": 0.036,
+      "p95Milliseconds": 0.151,
+      "changedRowModelsPerReceipt": 1
+    }
+  }
+}

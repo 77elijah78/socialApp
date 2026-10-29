@@ -1,842 +1,402 @@
-import { io, Socket } from "socket.io-client";
+import { io, type Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
-import { roomStore } from "@/db/RoomStore";
+import { roomStore } from "../db/RoomStore";
+import { receiptQueue } from "../db/receiptQueue";
+import {
+  normalizeRemoteMessage,
+  type RemoteMessage,
+} from "../utils/messaging/serialization";
+import { api } from "./api";
 
 type Listener = (data?: any) => void;
-
-function uid(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 export class SocketReceiver {
   public socket: Socket | null = null;
-
-  private listeners: Map<string, Set<Listener>> = new Map();
-
-  private readonly baseUrl: string;
-
+  private listeners = new Map<string, Set<Listener>>();
   private currentUserId = "";
-
-  private deliveredAckSet = new Set<string>();
-
-  private reconnectSyncInFlight = false;
-
   private authToken = "";
+  private generation = 0;
+  private pendingSync: Promise<void> | null = null;
+  private flushing: Promise<void> | null = null;
+  private flushAgain = false;
+  private previousUserId = "";
+  private roomReferences = new Map<string, number>();
 
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-  }
+  constructor(private readonly baseUrl: string) {}
 
-  // =========================================================
-  // CONNECT
-  // =========================================================
-
-  connect(userId: string, authToken: string): void {
+  connect(userId: string, token: string): void {
+    this.disconnect();
+    if (this.previousUserId && this.previousUserId !== userId)
+      this.roomReferences.clear();
+    this.previousUserId = userId;
     this.currentUserId = userId;
-    this.authToken = authToken;
-
-    if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.disconnect();
-      this.socket = null;
-    }
-
-    this.deliveredAckSet.clear();
-    this.reconnectSyncInFlight = false;
-
-    this.socket = io(this.baseUrl, {
-      auth: {
-        token: authToken,
-      },
-
+    this.authToken = token;
+    const generation = this.generation;
+    const socket = io(this.baseUrl, {
+      auth: { token },
       transports: ["websocket"],
-
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
     });
-
-    this.bindCoreEvents(userId);
-  }
-
-  // =========================================================
-  // DISCONNECT
-  // =========================================================
-
-  disconnect(): void {
-    this.socket?.removeAllListeners();
-    this.socket?.disconnect();
-
-    this.socket = null;
-
-    /**
-     * Don't clear application listeners here.
-     *
-     * useChat owns those listeners and will unsubscribe
-     * when its screen is destroyed.
-     */
-    this.currentUserId = "";
-
-    this.deliveredAckSet.clear();
-    this.reconnectSyncInFlight = false;
-  }
-
-  // =========================================================
-  // ROOM
-  // =========================================================
-
-  joinRoom(conversationId: string): void {
-    if (!this.socket) {
-      return;
-    }
-
-    if (!this.socket.connected) {
-      return;
-    }
-
-    this.socket.emit("conversation:join", conversationId);
-  }
-
-  leaveRoom(conversationId: string): void {
-    if (!this.socket) {
-      return;
-    }
-
-    this.socket.emit("conversation:leave", conversationId);
-  }
-
-  // =========================================================
-  // CONVERSATION DELETE
-  // =========================================================
-
-  emitConversationDelete(conversationId: string): void {
-    this.socket?.emit("conversation:delete", {
-      conversationId,
-    });
-  }
-
-  // =========================================================
-  // CONNECTION STATE
-  // =========================================================
-
-  get isConnected(): boolean {
-    return this.socket?.connected ?? false;
-  }
-
-  // =========================================================
-  // CORE SOCKET EVENTS
-  // =========================================================
-
-  private bindCoreEvents(currentUserId: string): void {
-    const s = this.socket;
-
-    if (!s) {
-      return;
-    }
-
-    this.currentUserId = currentUserId;
-
-    // -------------------------------------------------------
-    // CONNECT
-    // -------------------------------------------------------
-
-    s.on("connect", () => {
-      const socketAny = this.socket as any;
-      const isReconnect = socketAny?.reconnectAttempts ?? 0 > 0;
-
-      console.log("[SocketReceiver] connected:", {
-        userId: this.currentUserId,
-        socketId: s.id,
-        reconnect: isReconnect,
-        reconnectAttempt: socketAny?.reconnectAttempts ?? 0,
+    this.socket = socket;
+    const current = () =>
+      this.generation === generation && this.socket === socket;
+    const safe = (work: () => Promise<unknown>) => {
+      void work().catch((error) => {
+        if (current()) this.emit("sync:error", error);
+        if (__DEV__)
+          console.warn("[SocketReceiver] persistence/sync failed", error);
       });
-
+    };
+    socket.on("connect", () => {
+      if (!current()) return;
+      socket.emit("presence:join-personal");
+      for (const room of this.roomReferences.keys())
+        socket.emit("conversation:join", room);
       this.emit("connect");
-
-      /**
-       * Rejoin personal room.
-       */
-      s.emit("presence:join-personal");
-
-      console.log("[SocketReceiver] user room joined:", `user:${this.currentUserId}`);
-
-      /**
-       * Sync pending delivery messages on every connect so that
-       * messages sent while the user was offline are acknowledged
-       * as delivered when the user comes online.
-       */
-      this.syncPendingDelivery().catch((error) => {
-        console.error("[SocketReceiver] syncPendingDelivery error:", error);
-      });
+      safe(() => this.syncPendingDelivery());
+      safe(() => this.flushReceipts());
+    });
+    socket.on("disconnect", (reason) => {
+      if (current()) this.emit("disconnect", reason);
+    });
+    socket.on("connect_error", (error) => {
+      if (current()) this.emit("error", error.message);
     });
 
-    // -------------------------------------------------------
-    // DISCONNECT
-    // -------------------------------------------------------
-
-    s.on("disconnect", (reason: string) => {
-      console.log("[SocketReceiver] disconnected:", reason);
-
-      this.emit("disconnect", reason);
-    });
-
-    // -------------------------------------------------------
-    // CONNECT ERROR
-    // -------------------------------------------------------
-
-    s.on("connect_error", (err: Error) => {
-      console.warn("[SocketReceiver] connect error:", err.message);
-
-      this.emit("error", err.message);
-    });
-
-    // =======================================================
-    // NEW MESSAGE
-    // =======================================================
-
-    s.on("message:new", async (payload: any) => {
-      try {
-        console.log("[SocketReceiver] message:new", payload?.id);
-
-        const message = await this.normalize(payload, currentUserId);
-
-        /**
-         * IMPORTANT:
-         *
-         * Always let MessageStore decide whether this
-         * message already exists.
-         *
-         * Do NOT use processedMessageIds here.
-         *
-         * message:notification and message:new may
-         * represent the same server message.
-         */
-
-        if (message.senderId !== currentUserId) {
-          await messageStore.saveReceived(message);
-
-          const messageId = String(message.id ?? message.localId ?? "");
-
-          if (messageId && !this.deliveredAckSet.has(messageId)) {
-            this.deliveredAckSet.add(messageId);
-
-            this.socket?.emit("message:delivered", {
-              conversationId: message.conversationId,
-              messageId,
-            });
-
-            await messageStore.markDelivered(messageId, message.conversationId);
-          }
-        }
-
-        /**
-         * Immediately notify useChat.
-         */
-        this.emit("message:new", message);
-      } catch (error) {
-        console.error("[SocketReceiver] message:new error:", error);
+    const receive = async (payload: RemoteMessage, notification: boolean) => {
+      if (!current()) return;
+      const roomVersion = messageStore.getRoomVersion(payload.conversationId);
+      const stillCurrent = () =>
+        current() &&
+        roomVersion === messageStore.getRoomVersion(payload.conversationId);
+      const incoming = normalizeRemoteMessage(payload, userId);
+      const row = await messageStore.saveReceived(
+        incoming,
+        stillCurrent,
+        userId,
+      );
+      if (!row || !stillCurrent()) return;
+      if (row.senderId !== userId) {
+        await receiptQueue.enqueue("DELIVERED", row.conversationId, [row.id!]);
+        safe(() => this.flushReceipts());
       }
-    });
-
-    // =======================================================
-    // MESSAGE NOTIFICATION
-    // =======================================================
-
-    s.on("message:notification", async (payload: any) => {
-      try {
-        console.log("[SocketReceiver] message:notification", payload?.id);
-
-        /**
-         * Update room information.
-         */
-        const existing = await roomStore.findRoom(payload.conversationId);
-
-        if (!existing || existing.length === 0) {
-          const room = {
-            id: uid(),
-
-            name:
-              payload.sender?.username ?? payload.senderUsername ?? "Unknown",
-
-            conversationId: payload.conversationId,
-
-            avatarUrl: payload.sender?.avatarUrl ?? payload.avatarUrl ?? "",
-
-            lastMessage: payload.content ?? payload.text ?? "",
-
-            lastMessageType: payload.type ?? "TEXT",
-
-            lastMessageTimestamp: payload.createdAt
-              ? new Date(payload.createdAt).getTime()
-              : Date.now(),
-
-            unreadCount: 1,
-
-            receiverId: payload.senderId,
-
-            lastMessageStatus: "SENT",
-
+      if (notification) {
+        const existing = (await roomStore.findRoom(row.conversationId))[0];
+        if (!stillCurrent()) return;
+        const unreadCount =
+          existing?.unreadCount ??
+          (await messageStore.getUnreadCount(row.conversationId, userId));
+        if (!stillCurrent()) return;
+        if (!existing) {
+          await roomStore.upsertRoom({
+            id: row.conversationId,
+            conversationId: row.conversationId,
+            name: payload.sender?.username ?? "Unknown",
+            avatarUrl: payload.sender?.avatarUrl ?? "",
+            receiverId: row.senderId === userId ? row.receiverId : row.senderId,
+            lastMessage: row.content ?? "",
+            lastMessageType: row.type,
+            lastMessageTimestamp: row.timestamp,
+            lastMessageStatus: row.status,
+            unreadCount,
             cachedAt: Date.now(),
-
             updatedAt: Date.now(),
-
-            muted: false,
-
-            pinned: false,
-
-            archived: false,
-
-            cursorOldestTs: null,
-
-            cursorOldestId: null,
-          };
-
-          await roomStore.addRoom(room);
-        }
-
-        /**
-         * Normalize and save.
-         */
-        const message = await this.normalize(payload, currentUserId);
-
-        /**
-         * saveReceived must be idempotent.
-         */
-        if (message.senderId !== currentUserId) {
-          await messageStore.saveReceived(message);
-        }
-
-        /**
-         * Notify notification listeners.
-         */
-        this.emit("message:notification", message);
-
-        /**
-         * IMPORTANT FIX:
-         *
-         * Also notify chat listeners.
-         *
-         * Previously message:notification added the
-         * message ID to processedMessageIds, causing
-         * message:new to be ignored.
-         *
-         * Now the chat gets the message immediately.
-         */
-        this.emit("message:new", message);
-      } catch (error) {
-        console.error("[SocketReceiver] notification error:", error);
-      }
-    });
-
-    // =======================================================
-    // DELIVERED
-    // =======================================================
-
-    s.on(
-      "message:delivered",
-      async ({
-        messageId,
-        conversationId,
-      }: {
-        messageId: string;
-        conversationId: string;
-      }) => {
-        try {
-          console.log("[SocketReceiver] backend ACK received / sender delivery receipt emitted:", {
-            messageId,
-            conversationId,
-            userId: this.currentUserId,
-          });
-
-          /**
-           * Update the exact message.
-           */
-          await messageStore.markDelivered(messageId, conversationId);
-
-          /**
-           * Immediately update useChat.
-           */
-          this.emit("message:delivered", {
-            messageId,
-            conversationId,
-          });
-        } catch (error) {
-          console.error("[SocketReceiver] delivered error:", error);
-        }
-      },
-    );
-
-    // =======================================================
-    // READ
-    // =======================================================
-
-    s.on(
-      "message:read",
-      async ({
-        conversationId,
-        userId,
-        messageId,
-      }: {
-        conversationId: string;
-        userId: string;
-        messageId?: string;
-      }) => {
-        try {
-          console.log("[SocketReceiver] message:read", {
-            conversationId,
-            userId,
-            messageId,
-          });
-
-          /**
-           * IMPORTANT:
-           *
-           * userId is the person who READ the message.
-           *
-           * If userId !== currentUserId, then another
-           * person read OUR message.
-           *
-           * Therefore mark OUR SENT message as READ.
-           */
-          if (userId !== currentUserId) {
-            if (messageId) {
-              /**
-               * Prefer exact message when backend
-               * provides messageId.
-               */
-              await messageStore.markRead(messageId, conversationId);
-            }
-          }
-
-          /**
-           * Notify useChat immediately.
-           */
-          this.emit("message:read", {
-            messageId,
-            conversationId,
-            userId,
-          });
-        } catch (error) {
-          console.error("[SocketReceiver] read error:", error);
-        }
-      },
-    );
-
-    // =======================================================
-    // REMOTE DELETE
-    // =======================================================
-
-    s.on(
-      "message:deleted",
-      async ({
-        messageId,
-        conversationId,
-      }: {
-        messageId: string;
-        conversationId: string;
-      }) => {
-        try {
-          await messageStore.deleteOne(messageId);
-
-          this.emit("message:deleted", {
-            messageId,
-            conversationId,
-          });
-        } catch (error) {
-          console.error("[SocketReceiver] delete error:", error);
-        }
-      },
-    );
-
-    // =======================================================
-    // DELETE FOR ME
-    // =======================================================
-
-    s.on(
-      "message:deleted-for-me",
-      async ({
-        messageId,
-        conversationId,
-      }: {
-        messageId: string;
-        conversationId: string;
-      }) => {
-        try {
-          await messageStore.deleteOne(messageId);
-
-          this.emit("message:deleted-for-me", {
-            messageId,
-            conversationId,
-          });
-        } catch (error) {
-          console.error("[SocketReceiver] delete-for-me error:", error);
-        }
-      },
-    );
-
-    // =======================================================
-    // EDIT
-    // =======================================================
-
-    s.on(
-      "message:edited",
-      async ({
-        messageId,
-        conversationId,
-        content,
-      }: {
-        messageId: string;
-        conversationId: string;
-        content: string;
-      }) => {
-        try {
-          await messageStore.editText(messageId, content);
-
-          this.emit("message:edited", {
-            messageId,
-            conversationId,
-            content,
-          });
-        } catch (error) {
-          console.error("[SocketReceiver] edit error:", error);
-        }
-      },
-    );
-
-    // =======================================================
-    // TYPING
-    // =======================================================
-
-    s.on(
-      "message:typing",
-      ({
-        userId,
-        conversationId,
-        isTyping,
-      }: {
-        userId: string;
-        conversationId: string;
-        isTyping: boolean;
-      }) => {
-        if (userId === currentUserId) {
-          return;
-        }
-
-        if (isTyping) {
-          this.emit("typing:start", {
-            userId,
-            conversationId,
           });
         } else {
-          this.emit("typing:stop", {
-            userId,
-            conversationId,
+          await roomStore.updateRoom(row.conversationId, {
+            unreadCount,
+            ...(row.timestamp >= existing.lastMessageTimestamp
+              ? {
+                  lastMessage: row.content ?? "",
+                  lastMessageType: row.type,
+                  lastMessageTimestamp: row.timestamp,
+                  lastMessageStatus: row.status,
+                }
+              : {}),
           });
         }
-      },
-    );
-
-    // =======================================================
-    // PRESENCE
-    // =======================================================
-
-    s.on(
-      "presence:online",
-      ({ userId, username }: { userId: string; username: string }) => {
-        this.emit("presence:online", {
-          userId,
-          username,
-        });
-      },
-    );
-
-    s.on(
-      "presence:offline",
-      ({ userId, lastSeen }: { userId: string; lastSeen: string }) => {
-        this.emit("presence:offline", {
-          userId,
-          lastSeen,
-        });
-      },
-    );
-
-    // =======================================================
-    // CONVERSATION DELETED
-    // =======================================================
-
-    s.on(
-      "conversation:deleted",
-      ({ conversationId }: { conversationId: string }) => {
-        this.emit("conversation:deleted", {
-          conversationId,
-        });
-      },
-    );
-
-    s.on("notification:new", (payload: any) => {
-      this.emit("notification:new", payload);
-    });
-
-    /**
-     * Join personal notification room.
-     */
-    s.emit("presence:join-personal");
-  }
-
-  // =========================================================
-  // NORMALIZE
-  // =========================================================
-
-  private async normalize(payload: any, currentUserId: string): Promise<any> {
-    const senderId = payload.senderId ?? payload.sender?.id;
-
-    const content = payload.content ?? payload.text ?? null;
-
-    const type = payload.type ?? "TEXT";
-
-    const mediaUrl = payload.mediaUrl ?? null;
-
-    const thumbnailUrl = payload.thumbnailUrl ?? null;
-
-    const createdAt = payload.createdAt ?? payload.timestamp ?? Date.now();
-
-    const timestamp =
-      typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
-
-    const serverId = payload.id;
-
-    /**
-     * Find existing local message.
-     */
-    let localId = serverId ?? `${senderId}-${timestamp}`;
-
-    if (serverId) {
-      const existing = await messageStore.getById(serverId);
-
-      if (existing) {
-        localId = existing.localId;
+        if (stillCurrent()) this.emit("message:notification", row);
       }
-    }
-
-    return {
-      localId,
-
-      id: serverId ?? localId,
-
-      content,
-
-      mediaUrl,
-
-      thumbnailUrl,
-
-      type,
-
-      status: senderId === currentUserId ? "SENT" : "DELIVERED",
-
-      senderId,
-
-      receiverId:
-        senderId === currentUserId
-          ? (payload.receiverId ?? null)
-          : currentUserId,
-
-      conversationId: payload.conversationId,
-
-      isRead: senderId !== currentUserId ? false : true,
-
-      timestamp,
-
-      editedAt: payload.editedAt ?? null,
-
-      deletedAt: payload.deletedAt ?? null,
-
-      deletedBy: payload.deletedBy ?? null,
-
-      duration: payload.duration ?? null,
-
-      repliedToId: payload.repliedToId ?? null,
-
-      forwardedFromId: payload.forwardedFromId ?? null,
+      if (stillCurrent()) this.emit("message:new", row);
     };
-  }
-
-  // =========================================================
-  // TYPING
-  // =========================================================
-
-  emitTypingStart(conversationId: string, _senderId: string): void {
-    this.socket?.emit("message:typing", {
-      conversationId,
-      isTyping: true,
-    });
-  }
-
-  emitTypingStop(conversationId: string, _senderId: string): void {
-    this.socket?.emit("message:typing", {
-      conversationId,
-      isTyping: false,
-    });
-  }
-
-  emitMessageRead(conversationId: string, messageId: string): void {
-    this.socket?.emit("message:read", {
-      conversationId,
-      messageId,
-    });
-  }
-
-  emitMessageDelivered(conversationId: string, messageId: string): void {
-    this.socket?.emit("message:delivered", {
-      conversationId,
-      messageId,
-    });
-  }
-
-  async syncPendingDelivery(): Promise<void> {
-    if (this.reconnectSyncInFlight) {
-      return;
-    }
-
-    if (!this.socket?.connected || !this.currentUserId) {
-      return;
-    }
-
-    this.reconnectSyncInFlight = true;
-
-    try {
-      const apiBase = `${this.baseUrl.replace(/\/$/, "")}/api/v1`;
-      const url = `${apiBase}/messages/pending/delivery?limit=200`;
-
-      console.log("[SocketReceiver] pending sync started:", {
-        userId: this.currentUserId,
-        socketId: this.socket.id,
-        url,
-      });
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${this.authToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn("[SocketReceiver] syncPendingDelivery failed:", {
-          status: response.status,
-          userId: this.currentUserId,
-          socketId: this.socket.id,
-        });
-        return;
-      }
-
-      const data = await response.json();
-      const messages = Array.isArray(data?.data) ? data.data : [];
-
-      console.log("[SocketReceiver] pending message count:", {
-        userId: this.currentUserId,
-        socketId: this.socket.id,
-        count: messages.length,
-      });
-
-      for (const msg of messages) {
-        try {
-          const message = await this.normalize(msg, this.currentUserId);
-
-          const messageId = String(message.id ?? message.localId ?? "");
-
-          console.log("[SocketReceiver] pending message:", {
-            userId: this.currentUserId,
-            socketId: this.socket.id,
-            messageId,
-            conversationId: message.conversationId,
-          });
-
-          if (message.senderId !== this.currentUserId) {
-            await messageStore.saveReceived(message);
-
-            console.log("[SocketReceiver] SQLite save completed:", {
-              userId: this.currentUserId,
-              socketId: this.socket.id,
-              messageId,
-            });
-
-            if (messageId && !this.deliveredAckSet.has(messageId)) {
-              this.deliveredAckSet.add(messageId);
-
-              this.socket.emit("message:delivered", {
-                conversationId: message.conversationId,
-                messageId,
-              });
-
-              await messageStore.markDelivered(messageId, message.conversationId);
-
-              console.log("[SocketReceiver] delivery ACK emitted (reconnect sync):", {
-                userId: this.currentUserId,
-                socketId: this.socket.id,
-                messageId,
-                conversationId: message.conversationId,
-              });
-            }
+    socket.on("message:new", (payload) => safe(() => receive(payload, false)));
+    socket.on("message:notification", (payload) =>
+      safe(() => receive(payload, true)),
+    );
+    socket.on("message:delivered", (payload) =>
+      safe(async () => {
+        if (!current()) return;
+        await messageStore.waitForOutgoing(userId);
+        if (!current()) return;
+        await messageStore.markDelivered(
+          payload.messageId,
+          payload.conversationId,
+        );
+        if (current()) this.emit("message:delivered", payload);
+      }),
+    );
+    socket.on("message:read", (payload) =>
+      safe(async () => {
+        if (!current()) return;
+        await messageStore.waitForOutgoing(userId);
+        if (!current()) return;
+        if (payload.userId === userId) {
+          if (payload.messageId) {
+            await messageStore.markRead(
+              payload.messageId,
+              payload.conversationId,
+              userId,
+            );
+            await receiptQueue.acknowledge("READ", payload.messageId);
+          } else {
+            await receiptQueue.acknowledgeRoom(payload.conversationId);
           }
-        } catch (error) {
-          console.error("[SocketReceiver] pending delivery save error:", error);
+        } else if (payload.messageId) {
+          await messageStore.markRead(
+            payload.messageId,
+            payload.conversationId,
+          );
+        } else {
+          await messageStore.markSentMessagesAsRead(
+            payload.conversationId,
+            userId,
+          );
         }
-      }
-    } finally {
-      this.reconnectSyncInFlight = false;
+        if (current()) this.emit("message:read", payload);
+      }),
+    );
+    for (const event of [
+      "message:deleted",
+      "message:deleted-for-me",
+    ] as const) {
+      socket.on(event, (payload) =>
+        safe(async () => {
+          if (!current()) return;
+          await messageStore.waitForOutgoing(userId);
+          if (!current()) return;
+          await messageStore.deleteOne(payload.messageId, userId);
+          if (current()) this.emit(event, payload);
+        }),
+      );
+    }
+    socket.on("message:edited", (payload) =>
+      safe(async () => {
+        if (!current()) return;
+        await messageStore.waitForOutgoing(userId);
+        if (!current()) return;
+        await messageStore.editText(payload.messageId, payload.content);
+        if (current()) this.emit("message:edited", payload);
+      }),
+    );
+    socket.on("conversation:deleted", (payload) =>
+      safe(async () => {
+        if (!current()) return;
+        await messageStore.deleteRoom(payload.conversationId);
+        const rooms = await roomStore.findRoom(payload.conversationId);
+        if (!current()) return;
+        for (const room of rooms) await roomStore.deleteOne(room.id);
+        if (current()) this.emit("conversation:deleted", payload);
+      }),
+    );
+    socket.on("message:typing", (payload) => {
+      if (current() && payload.userId !== userId)
+        this.emit(payload.isTyping ? "typing:start" : "typing:stop", payload);
+    });
+    for (const event of [
+      "presence:online",
+      "presence:offline",
+      "notification:new",
+    ]) {
+      socket.on(event, (payload) => {
+        if (current()) this.emit(event, payload);
+      });
     }
   }
 
-  // =========================================================
-  // APPLICATION LISTENERS
-  // =========================================================
-
-  on(event: string, cb: Listener): () => void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
-    }
-
-    const listeners = this.listeners.get(event)!;
-
-    listeners.add(cb);
-
-    return () => {
-      listeners.delete(cb);
-
-      if (listeners.size === 0) {
-        this.listeners.delete(event);
-      }
-    };
+  disconnect(): void {
+    this.generation += 1;
+    this.socket?.removeAllListeners();
+    this.socket?.disconnect();
+    this.socket = null;
+    this.currentUserId = "";
+    this.authToken = "";
+    this.pendingSync = null;
+    this.flushing = null;
+    // Screen listeners/reference counts survive token refresh; screens own them.
   }
-
-  private emit(event: string, data?: any): void {
-    const listeners = this.listeners.get(event);
-
-    if (!listeners) {
+  retainRoom(conversationId: string): () => void {
+    this.roomReferences.set(
+      conversationId,
+      (this.roomReferences.get(conversationId) ?? 0) + 1,
+    );
+    this.joinRoom(conversationId);
+    return () => this.leaveRoom(conversationId);
+  }
+  joinRoom(conversationId: string): void {
+    if (this.socket?.connected)
+      this.socket.emit("conversation:join", conversationId);
+  }
+  leaveRoom(conversationId: string): void {
+    const count = this.roomReferences.get(conversationId) ?? 0;
+    if (count > 1) {
+      this.roomReferences.set(conversationId, count - 1);
       return;
     }
+    this.roomReferences.delete(conversationId);
+    if (this.socket?.connected)
+      this.socket.emit("conversation:leave", conversationId);
+  }
+  get isConnected() {
+    return this.socket?.connected ?? false;
+  }
+  emitConversationDelete(conversationId: string) {
+    this.socket?.emit("conversation:delete", { conversationId });
+  }
+  emitTypingStart(conversationId: string, _senderId: string) {
+    if (this.isConnected)
+      this.socket?.emit("message:typing", { conversationId, isTyping: true });
+  }
+  emitTypingStop(conversationId: string, _senderId: string) {
+    if (this.isConnected)
+      this.socket?.emit("message:typing", { conversationId, isTyping: false });
+  }
+  emitMessageRead(_conversationId: string, _messageId: string) {
+    // markVisibleReadIds already queued the receipt atomically with SQLite READ.
+    void this.flushReceipts().catch((error) => this.emit("sync:error", error));
+  }
+  emitMessageDelivered(conversationId: string, messageId: string) {
+    void receiptQueue
+      .enqueue("DELIVERED", conversationId, [messageId])
+      .then(() => this.flushReceipts())
+      .catch((error) => this.emit("sync:error", error));
+  }
 
-    /**
-     * Copy the set before iterating.
-     *
-     * This prevents unsubscribe operations during
-     * callbacks from affecting the current iteration.
-     */
-    [...listeners].forEach((cb) => {
-      try {
-        cb(data);
-      } catch (error) {
-        console.error(`[SocketReceiver] listener "${event}" error:`, error);
+  flushReceipts(): Promise<void> {
+    if (this.flushing) {
+      this.flushAgain = true;
+      return this.flushing;
+    }
+    const socket = this.socket;
+    const generation = this.generation;
+    const current = () =>
+      generation === this.generation &&
+      socket === this.socket &&
+      Boolean(socket?.connected);
+    if (!current()) return Promise.resolve();
+    const work = (async () => {
+      do {
+        this.flushAgain = false;
+        let after = "";
+        while (current()) {
+          const batch = await receiptQueue.getBatch("READ", after);
+          if (!batch.length || !current()) break;
+          for (const receipt of batch)
+            socket!.emit("message:read", {
+              conversationId: receipt.conversationId,
+              messageId: receipt.messageId,
+            });
+          after = batch[batch.length - 1].key;
+          // READ is removed only on the server's read echo, not merely emit().
+        }
+        while (current()) {
+          const batch = await receiptQueue.getBatch("DELIVERED");
+          if (!batch.length || !current()) break;
+          await api.post(
+            "/messages/delivered",
+            { messageIds: batch.map((receipt) => receipt.messageId) },
+            this.authToken,
+          );
+          if (!current()) break;
+          for (const receipt of batch) {
+            await receiptQueue.acknowledge("DELIVERED", receipt.messageId);
+            await messageStore.markDelivered(
+              receipt.messageId,
+              receipt.conversationId,
+            );
+          }
+        }
+      } while (this.flushAgain && current());
+    })();
+    this.flushing = work;
+    void work
+      .finally(() => {
+        if (this.flushing === work) this.flushing = null;
+      })
+      .catch(() => {});
+    return work;
+  }
+
+  syncPendingDelivery(): Promise<void> {
+    if (this.pendingSync) return this.pendingSync;
+    const generation = this.generation;
+    const userId = this.currentUserId;
+    const current = () => generation === this.generation && this.isConnected;
+    const work = (async () => {
+      // The existing endpoint has no documented cursor. Drain acknowledged batches
+      // rather than inventing pagination params. Stop if the server doesn't advance.
+      let previous = "";
+      while (current()) {
+        const response = await api.get<{ data: RemoteMessage[] }>(
+          "/messages/pending/delivery?limit=200",
+          this.authToken,
+          { deduplicate: false },
+        );
+        if (!current()) return;
+        const batch = response.data;
+        if (!Array.isArray(batch) || !batch.length) return;
+        const signature = batch.map((row) => row.id).join(":");
+        if (signature === previous)
+          throw new Error(
+            "Pending delivery endpoint did not advance after acknowledgement.",
+          );
+        previous = signature;
+        for (const remote of batch) {
+          if (!current()) return;
+          const row = await messageStore.saveReceived(
+            normalizeRemoteMessage(remote, userId),
+            current,
+            userId,
+          );
+          if (row && row.senderId !== userId)
+            await receiptQueue.enqueue("DELIVERED", row.conversationId, [
+              row.id!,
+            ]);
+        }
+        await this.flushReceipts();
+        if (batch.length < 200) return;
       }
-    });
+    })();
+    this.pendingSync = work;
+    void work
+      .finally(() => {
+        if (this.pendingSync === work) this.pendingSync = null;
+      })
+      .catch(() => {});
+    return work;
+  }
+
+  on(event: string, callback: Listener): () => void {
+    const listeners = this.listeners.get(event) ?? new Set<Listener>();
+    this.listeners.set(event, listeners);
+    listeners.add(callback);
+    return () => {
+      listeners.delete(callback);
+      if (!listeners.size) this.listeners.delete(event);
+    };
+  }
+  private emit(event: string, data?: unknown) {
+    for (const listener of [...(this.listeners.get(event) ?? [])]) {
+      try {
+        listener(data);
+      } catch (error) {
+        if (__DEV__)
+          console.warn(`[SocketReceiver] ${event} listener failed`, error);
+      }
+    }
   }
 }
-
-const SOCKET_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000";
-
-export const socketReceiver = new SocketReceiver(SOCKET_BASE_URL);
+export const socketReceiver = new SocketReceiver(
+  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000",
+);

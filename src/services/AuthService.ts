@@ -1,7 +1,9 @@
 import { LoginResponse, RegisterResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
 import { setCredentials } from "../store/slices/authSlice";
-import api, { setTokens } from "@/services/api";
+import { setTokens } from "@/services/api";
+import { prepareMessagingAccount } from "./MessagingCache";
+import { mediaService } from "./MediaService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
@@ -39,6 +41,7 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await prepareMessagingAccount(user.id);
 
     dispatch(
       setCredentials({
@@ -80,6 +83,7 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await prepareMessagingAccount(user.id);
 
     dispatch(
       setCredentials({
@@ -104,6 +108,10 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
+    setTokens(null, null);
+    mediaService.message.resetSession();
+    mediaService.disconnectSocket();
+    await prepareMessagingAccount(null);
     const token = await AsyncStorage.getItem("refreshToken");
     if (token) {
       await fetch(`${this.baseUrl}/logout`, {
@@ -117,14 +125,6 @@ export class AuthService {
     }
     setTokens(null, null);
 
-    try {
-      const { messageStore } = await import("@/db/MessageStore");
-      const { roomStore } = await import("@/db/RoomStore");
-      await messageStore.deleteAll();
-      await roomStore.deleteAll();
-    } catch (err) {
-      console.warn("[AuthService] logout cache clear error:", err);
-    }
   }
 }
 

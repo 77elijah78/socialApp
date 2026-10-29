@@ -162,7 +162,7 @@ export default function UserProfileScreen() {
       );
       const conv = resp.data;
       if (currentUserId) {
-        void mediaService.message.syncFromServer(conv.id, currentUserId).catch(() => {});
+        void mediaService.message.syncLatest(conv.id, currentUserId).catch(() => {});
       }
       try {
         const latest = await messageStore.getRecent(conv.id, 30);

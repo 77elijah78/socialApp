@@ -1,14 +1,28 @@
 import { db } from "./db";
 import { messages, MessageRow, rooms, RoomRow } from "./schema";
-import { eq, and, lt, desc, asc, ne, sql, inArray } from "drizzle-orm";
+import type { MessageCursor } from "../utils/messaging/timeline";
+import {
+  eq,
+  and,
+  lt,
+  desc,
+  asc,
+  ne,
+  sql,
+  inArray,
+  or,
+  isNull,
+} from "drizzle-orm";
 
 export class MessageGetQueries {
   async getByRoom(roomId: string): Promise<MessageRow[]> {
     return db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, roomId))
-      .orderBy(asc(messages.timestamp));
+      .where(
+        and(eq(messages.conversationId, roomId), isNull(messages.deletedAt)),
+      )
+      .orderBy(asc(messages.timestamp), asc(messages.localId));
   }
 
   async getByIds(roomId: string, ids: string[]): Promise<MessageRow[]> {
@@ -16,32 +30,30 @@ export class MessageGetQueries {
     return db
       .select()
       .from(messages)
-      .where(and(eq(messages.conversationId, roomId), inArray(messages.id, ids)));
+      .where(
+        and(
+          eq(messages.conversationId, roomId),
+          or(inArray(messages.id, ids), inArray(messages.localId, ids)),
+        ),
+      );
   }
 
   async getRecent(roomId: string, limit = 30): Promise<MessageRow[]> {
     const rows = await db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, roomId))
-      .orderBy(desc(messages.timestamp))
+      .where(
+        and(eq(messages.conversationId, roomId), isNull(messages.deletedAt)),
+      )
+      .orderBy(desc(messages.timestamp), desc(messages.localId))
       .limit(limit);
-    const seen = new Set<string>();
-    const unique: MessageRow[] = [];
-    for (const row of rows) {
-      const key = row.localId ?? row.id;
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(row);
-      }
-    }
-    return unique.reverse();
+    return rows.reverse();
   }
 
   async getOlderThan(
     roomId: string,
-    beforeTimestamp: number,
-    limit = 20,
+    cursor: MessageCursor,
+    limit = 30,
   ): Promise<MessageRow[]> {
     const rows = await db
       .select()
@@ -49,10 +61,17 @@ export class MessageGetQueries {
       .where(
         and(
           eq(messages.conversationId, roomId),
-          lt(messages.timestamp, beforeTimestamp),
+          isNull(messages.deletedAt),
+          or(
+            lt(messages.timestamp, cursor.timestamp),
+            and(
+              eq(messages.timestamp, cursor.timestamp),
+              lt(messages.localId, cursor.localId),
+            ),
+          ),
         ),
       )
-      .orderBy(desc(messages.timestamp))
+      .orderBy(desc(messages.timestamp), desc(messages.localId))
       .limit(limit);
     return rows.reverse();
   }
@@ -79,7 +98,7 @@ export class MessageGetQueries {
     const [row] = await db
       .select()
       .from(messages)
-      .where(eq(messages.id, id))
+      .where(or(eq(messages.id, id), eq(messages.localId, id)))
       .limit(1);
     return row ?? null;
   }
@@ -93,12 +112,15 @@ export class MessageGetQueries {
           eq(messages.conversationId, roomId),
           ne(messages.senderId, currentUserId),
           ne(messages.status, "READ"),
+          isNull(messages.deletedAt),
         ),
       );
     return result?.count ?? 0;
   }
 
-  async getAllUnreadCounts(currentUserId: string): Promise<Record<string, number>> {
+  async getAllUnreadCounts(
+    currentUserId: string,
+  ): Promise<Record<string, number>> {
     const rows = await db
       .select({
         conversationId: messages.conversationId,
@@ -109,6 +131,7 @@ export class MessageGetQueries {
         and(
           ne(messages.senderId, currentUserId),
           ne(messages.status, "READ"),
+          isNull(messages.deletedAt),
         ),
       )
       .groupBy(messages.conversationId);
@@ -120,8 +143,10 @@ export class MessageGetQueries {
     const [row] = await db
       .select({ ts: messages.timestamp })
       .from(messages)
-      .where(eq(messages.conversationId, roomId))
-      .orderBy(asc(messages.timestamp))
+      .where(
+        and(eq(messages.conversationId, roomId), isNull(messages.deletedAt)),
+      )
+      .orderBy(asc(messages.timestamp), asc(messages.localId))
       .limit(1);
     return row?.ts ?? null;
   }
@@ -130,8 +155,10 @@ export class MessageGetQueries {
     const [row] = await db
       .select({ id: messages.id })
       .from(messages)
-      .where(eq(messages.conversationId, roomId))
-      .orderBy(asc(messages.timestamp))
+      .where(
+        and(eq(messages.conversationId, roomId), isNull(messages.deletedAt)),
+      )
+      .orderBy(asc(messages.timestamp), asc(messages.localId))
       .limit(1);
     return row?.id ?? null;
   }
@@ -140,16 +167,40 @@ export class MessageGetQueries {
     return db
       .select()
       .from(messages)
-      .where(and(eq(messages.conversationId, roomId), eq(messages.status, "FAILED")))
-      .orderBy(asc(messages.timestamp));
+      .where(
+        and(eq(messages.conversationId, roomId), eq(messages.status, "FAILED")),
+      )
+      .orderBy(asc(messages.timestamp), asc(messages.localId));
+  }
+
+  async getReadReceipts(
+    roomId: string,
+    userId: string,
+    limit = 100,
+  ): Promise<MessageRow[]> {
+    return db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, roomId),
+          ne(messages.senderId, userId),
+          eq(messages.status, "READ"),
+          isNull(messages.deletedAt),
+        ),
+      )
+      .orderBy(desc(messages.timestamp), desc(messages.localId))
+      .limit(limit);
   }
 
   async getLastMessage(roomId: string): Promise<MessageRow | null> {
     const [row] = await db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, roomId))
-      .orderBy(desc(messages.timestamp))
+      .where(
+        and(eq(messages.conversationId, roomId), isNull(messages.deletedAt)),
+      )
+      .orderBy(desc(messages.timestamp), desc(messages.localId))
       .limit(1);
     return row ?? null;
   }
@@ -159,16 +210,22 @@ export class MessageGetQueries {
   ): Promise<Record<string, MessageRow>> {
     if (roomIds.length === 0) return {};
 
+    // Correlated indexed lookup: fetch one row per room, not every message.
     const rows = await db
       .select()
       .from(messages)
-      .where(sql`${messages.conversationId} IN ${roomIds}`)
-      .orderBy(desc(messages.timestamp));
-
-    const result: Record<string, MessageRow> = {};
-    for (const row of rows) {
-      if (!result[row.conversationId]) result[row.conversationId] = row;
-    }
+      .where(
+        and(
+          inArray(messages.conversationId, roomIds),
+          isNull(messages.deletedAt),
+          sql`${messages.localId} = (SELECT local_id FROM messages AS latest
+        WHERE latest.conversation_id = ${messages.conversationId} AND latest.deleted_at IS NULL
+        ORDER BY latest.timestamp DESC, latest.local_id DESC LIMIT 1)`,
+        ),
+      );
+    const result = Object.fromEntries(
+      rows.map((row) => [row.conversationId, row]),
+    );
     return result;
   }
 }

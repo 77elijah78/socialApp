@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "@/services/api";
 import { roomStore } from "@/db/RoomStore";
 import { RoomRow } from "@/db/schema";
-import { MessageRow } from "@/db/schema";
+import { messageStore } from "@/db/MessageStore";
 import { useAppSelector } from "@/store/hooks";
 import { socketReceiver } from "@/services/SocketReceiver";
 
@@ -18,6 +18,7 @@ interface BackendParticipant {
 interface BackendConversation {
   id: string;
   isGroup: boolean;
+  unreadCount?: number;
   groupName: string | null;
   groupAvatar: string | null;
   updatedAt: string;
@@ -34,13 +35,17 @@ interface BackendConversation {
   }[];
 }
 
-interface RoomWithReceiver extends Omit<RoomRow, 'receiverId' | 'lastMessageStatus'> {
+interface RoomWithReceiver
+  extends Omit<RoomRow, "receiverId" | "lastMessageStatus"> {
   receiverId?: string | null;
   receiverUsername?: string;
   lastMessageStatus?: string;
 }
 
-function toRoomRow(conversation: BackendConversation, currentUserId?: string): RoomWithReceiver {
+function toRoomRow(
+  conversation: BackendConversation,
+  currentUserId?: string,
+): RoomWithReceiver {
   const otherParticipant = conversation.participants.find(
     (p) => p.user.id !== currentUserId,
   );
@@ -65,14 +70,19 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
   const lastMessageType = lastMessage?.mediaUrl
     ? "media"
     : type === "SHARED_POST" || type === "SHARED_STORY"
-    ? type
-    : type?.toLowerCase() || "text";
+      ? type
+      : type?.toLowerCase() || "text";
   const lastMessageStatus = lastMessage?.status || "DELIVERED";
-  const lastMessageTimestamp = lastMessage ? new Date(lastMessage.createdAt).getTime() : Date.now();
-  
-  const unreadCount = conversation.messages?.filter(
-    (m) => m.senderId !== currentUserId && m.status !== "READ"
-  ).length || 0;
+  const lastMessageTimestamp = lastMessage
+    ? new Date(lastMessage.createdAt).getTime()
+    : Date.now();
+
+  const unreadCount =
+    conversation.unreadCount ??
+    conversation.messages?.filter(
+      (m) => m.senderId !== currentUserId && m.status !== "READ",
+    ).length ??
+    0;
 
   return {
     id: conversation.id,
@@ -98,150 +108,231 @@ function toRoomRow(conversation: BackendConversation, currentUserId?: string): R
 
 export function useRooms() {
   const [rooms, setRooms] = useState<RoomWithReceiver[]>([]);
+  const [roomsUserId, setRoomsUserId] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [syncing, setSyncing] = useState(false);
-
   const token = useAppSelector((s) => s.auth.token);
-  const currentUserId = useAppSelector((s) => s.auth.user?.id);
-  const cancelledRef = useRef(false);
-
-  const loadLocalRooms = useCallback(async () => {
-    const localRooms = await roomStore.getAllRooms();
-    const mapped = localRooms.map((r) => ({ ...r } as RoomWithReceiver));
-    setRooms(mapped);
-  }, []);
-
-  const fetchConversations = useCallback(async () => {
-    if (!token || !currentUserId) {
-      setLoading(false);
-      return;
-    }
-
-    cancelledRef.current = false;
-    setLoading(true);
-    setSyncing(true);
-
-    try {
-      const response = await api.get<{ success: boolean; data: BackendConversation[] }>(
-        "/messages/conversations",
-        token ?? undefined,
-      );
-
-      if (!cancelledRef.current) {
-        const mapped = response.data.map((c) => toRoomRow(c, currentUserId));
-        setRooms(mapped);
-
-        for (const room of mapped) {
-          await roomStore.upsertRoom(room);
-        }
-      }
-    } catch (err) {
-      if (!cancelledRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)));
-      }
-    } finally {
-      if (!cancelledRef.current) {
-        setLoading(false);
-        setSyncing(false);
-      }
-    }
-  }, [token, currentUserId]);
+  const userId = useAppSelector((s) => s.auth.user?.id);
+  const sessionRef = useRef<{
+    cancelled: boolean;
+    fetch: (() => Promise<void>) | null;
+  } | null>(null);
 
   useEffect(() => {
-    void Promise.resolve().then(loadLocalRooms);
-    void Promise.resolve().then(fetchConversations);
-
-    const unsub = socketReceiver.on("message:notification", async (msg: MessageRow) => {
-      if (!cancelledRef.current) {
-        setRooms((prev) => {
-          const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
-          const lastMessageContent = msg.content ?? "";
-          const lastMessageType = msg.type === "TEXT"
-            ? "text"
-            : msg.type === "SHARED_POST" || msg.type === "SHARED_STORY"
-            ? msg.type
-            : "media";
-
-          if (existingIdx >= 0) {
-            const updated = [...prev];
-            updated[existingIdx] = {
-              ...updated[existingIdx],
-              lastMessage: lastMessageContent,
-              lastMessageType,
-              lastMessageTimestamp: msg.timestamp,
-              unreadCount: updated[existingIdx].unreadCount + 1,
-            };
-            const [moved] = updated.splice(existingIdx, 1);
-            return [moved, ...updated];
-          } else {
-            void fetchConversations();
-            return prev;
-          }
-        });
-      }
-    });
-
-    const unsubDelete = socketReceiver.on("conversation:deleted", () => {
-      if (!cancelledRef.current) {
-        void fetchConversations();
-      }
-    });
-
-    const unsubNewMessage = socketReceiver.on("message:new", async (msg: MessageRow) => {
-      if (!cancelledRef.current) {
-        setRooms((prev) => {
-          const existingIdx = prev.findIndex((r) => r.conversationId === msg.conversationId);
-          const lastMessageContent = msg.content ?? "";
-          const lastMessageType = msg.type === "TEXT"
-            ? "text"
-            : msg.type === "SHARED_POST" || msg.type === "SHARED_STORY"
-            ? msg.type
-            : "media";
-
-          if (existingIdx >= 0) {
-            const updated = [...prev];
-            updated[existingIdx] = {
-              ...updated[existingIdx],
-              lastMessage: lastMessageContent,
-              lastMessageType,
-              lastMessageTimestamp: msg.timestamp,
-              lastMessageStatus: msg.status ?? updated[existingIdx].lastMessageStatus,
-            };
-            const [moved] = updated.splice(existingIdx, 1);
-            return [moved, ...updated];
-          } else {
-            void fetchConversations();
-            return prev;
-          }
-        });
-      }
-    });
-
-    return () => {
-      cancelledRef.current = true;
-      unsub();
-      unsubDelete();
-      unsubNewMessage();
+    const session = {
+      cancelled: false,
+      fetch: null as (() => Promise<void>) | null,
     };
-  }, [fetchConversations, loadLocalRooms]);
+    sessionRef.current = session;
+    let request: Promise<void> | null = null;
+    const summaries = new Map<string, RoomWithReceiver>();
+    const revisions = new Map<string, number>();
+    const paint = () => {
+      if (session.cancelled) return;
+      setRooms(
+        [...summaries.values()].sort(
+          (a, b) =>
+            Number(b.pinned) - Number(a.pinned) ||
+            b.lastMessageTimestamp - a.lastMessageTimestamp ||
+            a.id.localeCompare(b.id),
+        ),
+      );
+    };
+    const loadLocal = async () => {
+      const local = await roomStore.getAllRooms();
+      if (session.cancelled) return;
+      setRoomsUserId(userId);
+      setError(null);
+      for (const row of local)
+        if (!summaries.has(row.conversationId))
+          summaries.set(row.conversationId, row);
+      paint();
+      setLoading(false); // Cached rooms never wait behind the server spinner.
+    };
+    const fetchRooms = () => {
+      if (request) return request;
+      if (!token || !userId || session.cancelled) return Promise.resolve();
+      setSyncing(true);
+      const started = Date.now();
+      const work = (async () => {
+        try {
+          const response = await api.get<{ data: BackendConversation[] }>(
+            "/messages/conversations",
+            token,
+          );
+          if (session.cancelled) return;
+          for (const remote of response.data) {
+            if (session.cancelled) return;
+            const persisted = (await roomStore.findRoom(remote.id))[0];
+            if (session.cancelled) return;
+            const visible = summaries.get(remote.id);
+            const previous =
+              persisted && (!visible || persisted.updatedAt > visible.updatedAt)
+                ? persisted
+                : visible;
+            const mapped = toRoomRow(remote, userId);
+            const next = {
+              ...mapped,
+              muted: previous?.muted ?? mapped.muted,
+              pinned: previous?.pinned ?? mapped.pinned,
+              archived: previous?.archived ?? mapped.archived,
+              unreadCount: mapped.unreadCount,
+              ...(previous &&
+              (previous.updatedAt >= started ||
+                previous.lastMessageTimestamp > mapped.lastMessageTimestamp)
+                ? {
+                    lastMessage: previous.lastMessage,
+                    lastMessageType: previous.lastMessageType,
+                    lastMessageTimestamp: previous.lastMessageTimestamp,
+                    lastMessageStatus: previous.lastMessageStatus,
+                    unreadCount: previous.unreadCount,
+                  }
+                : {}),
+            };
+            summaries.set(next.conversationId, next);
+            await roomStore.upsertRoom(next);
+          }
+          paint();
+          if (!session.cancelled) setError(null);
+        } catch (failure) {
+          if (!session.cancelled)
+            setError(
+              failure instanceof Error ? failure : new Error(String(failure)),
+            );
+        } finally {
+          request = null;
+          if (!session.cancelled) {
+            setSyncing(false);
+            setLoading(false);
+          }
+        }
+      })();
+      request = work;
+      return work;
+    };
+    session.fetch = fetchRooms;
+    // Serial local-first loading prevents a slow SQLite snapshot overwriting REST.
+    void loadLocal()
+      .catch((failure) => {
+        if (!session.cancelled) {
+          setRoomsUserId(userId);
+          setRooms([]);
+          setError(failure);
+          setLoading(false);
+        }
+      })
+      .then(fetchRooms);
 
+    const refreshSummary = async (
+      conversationId: string,
+      deletedLatest = false,
+    ) => {
+      const revision = (revisions.get(conversationId) ?? 0) + 1;
+      revisions.set(conversationId, revision);
+      const [last, persisted] = await Promise.all([
+        messageStore.getLastMessage(conversationId),
+        roomStore.findRoom(conversationId),
+      ]);
+      if (session.cancelled) return;
+      const previous = summaries.get(conversationId) ?? persisted[0];
+      if (session.cancelled) return;
+      if (!previous || revisions.get(conversationId) !== revision) return;
+      const next = {
+        ...previous,
+        unreadCount: persisted[0]?.unreadCount ?? previous.unreadCount,
+        updatedAt: Date.now(),
+        ...(last &&
+        (deletedLatest || last.timestamp >= previous.lastMessageTimestamp)
+          ? {
+              lastMessage: last.content ?? "",
+              lastMessageType: last.type.startsWith("SHARED_")
+                ? last.type
+                : last.type.toLowerCase(),
+              lastMessageTimestamp: last.timestamp,
+              lastMessageStatus: last.status,
+            }
+          : deletedLatest
+            ? {
+                lastMessage: "",
+                lastMessageType: "text",
+                lastMessageTimestamp: 0,
+                lastMessageStatus: "SENT",
+              }
+            : {}),
+      };
+      summaries.set(conversationId, next);
+      paint();
+      const {
+        id: _id,
+        conversationId: _room,
+        unreadCount: _count,
+        ...patch
+      } = next;
+      await roomStore.updateRoom(conversationId, patch);
+    };
+    const refreshSafely = (conversationId: string, deletedLatest = false) => {
+      void refreshSummary(conversationId, deletedLatest).catch((failure) => {
+        if (!session.cancelled) setError(failure);
+      });
+    };
+    const unsubscribe = messageStore.subscribe((change) => {
+      if (session.cancelled) return;
+      if (change.type === "clear") {
+        if (change.conversationId) summaries.delete(change.conversationId);
+        else summaries.clear();
+        paint();
+      } else
+        refreshSafely(
+          change.conversationId,
+          change.rows.some(
+            (row) =>
+              row.deletedAt &&
+              row.timestamp >=
+                (summaries.get(change.conversationId)?.lastMessageTimestamp ??
+                  0),
+          ),
+        );
+    });
+    const notification = socketReceiver.on("message:notification", (row) =>
+      refreshSafely(row.conversationId),
+    );
+    const deleted = socketReceiver.on("conversation:deleted", (row) => {
+      summaries.delete(row.conversationId);
+      paint();
+    });
+    const connected = socketReceiver.on("connect", () => {
+      void fetchRooms();
+    });
+    return () => {
+      session.cancelled = true;
+      unsubscribe();
+      notification();
+      deleted();
+      connected();
+    };
+  }, [token, userId]);
+
+  const reload = useCallback(async () => {
+    await sessionRef.current?.fetch?.();
+  }, []);
   const addRoom = useCallback(async (room: RoomRow) => {
     await roomStore.addRoom(room);
-    setRooms((prev) => [...prev, room as RoomWithReceiver]);
+    setRooms((previous) => [
+      room,
+      ...previous.filter((row) => row.conversationId !== room.conversationId),
+    ]);
   }, []);
-
   const deleteRoom = useCallback(async (roomId: string) => {
     await roomStore.deleteOne(roomId);
-    setRooms((prev) => prev.filter((r) => r.id !== roomId));
+    setRooms((previous) => previous.filter((row) => row.id !== roomId));
   }, []);
-
   return {
-    rooms,
-    loading,
-    error,
+    rooms: roomsUserId === userId ? rooms : [],
+    loading: roomsUserId !== userId || loading,
+    error: roomsUserId === userId ? error : null,
     syncing,
-    reload: fetchConversations,
+    reload,
     addRoom,
     deleteRoom,
   };
