@@ -61,6 +61,7 @@ interface UseChatReturn {
 
   markVisibleRead: (visibleMessageIds: string[]) => void;
   incomingMessageVersion: number;
+  initialSyncConversationId: string | null;
 }
 
 export function useChat({
@@ -78,6 +79,8 @@ export function useChat({
   const visibleMessages = isCurrentConversation ? messages : [];
   const visibleIsSyncing = isCurrentConversation ? isSyncing : true;
   const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
+  const [initialSyncConversationId, setInitialSyncConversationId] =
+    useState<string | null>(null);
   const [isConnected, setConnected] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
@@ -250,6 +253,7 @@ export function useChat({
      * this effect starts.
      */
     setMessagesConversationId(conversationId);
+    setInitialSyncConversationId(null);
     setHasMore(true);
     setMessages(initialCache?.messages ?? []);
     setIsSyncing(true);
@@ -655,6 +659,7 @@ export function useChat({
 
         if (!cancelled && mountedRef.current) {
           setIsSyncing(false);
+          setInitialSyncConversationId(conversationId);
         }
       }
     };
@@ -1030,5 +1035,6 @@ export function useChat({
 
     markVisibleRead,
     incomingMessageVersion,
+    initialSyncConversationId,
   };
 }

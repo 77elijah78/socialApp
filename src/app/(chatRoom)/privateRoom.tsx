@@ -111,9 +111,11 @@ export default function PrivateRoom() {
   const handledIncomingVersionRef = useRef(0);
   const nearBottomRef = useRef(true);
   const userInteractedWithListRef = useRef(false);
+  const topLoadTriggeredRef = useRef(false);
   const keyboardWasVisibleRef = useRef(false);
   const stickToLatestOnKeyboardOpenRef = useRef(false);
   const pendingScrollViewPositionRef = useRef(0.78);
+  const [composerHeight, setComposerHeight] = useState(64);
   const [keyboardHeight] = useState(() => new Animated.Value(0));
   const [dateLabels] = useState(() => {
     const today = new Date();
@@ -193,6 +195,7 @@ export default function PrivateRoom() {
     loadMore,
     hasMore,
     incomingMessageVersion,
+    initialSyncConversationId,
     replyMsg,
     markVisibleRead,
   } = useChat({
@@ -204,8 +207,6 @@ export default function PrivateRoom() {
       token: currentUserToken ?? "",
     },
   });
-  const previousSyncingRef = useRef(isSyncing);
-
   const isReceivedUnread = useCallback(
     (message: any) =>
       message.senderId !== (currentUserId ?? "") &&
@@ -437,13 +438,16 @@ export default function PrivateRoom() {
 
       // Load older pages only after the initial latest-page scroll has settled.
       // FlatList keeps the visible row anchored while the older rows prepend.
-      if (
+      if (offset > 72) {
+        topLoadTriggeredRef.current = false;
+      } else if (
         userInteractedWithListRef.current &&
-        offset <= 72 &&
+        !topLoadTriggeredRef.current &&
         initialScrollRoomRef.current === currentRoomKey &&
         hasMore &&
         !isSyncing
       ) {
+        topLoadTriggeredRef.current = true;
         void loadMore();
       }
     },
@@ -551,7 +555,7 @@ export default function PrivateRoom() {
       else if (ts === yesterday) label = "Yesterday";
 
       if (label !== lastDate) {
-        items.push({ kind: "date", id: `date-${label}-${idx}`, date: label });
+        items.push({ kind: "date", id: `date-${ts}`, date: label });
         lastDate = label;
       }
 
@@ -651,21 +655,19 @@ export default function PrivateRoom() {
     // is fetched only after the user scrolls to the top.
     initialScrollRoomRef.current = currentRoomKey;
     userInteractedWithListRef.current = false;
+    topLoadTriggeredRef.current = false;
     requestScrollToLatest(false);
   }, [currentRoomKey, messages.length, requestScrollToLatest]);
 
   useEffect(() => {
-    const initialSyncJustFinished = previousSyncingRef.current && !isSyncing;
-    previousSyncingRef.current = isSyncing;
-
     if (
-      initialSyncJustFinished &&
+      initialSyncConversationId === currentRoomKey &&
       initialScrollRoomRef.current === currentRoomKey &&
       nearBottomRef.current
     ) {
       requestScrollToLatest(false);
     }
-  }, [currentRoomKey, isSyncing, requestScrollToLatest]);
+  }, [currentRoomKey, initialSyncConversationId, requestScrollToLatest]);
 
   const handleScrollToIndexFailed = useCallback(
     ({
@@ -810,42 +812,34 @@ export default function PrivateRoom() {
           ]}
           data={flatData}
           extraData={messages}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
           onContentSizeChange={handleInitialContentSizeChange}
           keyExtractor={keyExtractor}
           keyboardShouldPersistTaps="handled"
           //keyboardDismissMode="on-drag"
           contentContainerStyle={{
-            // Keep this spacer stable: measuring the floating composer after
-            // mount changes the list's end offset and causes a visible jump.
-            paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
+            paddingBottom:
+              composerHeight + Math.max(insets.bottom, 8) + theme.SPACING.sm,
             paddingTop: theme.SPACING.md,
           }}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
-            <>
-              {isSyncing && messages.length > 0 ? (
-                <View style={styles.loadingMore}>
-                  <Text style={styles.loadingMoreText}>Syncing messages...</Text>
+            !isSyncing && messages.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyStateIcon}>
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={28}
+                    color={theme.COLORS.primary}
+                  />
                 </View>
-              ) : null}
-              {!isSyncing && messages.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyStateIcon}>
-                    <Ionicons
-                      name="chatbubble-ellipses-outline"
-                      size={28}
-                      color={theme.COLORS.primary}
-                    />
-                  </View>
-                  <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
-                  <Text style={styles.emptyStateText}>
-                    Send a message to start the conversation.
-                  </Text>
-                </View>
-              ) : null}
-            </>
+                <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
+                <Text style={styles.emptyStateText}>
+                  Send a message to start the conversation.
+                </Text>
+              </View>
+            ) : null
           }
           ListFooterComponent={
             isSyncing && messages.length === 0 ? (
@@ -867,6 +861,14 @@ export default function PrivateRoom() {
 
       {/* FLOATING INPUT */}
       <Animated.View
+        onLayout={({ nativeEvent }) => {
+          const measuredHeight = Math.ceil(nativeEvent.layout.height / 4) * 4;
+          setComposerHeight((currentHeight) =>
+            Math.abs(currentHeight - measuredHeight) < 4
+              ? currentHeight
+              : measuredHeight,
+          );
+        }}
         style={[
           styles.floatingInputWrapper,
           {
@@ -1086,14 +1088,6 @@ const styles = StyleSheet.create({
     fontSize: theme.TYPOGRAPHY.fontSize.lg,
     lineHeight: 20,
     textAlign: "center",
-  },
-  loadingMore: {
-    paddingVertical: theme.SPACING.md,
-    alignItems: "center",
-  },
-  loadingMoreText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
   floatingInputWrapper: {
     position: "absolute",
