@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { messages, MessageRow, rooms, RoomRow } from "./schema";
-import { eq, and, lt, desc, asc, ne, sql } from "drizzle-orm";
+import { eq, and, lt, desc, asc, ne, sql, inArray } from "drizzle-orm";
 
 export class MessageGetQueries {
   async getByRoom(roomId: string): Promise<MessageRow[]> {
@@ -9,6 +9,14 @@ export class MessageGetQueries {
       .from(messages)
       .where(eq(messages.conversationId, roomId))
       .orderBy(asc(messages.timestamp));
+  }
+
+  async getByIds(roomId: string, ids: string[]): Promise<MessageRow[]> {
+    if (ids.length === 0) return [];
+    return db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, roomId), inArray(messages.id, ids)));
   }
 
   async getRecent(roomId: string, limit = 30): Promise<MessageRow[]> {

@@ -98,6 +98,9 @@ export default function PrivateRoom() {
   const [jumpButtonRoomKey, setJumpButtonRoomKey] = useState<string | null>(
     null,
   );
+  const [positionedRoomKey, setPositionedRoomKey] = useState<string | null>(
+    null,
+  );
   const currentRoomKey = String(conversationId || roomId || "");
   const shouldShowJumpToUnread =
     jumpButtonRoomKey === currentRoomKey ? showJumpToUnread : true;
@@ -111,7 +114,6 @@ export default function PrivateRoom() {
   const keyboardWasVisibleRef = useRef(false);
   const stickToLatestOnKeyboardOpenRef = useRef(false);
   const pendingScrollViewPositionRef = useRef(0.78);
-  const [composerHeight, setComposerHeight] = useState(0);
   const [keyboardHeight] = useState(() => new Animated.Value(0));
   const [dateLabels] = useState(() => {
     const today = new Date();
@@ -243,10 +245,11 @@ export default function PrivateRoom() {
           flatListRef.current?.scrollToEnd({
             animated: pendingLatestScrollAnimatedRef.current,
           });
+          if (messages.length > 0) setPositionedRoomKey(currentRoomKey);
         });
       });
     },
-    [flatListRef],
+    [currentRoomKey, flatListRef, messages.length],
   );
 
   useFocusEffect(
@@ -599,8 +602,9 @@ export default function PrivateRoom() {
       flatListRef.current?.scrollToEnd({
         animated: pendingLatestScrollAnimatedRef.current,
       });
+      if (messages.length > 0) setPositionedRoomKey(currentRoomKey);
     });
-  }, [flatListRef]);
+  }, [currentRoomKey, flatListRef, messages.length]);
 
   useEffect(() => {
     if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
@@ -798,7 +802,12 @@ export default function PrivateRoom() {
         {/* MESSAGES */}
         <FlatList
           ref={flatListRef}
-          style={styles.messageList}
+          style={[
+            styles.messageList,
+            messages.length > 0 && positionedRoomKey !== currentRoomKey
+              ? styles.messageListHidden
+              : null,
+          ]}
           data={flatData}
           extraData={messages}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -807,10 +816,9 @@ export default function PrivateRoom() {
           keyboardShouldPersistTaps="handled"
           //keyboardDismissMode="on-drag"
           contentContainerStyle={{
-            paddingBottom:
-              composerHeight > 0
-                ? composerHeight + theme.SPACING.xl
-                : theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
+            // Keep this spacer stable: measuring the floating composer after
+            // mount changes the list's end offset and causes a visible jump.
+            paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
             paddingTop: theme.SPACING.md,
           }}
           renderItem={renderItem}
@@ -859,9 +867,6 @@ export default function PrivateRoom() {
 
       {/* FLOATING INPUT */}
       <Animated.View
-        onLayout={({ nativeEvent }) =>
-          setComposerHeight(nativeEvent.layout.height)
-        }
         style={[
           styles.floatingInputWrapper,
           {
@@ -981,6 +986,9 @@ const styles = StyleSheet.create({
   messageList: {
     flex: 1,
     backgroundColor: "#F7F6FB",
+  },
+  messageListHidden: {
+    opacity: 0,
   },
   jumpToUnreadTouchable: {
     position: "absolute",

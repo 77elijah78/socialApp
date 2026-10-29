@@ -27,6 +27,10 @@ export class MessageStore {
     return messageGetQueries.getByRoom(roomId);
   }
 
+  getByIds(roomId: string, ids: string[]) {
+    return messageGetQueries.getByIds(roomId, ids);
+  }
+
   /**
    * Last N messages for initial FlatList render
    */

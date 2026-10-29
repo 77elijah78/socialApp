@@ -14,6 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { api } from '@/services/api';
+import { mediaService } from '@/services/MediaService';
+import { messageStore } from '@/db/MessageStore';
+import { setRecentMessageCache } from '@/utils/recentMessageCache';
 import { useAppSelector } from '@/store/hooks';
 import theme from '@/constants/theme';
 import { PostResponse, SocialPost, Conversation } from '@/types';
@@ -158,6 +161,15 @@ export default function UserProfileScreen() {
         token,
       );
       const conv = resp.data;
+      if (currentUserId) {
+        void mediaService.message.syncFromServer(conv.id, currentUserId).catch(() => {});
+      }
+      try {
+        const latest = await messageStore.getRecent(conv.id, 30);
+        setRecentMessageCache(conv.id, latest);
+      } catch {
+        // Continue opening; the room can load its local/server messages itself.
+      }
       router.push({
         pathname: '/(chatRoom)/privateRoom',
         params: {
@@ -174,7 +186,7 @@ export default function UserProfileScreen() {
     } finally {
       setMessaging(false);
     }
-  }, [token, profile, messaging]);
+  }, [token, profile, messaging, currentUserId]);
 
   const renderGridItem = ({ item }: { item: SocialPost }) => {
     const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';

@@ -5,6 +5,10 @@ import { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
 import { mediaService } from "../services/MediaService";
 import { router } from "expo-router";
+import {
+  getRecentMessageCache,
+  setRecentMessageCache,
+} from "@/utils/recentMessageCache";
 
 interface CurrentUser {
   id: string;
@@ -64,7 +68,9 @@ export function useChat({
   currentUser,
   isFocused,
 }: UseChatParams): UseChatReturn {
-  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [messages, setMessages] = useState<MessageRow[]>(
+    () => getRecentMessageCache(conversationId)?.messages ?? [],
+  );
   const [messagesConversationId, setMessagesConversationId] =
     useState(conversationId);
   const [isSyncing, setIsSyncing] = useState(true);
@@ -213,10 +219,9 @@ export function useChat({
       if (!mountedRef.current) return;
 
       setMessages((current) => {
-        const next = dedupeMessages(
-          preserveExisting ? [...rows, ...current] : rows,
-        );
-        return preserveExisting
+        const shouldMerge = preserveExisting || initializingRef.current;
+        const next = dedupeMessages(shouldMerge ? [...rows, ...current] : rows);
+        return shouldMerge
           ? next.sort((a, b) => a.timestamp - b.timestamp)
           : next;
       });
@@ -237,6 +242,7 @@ export function useChat({
     mountedRef.current = true;
     initializingRef.current = false;
     loadingMoreRef.current = false;
+    const initialCache = getRecentMessageCache(conversationId);
 
     /**
      * Reset state for a new conversation. The hook's returned messages are
@@ -245,7 +251,7 @@ export function useChat({
      */
     setMessagesConversationId(conversationId);
     setHasMore(true);
-    setMessages([]);
+    setMessages(initialCache?.messages ?? []);
     setIsSyncing(true);
 
     /**
@@ -577,9 +583,11 @@ export function useChat({
 
       try {
         /**
-         * 1. Show local SQLite messages immediately.
+         * 1. Use the list-screen prefetch immediately, or fall back to SQLite.
          */
-        await reload();
+        if (!initialCache || Date.now() - initialCache.cachedAt > 5000) {
+          await reload();
+        }
 
         if (cancelled || !mountedRef.current) {
           return;
@@ -689,6 +697,13 @@ export function useChat({
     updateMessageStatus,
     updateAllOwnMessagesAsRead,
   ]);
+
+  useEffect(() => {
+    if (messagesConversationId !== conversationId || messages.length === 0) {
+      return;
+    }
+    setRecentMessageCache(conversationId, messages.slice(-30));
+  }, [conversationId, messages, messagesConversationId]);
 
   /**
    * ---------------------------------------------------------
