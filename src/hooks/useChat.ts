@@ -65,7 +65,12 @@ export function useChat({
   isFocused,
 }: UseChatParams): UseChatReturn {
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [messagesConversationId, setMessagesConversationId] =
+    useState(conversationId);
   const [isSyncing, setIsSyncing] = useState(true);
+  const isCurrentConversation = messagesConversationId === conversationId;
+  const visibleMessages = isCurrentConversation ? messages : [];
+  const visibleIsSyncing = isCurrentConversation ? isSyncing : true;
   const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
   const [isConnected, setConnected] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
@@ -199,15 +204,25 @@ export function useChat({
    * RELOAD
    * ---------------------------------------------------------
    */
-  const reload = useCallback(async () => {
-    if (!conversationId) return;
+  const reload = useCallback(
+    async (preserveExisting = false) => {
+      if (!conversationId) return;
 
-    const rows = await messageStore.getRecent(conversationId, 30);
+      const rows = await messageStore.getRecent(conversationId, 30);
 
-    if (!mountedRef.current) return;
+      if (!mountedRef.current) return;
 
-    setMessages(dedupeMessages(rows));
-  }, [conversationId, dedupeMessages]);
+      setMessages((current) => {
+        const next = dedupeMessages(
+          preserveExisting ? [...rows, ...current] : rows,
+        );
+        return preserveExisting
+          ? next.sort((a, b) => a.timestamp - b.timestamp)
+          : next;
+      });
+    },
+    [conversationId, dedupeMessages],
+  );
 
   /**
    * ---------------------------------------------------------
@@ -239,8 +254,11 @@ export function useChat({
     loadingMoreRef.current = false;
 
     /**
-     * Reset pagination for a new conversation.
+     * Reset state for a new conversation. The hook's returned messages are
+     * keyed by conversationId, so the previous room is never painted while
+     * this effect starts.
      */
+    setMessagesConversationId(conversationId);
     setHasMore(true);
     setMessages([]);
     setIsSyncing(true);
@@ -596,7 +614,8 @@ export function useChat({
           return;
         }
 
-        scrollToEnd(false);
+        // PrivateRoom owns initial positioning so the cache and saved-position
+        // restore cannot compete for the FlatList offset.
 
         /**
          * 2. Synchronize with server.
@@ -629,15 +648,15 @@ export function useChat({
             }
 
             /**
-             * 3. Reload after synchronization.
+             * 3. Merge server results into the already-rendered cache snapshot.
+             * Keep the visible history in the list so the restored anchor remains
+             * present and FlatList does not jump when sync completes.
              */
-            await reload();
+            await reload(true);
 
             if (cancelled || !mountedRef.current) {
               return;
             }
-
-            scrollToEnd(false);
           } catch (error) {
             /**
              * Offline mode:
@@ -1010,7 +1029,7 @@ export function useChat({
   }, [conversationId, currentUser.id]);
 
   return {
-    messages,
+    messages: visibleMessages,
 
     send,
     retry,
@@ -1024,10 +1043,10 @@ export function useChat({
     typingUserId,
 
     isConnected,
-    isSyncing,
+    isSyncing: visibleIsSyncing,
     isOffline,
-    syncError,
-    hasMore,
+    syncError: isCurrentConversation ? syncError : null,
+    hasMore: isCurrentConversation ? hasMore : true,
 
     flatListRef,
 

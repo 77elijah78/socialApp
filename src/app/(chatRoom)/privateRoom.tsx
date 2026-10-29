@@ -106,8 +106,6 @@ export default function PrivateRoom() {
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
   const textInputRef = useRef<TextInput>(null);
   const initialScrollRoomRef = useRef<string | null>(null);
-  const initialCacheScrollKeyRef = useRef<string | null>(null);
-  const pendingInitialEndScrollRef = useRef(false);
   const pendingLatestScrollRef = useRef(false);
   const pendingLatestScrollAnimatedRef = useRef(false);
   const isSearchingSavedPositionRef = useRef(false);
@@ -214,8 +212,6 @@ export default function PrivateRoom() {
   useEffect(() => {
     positionRestoredRef.current = false;
     initialScrollRoomRef.current = null;
-    initialCacheScrollKeyRef.current = null;
-    pendingInitialEndScrollRef.current = false;
     pendingLatestScrollRef.current = false;
     isSearchingSavedPositionRef.current = false;
     restoreLoadInFlightRef.current = false;
@@ -292,6 +288,7 @@ export default function PrivateRoom() {
       token: currentUserToken ?? "",
     },
   });
+  const previousSyncingRef = useRef(isSyncing);
 
   const isReceivedUnread = useCallback(
     (message: any) =>
@@ -372,7 +369,6 @@ export default function PrivateRoom() {
     initialScrollRoomRef.current = roomKey;
     isSearchingSavedPositionRef.current = false;
     restoreCursorRef.current = null;
-    pendingInitialEndScrollRef.current = false;
     pendingLatestScrollRef.current = false;
   }, [conversationId, roomId]);
 
@@ -791,70 +787,28 @@ export default function PrivateRoom() {
   }, [dateLabels, messages, currentUserId]);
 
   const handleInitialContentSizeChange = useCallback(() => {
-    if (pendingLatestScrollRef.current) {
-      const latestMessage = messages[messages.length - 1];
-      const latestId = String(
-        latestMessage?.localId ?? latestMessage?.id ?? "",
-      );
-      if (latestId) {
-        lastVisibleMessageRef.current = {
-          id: latestId,
-          anchorAtBottom: true,
-          viewPosition: 1,
-        };
-      }
-      nearBottomRef.current = true;
-      requestAnimationFrame(() => {
-        if (!pendingLatestScrollRef.current) return;
-        pendingLatestScrollRef.current = false;
-        flatListRef.current?.scrollToEnd({
-          animated: pendingLatestScrollAnimatedRef.current,
-        });
-      });
-      return;
-    }
+    if (!pendingLatestScrollRef.current) return;
 
-    pendingInitialEndScrollRef.current = false;
-    const scrollKey = initialCacheScrollKeyRef.current;
-    if (!scrollKey || positionRestoredRef.current) return;
+    const latestMessage = messages[messages.length - 1];
+    const latestId = String(
+      latestMessage?.localId ?? latestMessage?.id ?? "",
+    );
+    if (latestId) {
+      lastVisibleMessageRef.current = {
+        id: latestId,
+        anchorAtBottom: true,
+        viewPosition: 1,
+      };
+    }
+    nearBottomRef.current = true;
     requestAnimationFrame(() => {
-      if (
-        initialCacheScrollKeyRef.current === scrollKey &&
-        !positionRestoredRef.current
-      ) {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }
+      if (!pendingLatestScrollRef.current) return;
+      pendingLatestScrollRef.current = false;
+      flatListRef.current?.scrollToEnd({
+        animated: pendingLatestScrollAnimatedRef.current,
+      });
     });
   }, [flatListRef, messages]);
-
-  useEffect(() => {
-    const roomKey = String(conversationId || roomId || "");
-    if (
-      !roomKey ||
-      !conversationId ||
-      messages[0]?.conversationId !== conversationId ||
-      messages.length === 0 ||
-      positionRestoredRef.current ||
-      initialCacheScrollKeyRef.current === positionStorageKey
-    ) {
-      return;
-    }
-
-    initialCacheScrollKeyRef.current = positionStorageKey;
-    pendingInitialEndScrollRef.current = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (
-          initialCacheScrollKeyRef.current === positionStorageKey &&
-          pendingInitialEndScrollRef.current &&
-          !positionRestoredRef.current
-        ) {
-          pendingInitialEndScrollRef.current = false;
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }
-      });
-    });
-  }, [conversationId, roomId, positionStorageKey, messages, flatListRef]);
 
   useEffect(() => {
     if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
@@ -911,13 +865,16 @@ export default function PrivateRoom() {
     if (
       !roomKey ||
       !positionLoaded ||
-      isSyncing ||
       positionRestoredRef.current ||
       initialScrollRoomRef.current === roomKey ||
       restoreLoadInFlightRef.current
     ) {
       return;
     }
+
+    // Restore from the local cache as soon as it exists; only wait for the
+    // server when there is no cached page to position yet.
+    if (messages.length === 0 && isSyncing) return;
 
     setShowJumpToUnread(lastUnreadIndex >= 0);
 
@@ -955,7 +912,6 @@ export default function PrivateRoom() {
       if (anchorIndex >= 0) {
         isSearchingSavedPositionRef.current = false;
         pendingLatestScrollRef.current = false;
-        pendingInitialEndScrollRef.current = false;
         const viewPosition = savedPosition.anchorViewPosition;
         nearBottomRef.current = savedPosition.anchorAtBottom;
         lastVisibleMessageRef.current = {
@@ -972,6 +928,10 @@ export default function PrivateRoom() {
         });
         return;
       }
+
+      // If the cached page does not contain the saved anchor, let the initial
+      // server sync finish before requesting older pages for restoration.
+      if (isSyncing) return;
 
       if (hasMore && !syncError) {
         const oldestMessage = messages[0];
@@ -1035,6 +995,22 @@ export default function PrivateRoom() {
     scrollToLastUnread,
     flatListRef,
   ]);
+
+  useEffect(() => {
+    const initialSyncJustFinished = previousSyncingRef.current && !isSyncing;
+    previousSyncingRef.current = isSyncing;
+
+    // When the cache was already positioned at its latest message, keep the
+    // view pinned there after server sync adds messages. Never pull a reader
+    // away from an older saved/reading position.
+    if (
+      initialSyncJustFinished &&
+      positionRestoredRef.current &&
+      nearBottomRef.current
+    ) {
+      requestScrollToLatest(false);
+    }
+  }, [isSyncing, requestScrollToLatest]);
 
   const handleScrollToIndexFailed = useCallback(
     ({
