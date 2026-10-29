@@ -226,21 +226,6 @@ export function useChat({
 
   /**
    * ---------------------------------------------------------
-   * SCROLL
-   * ---------------------------------------------------------
-   */
-  const scrollToEnd = useCallback((animated = true) => {
-    setTimeout(() => {
-      if (!mountedRef.current) return;
-
-      flatListRef.current?.scrollToEnd({
-        animated,
-      });
-    }, 80);
-  }, []);
-
-  /**
-   * ---------------------------------------------------------
    * INITIALIZE CHAT
    * ---------------------------------------------------------
    */
@@ -300,16 +285,6 @@ export function useChat({
         return;
       }
 
-      const senderId = String(
-        (
-          msg as MessageRow & {
-            senderId?: string;
-          }
-        ).senderId ?? "",
-      );
-
-      const isOwnMessage = senderId === currentUserIdRef.current;
-
       /**
        * Append directly to state instead of
        * reloading all 30 messages from SQLite.
@@ -338,12 +313,8 @@ export function useChat({
         return;
       }
 
+      // Let the focused room screen decide whether to scroll to the new row.
       setIncomingMessageVersion((version) => version + 1);
-
-      /**
-       * New message should immediately appear.
-       */
-      scrollToEnd(true);
     };
 
     const handleDelivered = async ({
@@ -614,8 +585,8 @@ export function useChat({
           return;
         }
 
-        // PrivateRoom owns initial positioning so the cache and saved-position
-        // restore cannot compete for the FlatList offset.
+        // PrivateRoom owns the initial latest-page scroll so message loading
+        // and viewport positioning stay coordinated.
 
         /**
          * 2. Synchronize with server.
@@ -649,8 +620,7 @@ export function useChat({
 
             /**
              * 3. Merge server results into the already-rendered cache snapshot.
-             * Keep the visible history in the list so the restored anchor remains
-             * present and FlatList does not jump when sync completes.
+             * Keep the recent timeline stable while adding any newer server rows.
              */
             await reload(true);
 
@@ -716,7 +686,6 @@ export function useChat({
     currentUser.id,
     currentUser.token,
     reload,
-    scrollToEnd,
     updateMessageStatus,
     updateAllOwnMessagesAsRead,
   ]);
@@ -809,10 +778,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -829,10 +796,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -848,10 +813,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -900,10 +863,8 @@ export function useChat({
       );
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -967,8 +928,8 @@ export function useChat({
         return;
       }
 
-      // Keep the newly fetched older page in the current list. Reloading only
-      // the latest 30 rows here would discard it and stall older-position restore.
+      // Keep the fetched older page in the current list instead of replacing
+      // the timeline with only the latest 30 rows.
       setMessages((previousMessages) =>
         dedupeMessages([...serverOlder, ...previousMessages]).sort(
           (a, b) => a.timestamp - b.timestamp,

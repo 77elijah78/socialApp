@@ -41,15 +41,6 @@ import {
   useKeyboardState,
 } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-interface SavedChatPosition {
-  anchorId: string | null;
-  offset: number;
-  anchorAtBottom: boolean;
-  anchorViewPosition: number;
-  savedAt: number;
-}
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -114,32 +105,13 @@ export default function PrivateRoom() {
   const initialScrollRoomRef = useRef<string | null>(null);
   const pendingLatestScrollRef = useRef(false);
   const pendingLatestScrollAnimatedRef = useRef(false);
-  const isSearchingSavedPositionRef = useRef(false);
   const handledIncomingVersionRef = useRef(0);
-  const positionRestoredRef = useRef(false);
-  const restoreLoadInFlightRef = useRef(false);
-  const restoreCursorRef = useRef<string | null>(null);
-  const lastVisibleMessageRef = useRef<{
-    id: string;
-    anchorAtBottom: boolean;
-    viewPosition: number;
-  } | null>(null);
-  const visibleMessageIdsRef = useRef<string[]>([]);
   const nearBottomRef = useRef(true);
+  const userInteractedWithListRef = useRef(false);
   const keyboardWasVisibleRef = useRef(false);
   const stickToLatestOnKeyboardOpenRef = useRef(false);
-  const scrollOffsetRef = useRef(0);
-  const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const restoreScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const pendingScrollViewPositionRef = useRef(0.78);
-  const [positionRecord, setPositionRecord] = useState<{
-    key: string;
-    position: SavedChatPosition | null;
-  } | null>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
   const [keyboardHeight] = useState(() => new Animated.Value(0));
   const [dateLabels] = useState(() => {
     const today = new Date();
@@ -204,71 +176,7 @@ export default function PrivateRoom() {
 
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
-  const positionStorageKey = useMemo(
-    () =>
-      `private-room-position:${currentUserId ?? "guest"}:${String(conversationId || roomId || "")}`,
-    [currentUserId, conversationId, roomId],
-  );
-  const positionLoaded = positionRecord?.key === positionStorageKey;
-  const savedPosition = positionLoaded
-    ? (positionRecord?.position ?? null)
-    : null;
   const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    positionRestoredRef.current = false;
-    initialScrollRoomRef.current = null;
-    pendingLatestScrollRef.current = false;
-    isSearchingSavedPositionRef.current = false;
-    restoreLoadInFlightRef.current = false;
-    restoreCursorRef.current = null;
-    lastVisibleMessageRef.current = null;
-    visibleMessageIdsRef.current = [];
-    scrollOffsetRef.current = 0;
-    nearBottomRef.current = true;
-
-    let cancelled = false;
-    const readPosition = async () => {
-      let position: SavedChatPosition | null = null;
-      try {
-        const raw = await AsyncStorage.getItem(positionStorageKey);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<SavedChatPosition>;
-          if (
-            typeof parsed.offset === "number" &&
-            Number.isFinite(parsed.offset)
-          ) {
-            position = {
-              anchorId:
-                typeof parsed.anchorId === "string" ? parsed.anchorId : null,
-              offset: Math.max(0, parsed.offset),
-              anchorAtBottom: parsed.anchorAtBottom === true,
-              anchorViewPosition:
-                typeof parsed.anchorViewPosition === "number" &&
-                Number.isFinite(parsed.anchorViewPosition)
-                  ? Math.max(0, Math.min(1, parsed.anchorViewPosition))
-                  : parsed.anchorAtBottom === true
-                    ? 1
-                    : 0,
-              savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
-            };
-          }
-        }
-      } catch {
-        // A malformed or unavailable local position should fall back to the unread/end position.
-      }
-      if (!cancelled) setPositionRecord({ key: positionStorageKey, position });
-    };
-
-    void readPosition();
-    return () => {
-      cancelled = true;
-      if (restoreScrollTimerRef.current) {
-        clearTimeout(restoreScrollTimerRef.current);
-        restoreScrollTimerRef.current = null;
-      }
-    };
-  }, [positionStorageKey]);
 
   const {
     messages,
@@ -323,74 +231,8 @@ export default function PrivateRoom() {
     [messages, isReceivedUnread],
   );
 
-  const flushSavedPosition = useCallback(
-    async (offset: number) => {
-      if (!positionRestoredRef.current) return;
-      const visibleAnchor = lastVisibleMessageRef.current;
-      const position: SavedChatPosition = {
-        anchorId: visibleAnchor?.id ?? null,
-        offset: Math.max(0, offset),
-        anchorAtBottom: visibleAnchor?.anchorAtBottom ?? nearBottomRef.current,
-        anchorViewPosition:
-          visibleAnchor?.viewPosition ?? (nearBottomRef.current ? 1 : 0),
-        savedAt: Date.now(),
-      };
-      try {
-        await AsyncStorage.setItem(
-          positionStorageKey,
-          JSON.stringify(position),
-        );
-      } catch (error) {
-        console.warn("[privateRoom] could not save reading position:", error);
-      }
-    },
-    [positionStorageKey],
-  );
-
-  const schedulePositionSave = useCallback(
-    (offset: number) => {
-      if (!positionRestoredRef.current) return;
-      if (persistPositionTimerRef.current) {
-        clearTimeout(persistPositionTimerRef.current);
-      }
-      persistPositionTimerRef.current = setTimeout(() => {
-        persistPositionTimerRef.current = null;
-        void flushSavedPosition(offset);
-      }, 280);
-    },
-    [flushSavedPosition],
-  );
-
-  const cancelPositionRestore = useCallback(() => {
-    const roomKey = String(conversationId || roomId || "");
-    if (restoreScrollTimerRef.current) {
-      clearTimeout(restoreScrollTimerRef.current);
-      restoreScrollTimerRef.current = null;
-    }
-    if (persistPositionTimerRef.current) {
-      clearTimeout(persistPositionTimerRef.current);
-      persistPositionTimerRef.current = null;
-    }
-    positionRestoredRef.current = true;
-    initialScrollRoomRef.current = roomKey;
-    isSearchingSavedPositionRef.current = false;
-    restoreCursorRef.current = null;
-    pendingLatestScrollRef.current = false;
-  }, [conversationId, roomId]);
-
   const requestScrollToLatest = useCallback(
     (animated = true) => {
-      const latestMessage = messages[messages.length - 1];
-      const latestId = String(
-        latestMessage?.localId ?? latestMessage?.id ?? "",
-      );
-      if (latestId) {
-        lastVisibleMessageRef.current = {
-          id: latestId,
-          anchorAtBottom: true,
-          viewPosition: 1,
-        };
-      }
       nearBottomRef.current = true;
       pendingLatestScrollAnimatedRef.current = animated;
       pendingLatestScrollRef.current = true;
@@ -404,42 +246,20 @@ export default function PrivateRoom() {
         });
       });
     },
-    [flatListRef, messages],
-  );
-
-  useEffect(
-    () => () => {
-      if (persistPositionTimerRef.current) {
-        clearTimeout(persistPositionTimerRef.current);
-        persistPositionTimerRef.current = null;
-        void flushSavedPosition(scrollOffsetRef.current);
-      }
-    },
-    [flushSavedPosition],
+    [flatListRef],
   );
 
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      return () => {
-        setIsFocused(false);
-        if (persistPositionTimerRef.current) {
-          clearTimeout(persistPositionTimerRef.current);
-          persistPositionTimerRef.current = null;
-        }
-        void flushSavedPosition(scrollOffsetRef.current);
-      };
-    }, [flushSavedPosition]),
+      requestScrollToLatest(false);
+      return () => setIsFocused(false);
+    }, [requestScrollToLatest]),
   );
 
   const handleBack = useCallback(() => {
-    if (persistPositionTimerRef.current) {
-      clearTimeout(persistPositionTimerRef.current);
-      persistPositionTimerRef.current = null;
-    }
-    void flushSavedPosition(scrollOffsetRef.current);
     router.back();
-  }, [flushSavedPosition]);
+  }, []);
 
   const handleProfilePress = useCallback(() => {
     if (keyboardIsVisible) {
@@ -550,7 +370,6 @@ export default function PrivateRoom() {
     const text = inputText.trim();
     if (!text || sending) return;
 
-    cancelPositionRestore();
     requestScrollToLatest(false);
     setInputText("");
     setSending(true);
@@ -576,13 +395,11 @@ export default function PrivateRoom() {
     replyMsg,
     receiverId,
     replyingTo,
-    cancelPositionRestore,
     requestScrollToLatest,
   ]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
-      cancelPositionRestore();
       requestScrollToLatest(false);
       for (const file of files) {
         await sendMedia(file.type, file.uri, receiverId);
@@ -592,7 +409,7 @@ export default function PrivateRoom() {
         textInputRef.current?.focus();
       }, 300);
     },
-    [receiverId, sendMedia, cancelPositionRestore, requestScrollToLatest],
+    [receiverId, sendMedia, requestScrollToLatest],
   );
 
   const handleInputChange = useCallback(
@@ -611,33 +428,34 @@ export default function PrivateRoom() {
       const offset = Math.max(0, contentOffset.y);
       const isNearBottom =
         layoutMeasurement.height + offset >= contentSize.height - 120;
-      scrollOffsetRef.current = offset;
       nearBottomRef.current = isNearBottom;
-      schedulePositionSave(offset);
       setJumpButtonRoomKey(currentRoomKey);
+      setShowJumpToUnread(unreadMessageCount > 0 && !isNearBottom);
 
-      if (unreadMessageCount === 0 || isNearBottom) {
-        setShowJumpToUnread(false);
-      } else {
-        setShowJumpToUnread(true);
+      // Load older pages only after the initial latest-page scroll has settled.
+      // FlatList keeps the visible row anchored while the older rows prepend.
+      if (
+        userInteractedWithListRef.current &&
+        offset <= 72 &&
+        initialScrollRoomRef.current === currentRoomKey &&
+        hasMore &&
+        !isSyncing
+      ) {
+        void loadMore();
       }
     },
-    [currentRoomKey, unreadMessageCount, schedulePositionSave],
+    [
+      currentRoomKey,
+      hasMore,
+      isSyncing,
+      loadMore,
+      unreadMessageCount,
+    ],
   );
 
   const handleScrollBeginDrag = useCallback(() => {
-    cancelPositionRestore();
-    lastVisibleMessageRef.current = null;
-  }, [cancelPositionRestore]);
-
-  const handleScrollEnd = useCallback(
-    (event: any) => {
-      const offset = Math.max(0, event.nativeEvent.contentOffset.y);
-      scrollOffsetRef.current = offset;
-      void flushSavedPosition(offset);
-    },
-    [flushSavedPosition],
-  );
+    userInteractedWithListRef.current = true;
+  }, []);
 
   const viewabilityConfig = useMemo(
     () => ({
@@ -648,29 +466,7 @@ export default function PrivateRoom() {
   );
 
   const handleViewableItemsChanged = useCallback(
-    ({ changed, viewableItems }: { changed: any[]; viewableItems: any[] }) => {
-      const visibleItems = viewableItems
-        .filter(
-          (viewable) =>
-            viewable.isViewable && viewable.item?.kind === "message",
-        )
-        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-        .map((viewable) => viewable.item);
-      const visibleIds = visibleItems.map((item) => item.id as string);
-      visibleMessageIdsRef.current = visibleIds;
-
-      const anchorItem = nearBottomRef.current
-        ? visibleItems[visibleItems.length - 1]
-        : visibleItems[0];
-      if (anchorItem?.id) {
-        lastVisibleMessageRef.current = {
-          id: anchorItem.id as string,
-          anchorAtBottom: nearBottomRef.current,
-          viewPosition: nearBottomRef.current ? 1 : 0,
-        };
-        schedulePositionSave(scrollOffsetRef.current);
-      }
-
+    ({ changed }: { changed: any[] }) => {
       const newlyVisibleMessageIds = changed
         .filter(
           (change) => change.isViewable && change.item?.kind === "message",
@@ -680,7 +476,7 @@ export default function PrivateRoom() {
         markVisibleRead(newlyVisibleMessageIds);
       }
     },
-    [markVisibleRead, schedulePositionSave],
+    [markVisibleRead],
   );
 
   const dismissKeyboard = useCallback(() => {
@@ -796,17 +592,6 @@ export default function PrivateRoom() {
   const handleInitialContentSizeChange = useCallback(() => {
     if (!pendingLatestScrollRef.current) return;
 
-    const latestMessage = messages[messages.length - 1];
-    const latestId = String(
-      latestMessage?.localId ?? latestMessage?.id ?? "",
-    );
-    if (latestId) {
-      lastVisibleMessageRef.current = {
-        id: latestId,
-        anchorAtBottom: true,
-        viewPosition: 1,
-      };
-    }
     nearBottomRef.current = true;
     requestAnimationFrame(() => {
       if (!pendingLatestScrollRef.current) return;
@@ -815,32 +600,15 @@ export default function PrivateRoom() {
         animated: pendingLatestScrollAnimatedRef.current,
       });
     });
-  }, [flatListRef, messages]);
+  }, [flatListRef]);
 
   useEffect(() => {
     if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
     handledIncomingVersionRef.current = incomingMessageVersion;
     if (!isFocused) return;
 
-    cancelPositionRestore();
     requestScrollToLatest(true);
-  }, [
-    incomingMessageVersion,
-    isFocused,
-    cancelPositionRestore,
-    requestScrollToLatest,
-  ]);
-
-  useEffect(() => {
-    if (
-      !isSearchingSavedPositionRef.current ||
-      positionRestoredRef.current ||
-      messages.length === 0
-    ) {
-      return;
-    }
-    requestScrollToLatest(false);
-  }, [messages, requestScrollToLatest]);
+  }, [incomingMessageVersion, isFocused, requestScrollToLatest]);
 
   const lastUnreadFlatIndex = useMemo(
     () =>
@@ -868,154 +636,32 @@ export default function PrivateRoom() {
   );
 
   useEffect(() => {
-    const roomKey = String(conversationId || roomId || "");
     if (
-      !roomKey ||
-      !positionLoaded ||
-      positionRestoredRef.current ||
-      initialScrollRoomRef.current === roomKey ||
-      restoreLoadInFlightRef.current
+      messages.length === 0 ||
+      initialScrollRoomRef.current === currentRoomKey
     ) {
       return;
     }
 
-    // Restore from the local cache as soon as it exists; only wait for the
-    // server when there is no cached page to position yet.
-    if (messages.length === 0 && isSyncing) return;
-
-    const scheduleRestore = (viewPosition: number, scroll: () => void) => {
-      initialScrollRoomRef.current = roomKey;
-      pendingScrollViewPositionRef.current = viewPosition;
-      visibleMessageIdsRef.current = [];
-      if (restoreScrollTimerRef.current)
-        clearTimeout(restoreScrollTimerRef.current);
-      restoreScrollTimerRef.current = setTimeout(() => {
-        restoreScrollTimerRef.current = null;
-        if (initialScrollRoomRef.current !== roomKey) return;
-        positionRestoredRef.current = true;
-        scroll();
-      }, 120);
-    };
-
-    if (messages.length === 0) {
-      nearBottomRef.current = lastUnreadIndex < 0;
-      scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
-        scrollToLastUnread(false),
-      );
-      return;
-    }
-
-    if (savedPosition?.anchorId) {
-      const anchorIndex = flatData.findIndex(
-        (item) =>
-          item.kind === "message" &&
-          (item.id === savedPosition.anchorId ||
-            item.data.id === savedPosition.anchorId ||
-            item.data.localId === savedPosition.anchorId),
-      );
-
-      if (anchorIndex >= 0) {
-        isSearchingSavedPositionRef.current = false;
-        pendingLatestScrollRef.current = false;
-        const viewPosition = savedPosition.anchorViewPosition;
-        nearBottomRef.current = savedPosition.anchorAtBottom;
-        lastVisibleMessageRef.current = {
-          id: savedPosition.anchorId,
-          anchorAtBottom: savedPosition.anchorAtBottom,
-          viewPosition,
-        };
-        scheduleRestore(viewPosition, () => {
-          flatListRef.current?.scrollToIndex({
-            index: anchorIndex,
-            animated: false,
-            viewPosition,
-          });
-        });
-        return;
-      }
-
-      // If the cached page does not contain the saved anchor, let the initial
-      // server sync finish before requesting older pages for restoration.
-      if (isSyncing) return;
-
-      if (hasMore && !syncError) {
-        const oldestMessage = messages[0];
-        const cursor = `${oldestMessage?.timestamp ?? ""}:${oldestMessage?.id ?? oldestMessage?.localId ?? ""}`;
-        if (restoreCursorRef.current !== cursor) {
-          isSearchingSavedPositionRef.current = true;
-          restoreCursorRef.current = cursor;
-          restoreLoadInFlightRef.current = true;
-          void loadMore().finally(() => {
-            restoreLoadInFlightRef.current = false;
-          });
-          return;
-        }
-      }
-    }
-
-    isSearchingSavedPositionRef.current = false;
-    pendingLatestScrollRef.current = false;
-
-    if (savedPosition) {
-      nearBottomRef.current = savedPosition.anchorAtBottom;
-      lastVisibleMessageRef.current = null;
-      scheduleRestore(savedPosition.anchorViewPosition, () => {
-        flatListRef.current?.scrollToOffset({
-          offset: savedPosition.offset,
-          animated: false,
-        });
-      });
-      return;
-    }
-
-    nearBottomRef.current = lastUnreadIndex < 0;
-    const initialAnchor = flatData.find(
-      (item) =>
-        item.kind === "message" &&
-        item.index ===
-          (lastUnreadIndex >= 0 ? lastUnreadIndex : messages.length - 1),
-    );
-    lastVisibleMessageRef.current = initialAnchor
-      ? {
-          id: initialAnchor.id,
-          anchorAtBottom: lastUnreadIndex < 0,
-          viewPosition: lastUnreadIndex >= 0 ? 0.78 : 1,
-        }
-      : null;
-    scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
-      scrollToLastUnread(false),
-    );
-  }, [
-    conversationId,
-    roomId,
-    positionLoaded,
-    savedPosition,
-    isSyncing,
-    messages,
-    flatData,
-    hasMore,
-    syncError,
-    loadMore,
-    lastUnreadIndex,
-    scrollToLastUnread,
-    flatListRef,
-  ]);
+    // New conversations always open at the latest cached page; older history
+    // is fetched only after the user scrolls to the top.
+    initialScrollRoomRef.current = currentRoomKey;
+    userInteractedWithListRef.current = false;
+    requestScrollToLatest(false);
+  }, [currentRoomKey, messages.length, requestScrollToLatest]);
 
   useEffect(() => {
     const initialSyncJustFinished = previousSyncingRef.current && !isSyncing;
     previousSyncingRef.current = isSyncing;
 
-    // When the cache was already positioned at its latest message, keep the
-    // view pinned there after server sync adds messages. Never pull a reader
-    // away from an older saved/reading position.
     if (
       initialSyncJustFinished &&
-      positionRestoredRef.current &&
+      initialScrollRoomRef.current === currentRoomKey &&
       nearBottomRef.current
     ) {
       requestScrollToLatest(false);
     }
-  }, [isSyncing, requestScrollToLatest]);
+  }, [currentRoomKey, isSyncing, requestScrollToLatest]);
 
   const handleScrollToIndexFailed = useCallback(
     ({
@@ -1109,19 +755,7 @@ export default function PrivateRoom() {
         <TouchableOpacity
           style={styles.jumpToUnreadTouchable}
           onPress={() => {
-            cancelPositionRestore();
-            const targetMessage = messages[lastUnreadIndex];
-            const targetId = String(
-              targetMessage?.localId ?? targetMessage?.id ?? "",
-            );
-            if (targetId) {
-              nearBottomRef.current = false;
-              lastVisibleMessageRef.current = {
-                id: targetId,
-                anchorAtBottom: false,
-                viewPosition: 0.78,
-              };
-            }
+            nearBottomRef.current = false;
             scrollToLastUnread(true);
             setJumpButtonRoomKey(currentRoomKey);
             setShowJumpToUnread(false);
@@ -1173,27 +807,37 @@ export default function PrivateRoom() {
           keyboardShouldPersistTaps="handled"
           //keyboardDismissMode="on-drag"
           contentContainerStyle={{
-            paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
+            paddingBottom:
+              composerHeight > 0
+                ? composerHeight + theme.SPACING.xl
+                : theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
             paddingTop: theme.SPACING.md,
           }}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
-            !isSyncing && messages.length === 0 ? (
-              <View style={styles.emptyState}>
-                <View style={styles.emptyStateIcon}>
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={28}
-                    color={theme.COLORS.primary}
-                  />
+            <>
+              {isSyncing && messages.length > 0 ? (
+                <View style={styles.loadingMore}>
+                  <Text style={styles.loadingMoreText}>Syncing messages...</Text>
                 </View>
-                <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
-                <Text style={styles.emptyStateText}>
-                  Send a message to start the conversation.
-                </Text>
-              </View>
-            ) : null
+              ) : null}
+              {!isSyncing && messages.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyStateIcon}>
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={28}
+                      color={theme.COLORS.primary}
+                    />
+                  </View>
+                  <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
+                  <Text style={styles.emptyStateText}>
+                    Send a message to start the conversation.
+                  </Text>
+                </View>
+              ) : null}
+            </>
           }
           ListFooterComponent={
             isSyncing && messages.length === 0 ? (
@@ -1202,16 +846,10 @@ export default function PrivateRoom() {
                 <ChatBubbleSkeleton isOwn={true} />
                 <ChatBubbleSkeleton isOwn={false} />
               </View>
-            ) : isSyncing && messages.length > 0 ? (
-              <View style={styles.loadingMore}>
-                <Text style={styles.loadingMoreText}>Loading...</Text>
-              </View>
             ) : null
           }
           onScrollToIndexFailed={handleScrollToIndexFailed}
           onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollEndDrag={handleScrollEnd}
-          onMomentumScrollEnd={handleScrollEnd}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           onViewableItemsChanged={handleViewableItemsChanged}
@@ -1221,6 +859,9 @@ export default function PrivateRoom() {
 
       {/* FLOATING INPUT */}
       <Animated.View
+        onLayout={({ nativeEvent }) =>
+          setComposerHeight(nativeEvent.layout.height)
+        }
         style={[
           styles.floatingInputWrapper,
           {
