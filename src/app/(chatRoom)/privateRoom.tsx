@@ -36,17 +36,11 @@ import { mediaService } from "@/services/MediaService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
-import { useKeyboardState } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  useKeyboardState,
+} from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-interface SavedChatPosition {
-  anchorId: string | null;
-  offset: number;
-  anchorAtBottom: boolean;
-  anchorViewPosition: number;
-  savedAt: number;
-}
 
 function getMessageType(type: string): string {
   switch (type) {
@@ -101,36 +95,28 @@ export default function PrivateRoom() {
   const [sending, setSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [showJumpToUnread, setShowJumpToUnread] = useState(true);
+  const [jumpButtonRoomKey, setJumpButtonRoomKey] = useState<string | null>(
+    null,
+  );
+  const [positionedRoomKey, setPositionedRoomKey] = useState<string | null>(
+    null,
+  );
+  const [composerHeight, setComposerHeight] = useState(0);
+  const composerHeightRef = useRef(0);
+  const currentRoomKey = String(conversationId || roomId || "");
+  const shouldShowJumpToUnread =
+    jumpButtonRoomKey === currentRoomKey ? showJumpToUnread : true;
   const textInputRef = useRef<TextInput>(null);
   const initialScrollRoomRef = useRef<string | null>(null);
-  const initialCacheScrollKeyRef = useRef<string | null>(null);
-  const pendingInitialEndScrollRef = useRef(false);
   const pendingLatestScrollRef = useRef(false);
   const pendingLatestScrollAnimatedRef = useRef(false);
-  const isSearchingSavedPositionRef = useRef(false);
   const handledIncomingVersionRef = useRef(0);
-  const positionRestoredRef = useRef(false);
-  const restoreLoadInFlightRef = useRef(false);
-  const restoreCursorRef = useRef<string | null>(null);
-  const lastVisibleMessageRef = useRef<{
-    id: string;
-    anchorAtBottom: boolean;
-    viewPosition: number;
-  } | null>(null);
-  const visibleMessageIdsRef = useRef<string[]>([]);
   const nearBottomRef = useRef(true);
-  const scrollOffsetRef = useRef(0);
-  const persistPositionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const restoreScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const userInteractedWithListRef = useRef(false);
+  const keyboardWasVisibleRef = useRef(false);
+  const stickToLatestOnKeyboardOpenRef = useRef(false);
   const pendingScrollViewPositionRef = useRef(0.78);
-  const [positionRecord, setPositionRecord] = useState<{
-    key: string;
-    position: SavedChatPosition | null;
-  } | null>(null);
+  const loadMoreInFlightRef = useRef(false);
   const [keyboardHeight] = useState(() => new Animated.Value(0));
   const [dateLabels] = useState(() => {
     const today = new Date();
@@ -141,6 +127,18 @@ export default function PrivateRoom() {
   });
   const insets = useSafeAreaInsets();
   const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
+
+  useEffect(() => {
+    if (keyboardIsVisible && !keyboardWasVisibleRef.current) {
+      // Keep the latest message in view when the keyboard reduces the viewport,
+      // but preserve the reader's position if they were viewing older messages.
+      stickToLatestOnKeyboardOpenRef.current = nearBottomRef.current;
+    }
+    keyboardWasVisibleRef.current = keyboardIsVisible;
+    if (!keyboardIsVisible) {
+      stickToLatestOnKeyboardOpenRef.current = false;
+    }
+  }, [keyboardIsVisible]);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const status = useAudioRecorderState(recorder);
@@ -183,73 +181,7 @@ export default function PrivateRoom() {
 
   const currentUserId = useAppSelector((s) => s.auth.user?.id);
   const currentUserToken = useAppSelector((s) => s.auth.token);
-  const positionStorageKey = useMemo(
-    () =>
-      `private-room-position:${currentUserId ?? "guest"}:${String(conversationId || roomId || "")}`,
-    [currentUserId, conversationId, roomId],
-  );
-  const positionLoaded = positionRecord?.key === positionStorageKey;
-  const savedPosition = positionLoaded
-    ? (positionRecord?.position ?? null)
-    : null;
   const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    positionRestoredRef.current = false;
-    initialScrollRoomRef.current = null;
-    initialCacheScrollKeyRef.current = null;
-    pendingInitialEndScrollRef.current = false;
-    pendingLatestScrollRef.current = false;
-    isSearchingSavedPositionRef.current = false;
-    restoreLoadInFlightRef.current = false;
-    restoreCursorRef.current = null;
-    lastVisibleMessageRef.current = null;
-    visibleMessageIdsRef.current = [];
-    scrollOffsetRef.current = 0;
-    nearBottomRef.current = true;
-
-    let cancelled = false;
-    const readPosition = async () => {
-      let position: SavedChatPosition | null = null;
-      try {
-        const raw = await AsyncStorage.getItem(positionStorageKey);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<SavedChatPosition>;
-          if (
-            typeof parsed.offset === "number" &&
-            Number.isFinite(parsed.offset)
-          ) {
-            position = {
-              anchorId:
-                typeof parsed.anchorId === "string" ? parsed.anchorId : null,
-              offset: Math.max(0, parsed.offset),
-              anchorAtBottom: parsed.anchorAtBottom === true,
-              anchorViewPosition:
-                typeof parsed.anchorViewPosition === "number" &&
-                Number.isFinite(parsed.anchorViewPosition)
-                  ? Math.max(0, Math.min(1, parsed.anchorViewPosition))
-                  : parsed.anchorAtBottom === true
-                    ? 1
-                    : 0,
-              savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
-            };
-          }
-        }
-      } catch {
-        // A malformed or unavailable local position should fall back to the unread/end position.
-      }
-      if (!cancelled) setPositionRecord({ key: positionStorageKey, position });
-    };
-
-    void readPosition();
-    return () => {
-      cancelled = true;
-      if (restoreScrollTimerRef.current) {
-        clearTimeout(restoreScrollTimerRef.current);
-        restoreScrollTimerRef.current = null;
-      }
-    };
-  }, [positionStorageKey]);
 
   const {
     messages,
@@ -275,6 +207,7 @@ export default function PrivateRoom() {
       token: currentUserToken ?? "",
     },
   });
+  const previousSyncingRef = useRef(isSyncing);
 
   const isReceivedUnread = useCallback(
     (message: any) =>
@@ -284,143 +217,77 @@ export default function PrivateRoom() {
     [currentUserId],
   );
 
-  const firstUnreadIndex = useMemo(
-    () => messages.findIndex(isReceivedUnread),
-    [messages, isReceivedUnread],
-  );
-  const lastUnreadIndex = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (isReceivedUnread(messages[index])) return index;
-    }
-    return -1;
-  }, [messages, isReceivedUnread]);
-  const unreadMessageCount = useMemo(
-    () =>
-      messages.reduce(
-        (count, message) => count + Number(isReceivedUnread(message)),
-        0,
-      ),
-    [messages, isReceivedUnread],
-  );
+  const { firstUnreadIndex, lastUnreadIndex, unreadMessageCount } =
+    useMemo(() => {
+      let first = -1;
+      let last = -1;
+      let count = 0;
 
-  const flushSavedPosition = useCallback(
-    async (offset: number) => {
-      if (!positionRestoredRef.current) return;
-      const visibleAnchor = lastVisibleMessageRef.current;
-      const position: SavedChatPosition = {
-        anchorId: visibleAnchor?.id ?? null,
-        offset: Math.max(0, offset),
-        anchorAtBottom: visibleAnchor?.anchorAtBottom ?? nearBottomRef.current,
-        anchorViewPosition:
-          visibleAnchor?.viewPosition ?? (nearBottomRef.current ? 1 : 0),
-        savedAt: Date.now(),
+      for (let index = 0; index < messages.length; index += 1) {
+        if (!isReceivedUnread(messages[index])) continue;
+        if (first === -1) first = index;
+        last = index;
+        count += 1;
+      }
+
+      return {
+        firstUnreadIndex: first,
+        lastUnreadIndex: last,
+        unreadMessageCount: count,
       };
-      try {
-        await AsyncStorage.setItem(
-          positionStorageKey,
-          JSON.stringify(position),
-        );
-      } catch (error) {
-        console.warn("[privateRoom] could not save reading position:", error);
-      }
-    },
-    [positionStorageKey],
-  );
+    }, [messages, isReceivedUnread]);
 
-  const schedulePositionSave = useCallback(
-    (offset: number) => {
-      if (!positionRestoredRef.current) return;
-      if (persistPositionTimerRef.current) {
-        clearTimeout(persistPositionTimerRef.current);
-      }
-      persistPositionTimerRef.current = setTimeout(() => {
-        persistPositionTimerRef.current = null;
-        void flushSavedPosition(offset);
-      }, 280);
-    },
-    [flushSavedPosition],
-  );
-
-  const cancelPositionRestore = useCallback(() => {
-    const roomKey = String(conversationId || roomId || "");
-    if (restoreScrollTimerRef.current) {
-      clearTimeout(restoreScrollTimerRef.current);
-      restoreScrollTimerRef.current = null;
-    }
-    if (persistPositionTimerRef.current) {
-      clearTimeout(persistPositionTimerRef.current);
-      persistPositionTimerRef.current = null;
-    }
-    positionRestoredRef.current = true;
-    initialScrollRoomRef.current = roomKey;
-    isSearchingSavedPositionRef.current = false;
-    restoreCursorRef.current = null;
-    pendingInitialEndScrollRef.current = false;
-    pendingLatestScrollRef.current = false;
-  }, [conversationId, roomId]);
-
+  // Keep this callback stable across message-count changes. Otherwise the focus
+  // effect is torn down and restarted for every new message.
   const requestScrollToLatest = useCallback(
     (animated = true) => {
-      const latestMessage = messages[messages.length - 1];
-      const latestId = String(
-        latestMessage?.localId ?? latestMessage?.id ?? "",
-      );
-      if (latestId) {
-        lastVisibleMessageRef.current = {
-          id: latestId,
-          anchorAtBottom: true,
-          viewPosition: 1,
-        };
-      }
       nearBottomRef.current = true;
       pendingLatestScrollAnimatedRef.current = animated;
       pendingLatestScrollRef.current = true;
+
+      // The composer is absolutely positioned, so the list must not be marked
+      // ready until the composer has a real measured height. onLayout below
+      // retries this request as soon as that measurement exists.
+      if (composerHeightRef.current <= 0) return;
+
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (!pendingLatestScrollRef.current) return;
-          pendingLatestScrollRef.current = false;
+          if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
+            return;
+
           flatListRef.current?.scrollToEnd({
             animated: pendingLatestScrollAnimatedRef.current,
+          });
+
+          // Let React Native apply the new bottom inset/padding before the final
+          // non-animated correction. Do not reveal the list until this pass.
+          requestAnimationFrame(() => {
+            if (
+              !pendingLatestScrollRef.current ||
+              composerHeightRef.current <= 0
+            )
+              return;
+            flatListRef.current?.scrollToEnd({ animated: false });
+            pendingLatestScrollRef.current = false;
+            setPositionedRoomKey(currentRoomKey);
           });
         });
       });
     },
-    [flatListRef, messages],
-  );
-
-  useEffect(
-    () => () => {
-      if (persistPositionTimerRef.current) {
-        clearTimeout(persistPositionTimerRef.current);
-        persistPositionTimerRef.current = null;
-        void flushSavedPosition(scrollOffsetRef.current);
-      }
-    },
-    [flushSavedPosition],
+    [currentRoomKey, flatListRef],
   );
 
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      return () => {
-        setIsFocused(false);
-        if (persistPositionTimerRef.current) {
-          clearTimeout(persistPositionTimerRef.current);
-          persistPositionTimerRef.current = null;
-        }
-        void flushSavedPosition(scrollOffsetRef.current);
-      };
-    }, [flushSavedPosition]),
+      requestScrollToLatest(false);
+      return () => setIsFocused(false);
+    }, [requestScrollToLatest]),
   );
 
   const handleBack = useCallback(() => {
-    if (persistPositionTimerRef.current) {
-      clearTimeout(persistPositionTimerRef.current);
-      persistPositionTimerRef.current = null;
-    }
-    void flushSavedPosition(scrollOffsetRef.current);
     router.back();
-  }, [flushSavedPosition]);
+  }, []);
 
   const handleProfilePress = useCallback(() => {
     if (keyboardIsVisible) {
@@ -531,7 +398,6 @@ export default function PrivateRoom() {
     const text = inputText.trim();
     if (!text || sending) return;
 
-    cancelPositionRestore();
     requestScrollToLatest(false);
     setInputText("");
     setSending(true);
@@ -557,13 +423,11 @@ export default function PrivateRoom() {
     replyMsg,
     receiverId,
     replyingTo,
-    cancelPositionRestore,
     requestScrollToLatest,
   ]);
 
   const handleSendFiles = useCallback(
     async (files: PickedFile[]) => {
-      cancelPositionRestore();
       requestScrollToLatest(false);
       for (const file of files) {
         await sendMedia(file.type, file.uri, receiverId);
@@ -573,7 +437,7 @@ export default function PrivateRoom() {
         textInputRef.current?.focus();
       }, 300);
     },
-    [receiverId, sendMedia, cancelPositionRestore, requestScrollToLatest],
+    [receiverId, sendMedia, requestScrollToLatest],
   );
 
   const handleInputChange = useCallback(
@@ -592,32 +456,43 @@ export default function PrivateRoom() {
       const offset = Math.max(0, contentOffset.y);
       const isNearBottom =
         layoutMeasurement.height + offset >= contentSize.height - 120;
-      scrollOffsetRef.current = offset;
       nearBottomRef.current = isNearBottom;
-      schedulePositionSave(offset);
+      setJumpButtonRoomKey((previous) =>
+        previous === currentRoomKey ? previous : currentRoomKey,
+      );
+      const shouldShowJump = unreadMessageCount > 0 && !isNearBottom;
+      setShowJumpToUnread((previous) =>
+        previous === shouldShowJump ? previous : shouldShowJump,
+      );
 
-      if (unreadMessageCount === 0 || isNearBottom) {
-        setShowJumpToUnread(false);
-      } else {
-        setShowJumpToUnread(true);
+      // Guard against repeated onScroll events starting overlapping page loads
+      // before the hook has updated isSyncing.
+      if (
+        userInteractedWithListRef.current &&
+        offset <= 72 &&
+        initialScrollRoomRef.current === currentRoomKey &&
+        hasMore &&
+        !isSyncing &&
+        !loadMoreInFlightRef.current
+      ) {
+        loadMoreInFlightRef.current = true;
+        void (async () => {
+          try {
+            await loadMore();
+          } catch (error) {
+            console.error("Failed to load older chat messages:", error);
+          } finally {
+            loadMoreInFlightRef.current = false;
+          }
+        })();
       }
     },
-    [unreadMessageCount, schedulePositionSave],
+    [currentRoomKey, hasMore, isSyncing, loadMore, unreadMessageCount],
   );
 
   const handleScrollBeginDrag = useCallback(() => {
-    cancelPositionRestore();
-    lastVisibleMessageRef.current = null;
-  }, [cancelPositionRestore]);
-
-  const handleScrollEnd = useCallback(
-    (event: any) => {
-      const offset = Math.max(0, event.nativeEvent.contentOffset.y);
-      scrollOffsetRef.current = offset;
-      void flushSavedPosition(offset);
-    },
-    [flushSavedPosition],
-  );
+    userInteractedWithListRef.current = true;
+  }, []);
 
   const viewabilityConfig = useMemo(
     () => ({
@@ -628,29 +503,7 @@ export default function PrivateRoom() {
   );
 
   const handleViewableItemsChanged = useCallback(
-    ({ changed, viewableItems }: { changed: any[]; viewableItems: any[] }) => {
-      const visibleItems = viewableItems
-        .filter(
-          (viewable) =>
-            viewable.isViewable && viewable.item?.kind === "message",
-        )
-        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-        .map((viewable) => viewable.item);
-      const visibleIds = visibleItems.map((item) => item.id as string);
-      visibleMessageIdsRef.current = visibleIds;
-
-      const anchorItem = nearBottomRef.current
-        ? visibleItems[visibleItems.length - 1]
-        : visibleItems[0];
-      if (anchorItem?.id) {
-        lastVisibleMessageRef.current = {
-          id: anchorItem.id as string,
-          anchorAtBottom: nearBottomRef.current,
-          viewPosition: nearBottomRef.current ? 1 : 0,
-        };
-        schedulePositionSave(scrollOffsetRef.current);
-      }
-
+    ({ changed }: { changed: any[] }) => {
       const newlyVisibleMessageIds = changed
         .filter(
           (change) => change.isViewable && change.item?.kind === "message",
@@ -660,7 +513,7 @@ export default function PrivateRoom() {
         markVisibleRead(newlyVisibleMessageIds);
       }
     },
-    [markVisibleRead, schedulePositionSave],
+    [markVisibleRead],
   );
 
   const dismissKeyboard = useCallback(() => {
@@ -680,6 +533,14 @@ export default function PrivateRoom() {
         duration: e.duration ?? 250,
         useNativeDriver: true,
       }).start();
+
+      if (Platform.OS === "android" && stickToLatestOnKeyboardOpenRef.current) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          });
+        });
+      }
     });
 
     const hideSub = Keyboard.addListener(hideEvent, (e) => {
@@ -694,7 +555,7 @@ export default function PrivateRoom() {
       showSub.remove();
       hideSub.remove();
     };
-  }, [keyboardHeight]);
+  }, [flatListRef, keyboardHeight]);
 
   const inputTranslateY = keyboardHeight.interpolate({
     inputRange: [0, 400],
@@ -721,7 +582,7 @@ export default function PrivateRoom() {
       else if (ts === yesterday) label = "Yesterday";
 
       if (label !== lastDate) {
-        items.push({ kind: "date", id: `date-${label}-${idx}`, date: label });
+        items.push({ kind: "date", id: `date-${ts}`, date: label });
         lastDate = label;
       }
 
@@ -753,8 +614,13 @@ export default function PrivateRoom() {
 
       items.push({
         kind: "message",
-        id: m.localId ?? m.id ?? `msg-${idx}`,
-        data: { ...m, repliedTo },
+        id:
+          m.localId ??
+          m.id ??
+          `msg-${String(m.timestamp ?? m.conversationId ?? "unknown")}-${String(m.senderId ?? "unknown")}-${String(m.type ?? "TEXT")}-${String(m.content ?? m.mediaUrl ?? "").slice(0, 32)}`,
+        // Preserve the original message object for rows that do not need a
+        // synthesized reply preview, reducing unnecessary row prop changes.
+        data: repliedTo ? { ...m, repliedTo } : m,
         index: idx,
       });
     });
@@ -763,95 +629,38 @@ export default function PrivateRoom() {
   }, [dateLabels, messages, currentUserId]);
 
   const handleInitialContentSizeChange = useCallback(() => {
-    if (pendingLatestScrollRef.current) {
-      const latestMessage = messages[messages.length - 1];
-      const latestId = String(
-        latestMessage?.localId ?? latestMessage?.id ?? "",
-      );
-      if (latestId) {
-        lastVisibleMessageRef.current = {
-          id: latestId,
-          anchorAtBottom: true,
-          viewPosition: 1,
-        };
-      }
-      nearBottomRef.current = true;
+    if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
+      return;
+
+    nearBottomRef.current = true;
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (!pendingLatestScrollRef.current) return;
-        pendingLatestScrollRef.current = false;
+        if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
+          return;
+
         flatListRef.current?.scrollToEnd({
           animated: pendingLatestScrollAnimatedRef.current,
         });
-      });
-      return;
-    }
 
-    pendingInitialEndScrollRef.current = false;
-    const scrollKey = initialCacheScrollKeyRef.current;
-    if (!scrollKey || positionRestoredRef.current) return;
-    requestAnimationFrame(() => {
-      if (
-        initialCacheScrollKeyRef.current === scrollKey &&
-        !positionRestoredRef.current
-      ) {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }
-    });
-  }, [flatListRef, messages]);
-
-  useEffect(() => {
-    const roomKey = String(conversationId || roomId || "");
-    if (
-      !roomKey ||
-      !conversationId ||
-      messages[0]?.conversationId !== conversationId ||
-      messages.length === 0 ||
-      positionRestoredRef.current ||
-      initialCacheScrollKeyRef.current === positionStorageKey
-    ) {
-      return;
-    }
-
-    initialCacheScrollKeyRef.current = positionStorageKey;
-    pendingInitialEndScrollRef.current = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (
-          initialCacheScrollKeyRef.current === positionStorageKey &&
-          pendingInitialEndScrollRef.current &&
-          !positionRestoredRef.current
-        ) {
-          pendingInitialEndScrollRef.current = false;
+        requestAnimationFrame(() => {
+          if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
+            return;
           flatListRef.current?.scrollToEnd({ animated: false });
-        }
+          pendingLatestScrollRef.current = false;
+          setPositionedRoomKey(currentRoomKey);
+        });
       });
     });
-  }, [conversationId, roomId, positionStorageKey, messages, flatListRef]);
+  }, [currentRoomKey, flatListRef]);
 
+  // Incoming messages should not drag the reader away from older history.
   useEffect(() => {
     if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
     handledIncomingVersionRef.current = incomingMessageVersion;
-    if (!isFocused) return;
+    if (!isFocused || !nearBottomRef.current) return;
 
-    cancelPositionRestore();
     requestScrollToLatest(true);
-  }, [
-    incomingMessageVersion,
-    isFocused,
-    cancelPositionRestore,
-    requestScrollToLatest,
-  ]);
-
-  useEffect(() => {
-    if (
-      !isSearchingSavedPositionRef.current ||
-      positionRestoredRef.current ||
-      messages.length === 0
-    ) {
-      return;
-    }
-    requestScrollToLatest(false);
-  }, [messages, requestScrollToLatest]);
+  }, [incomingMessageVersion, isFocused, requestScrollToLatest]);
 
   const lastUnreadFlatIndex = useMemo(
     () =>
@@ -879,134 +688,32 @@ export default function PrivateRoom() {
   );
 
   useEffect(() => {
-    const roomKey = String(conversationId || roomId || "");
     if (
-      !roomKey ||
-      !positionLoaded ||
-      isSyncing ||
-      positionRestoredRef.current ||
-      initialScrollRoomRef.current === roomKey ||
-      restoreLoadInFlightRef.current
+      messages.length === 0 ||
+      initialScrollRoomRef.current === currentRoomKey
     ) {
       return;
     }
 
-    setShowJumpToUnread(lastUnreadIndex >= 0);
+    // New conversations always open at the latest cached page; older history
+    // is fetched only after the user scrolls to the top.
+    initialScrollRoomRef.current = currentRoomKey;
+    userInteractedWithListRef.current = false;
+    requestScrollToLatest(false);
+  }, [currentRoomKey, messages.length, requestScrollToLatest]);
 
-    const scheduleRestore = (viewPosition: number, scroll: () => void) => {
-      initialScrollRoomRef.current = roomKey;
-      pendingScrollViewPositionRef.current = viewPosition;
-      visibleMessageIdsRef.current = [];
-      if (restoreScrollTimerRef.current)
-        clearTimeout(restoreScrollTimerRef.current);
-      restoreScrollTimerRef.current = setTimeout(() => {
-        restoreScrollTimerRef.current = null;
-        if (initialScrollRoomRef.current !== roomKey) return;
-        positionRestoredRef.current = true;
-        scroll();
-      }, 120);
-    };
+  useEffect(() => {
+    const initialSyncJustFinished = previousSyncingRef.current && !isSyncing;
+    previousSyncingRef.current = isSyncing;
 
-    if (messages.length === 0) {
-      nearBottomRef.current = lastUnreadIndex < 0;
-      scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
-        scrollToLastUnread(false),
-      );
-      return;
+    if (
+      initialSyncJustFinished &&
+      initialScrollRoomRef.current === currentRoomKey &&
+      nearBottomRef.current
+    ) {
+      requestScrollToLatest(false);
     }
-
-    if (savedPosition?.anchorId) {
-      const anchorIndex = flatData.findIndex(
-        (item) =>
-          item.kind === "message" &&
-          (item.id === savedPosition.anchorId ||
-            item.data.id === savedPosition.anchorId ||
-            item.data.localId === savedPosition.anchorId),
-      );
-
-      if (anchorIndex >= 0) {
-        isSearchingSavedPositionRef.current = false;
-        pendingLatestScrollRef.current = false;
-        pendingInitialEndScrollRef.current = false;
-        const viewPosition = savedPosition.anchorViewPosition;
-        nearBottomRef.current = savedPosition.anchorAtBottom;
-        lastVisibleMessageRef.current = {
-          id: savedPosition.anchorId,
-          anchorAtBottom: savedPosition.anchorAtBottom,
-          viewPosition,
-        };
-        scheduleRestore(viewPosition, () => {
-          flatListRef.current?.scrollToIndex({
-            index: anchorIndex,
-            animated: false,
-            viewPosition,
-          });
-        });
-        return;
-      }
-
-      if (hasMore && !syncError) {
-        const oldestMessage = messages[0];
-        const cursor = `${oldestMessage?.timestamp ?? ""}:${oldestMessage?.id ?? oldestMessage?.localId ?? ""}`;
-        if (restoreCursorRef.current !== cursor) {
-          isSearchingSavedPositionRef.current = true;
-          restoreCursorRef.current = cursor;
-          restoreLoadInFlightRef.current = true;
-          void loadMore().finally(() => {
-            restoreLoadInFlightRef.current = false;
-          });
-          return;
-        }
-      }
-    }
-
-    isSearchingSavedPositionRef.current = false;
-    pendingLatestScrollRef.current = false;
-
-    if (savedPosition) {
-      nearBottomRef.current = savedPosition.anchorAtBottom;
-      lastVisibleMessageRef.current = null;
-      scheduleRestore(savedPosition.anchorViewPosition, () => {
-        flatListRef.current?.scrollToOffset({
-          offset: savedPosition.offset,
-          animated: false,
-        });
-      });
-      return;
-    }
-
-    nearBottomRef.current = lastUnreadIndex < 0;
-    const initialAnchor = flatData.find(
-      (item) =>
-        item.kind === "message" &&
-        item.index ===
-          (lastUnreadIndex >= 0 ? lastUnreadIndex : messages.length - 1),
-    );
-    lastVisibleMessageRef.current = initialAnchor
-      ? {
-          id: initialAnchor.id,
-          anchorAtBottom: lastUnreadIndex < 0,
-          viewPosition: lastUnreadIndex >= 0 ? 0.78 : 1,
-        }
-      : null;
-    scheduleRestore(lastUnreadIndex >= 0 ? 0.78 : 1, () =>
-      scrollToLastUnread(false),
-    );
-  }, [
-    conversationId,
-    roomId,
-    positionLoaded,
-    savedPosition,
-    isSyncing,
-    messages,
-    flatData,
-    hasMore,
-    syncError,
-    loadMore,
-    lastUnreadIndex,
-    scrollToLastUnread,
-    flatListRef,
-  ]);
+  }, [currentRoomKey, isSyncing, requestScrollToLatest]);
 
   const handleScrollToIndexFailed = useCallback(
     ({
@@ -1072,7 +779,7 @@ export default function PrivateRoom() {
         </View>
       );
     },
-    [firstUnreadIndex, currentUserId],
+    [firstUnreadIndex, currentUserId, receiverName, handleMessageAction],
   );
 
   const keyExtractor = useCallback((item: MessageItem) => item.id, []);
@@ -1096,24 +803,13 @@ export default function PrivateRoom() {
       </SafeAreaView>
 
       {/* UNREAD JUMP BUTTON */}
-      {showJumpToUnread && lastUnreadIndex >= 0 ? (
+      {shouldShowJumpToUnread && lastUnreadIndex >= 0 ? (
         <TouchableOpacity
           style={styles.jumpToUnreadTouchable}
           onPress={() => {
-            cancelPositionRestore();
-            const targetMessage = messages[lastUnreadIndex];
-            const targetId = String(
-              targetMessage?.localId ?? targetMessage?.id ?? "",
-            );
-            if (targetId) {
-              nearBottomRef.current = false;
-              lastVisibleMessageRef.current = {
-                id: targetId,
-                anchorAtBottom: false,
-                viewPosition: 0.78,
-              };
-            }
+            nearBottomRef.current = false;
             scrollToLastUnread(true);
+            setJumpButtonRoomKey(currentRoomKey);
             setShowJumpToUnread(false);
           }}
           activeOpacity={0.9}
@@ -1145,65 +841,96 @@ export default function PrivateRoom() {
         </TouchableOpacity>
       ) : null}
 
-      {/* MESSAGES */}
-      <FlatList
-        ref={flatListRef}
-        style={styles.messageList}
-        data={flatData}
-        extraData={messages}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        onContentSizeChange={handleInitialContentSizeChange}
-        keyExtractor={keyExtractor}
-        keyboardShouldPersistTaps="handled"
-        //keyboardDismissMode="on-drag"
-        contentContainerStyle={{
-          paddingBottom: theme.SIZING.bottomBar + theme.SPACING.xxl + 90,
-          paddingTop: theme.SPACING.md,
-        }}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          !isSyncing && messages.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyStateIcon}>
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={28}
-                  color={theme.COLORS.primary}
-                />
+      {/* Keep the message viewport above the keyboard without changing the input animation. */}
+      <KeyboardAvoidingView
+        style={styles.messageViewport}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        automaticOffset
+      >
+        {/* MESSAGES */}
+        <FlatList
+          ref={flatListRef}
+          style={[
+            styles.messageList,
+            messages.length > 0 && positionedRoomKey !== currentRoomKey
+              ? styles.messageListHidden
+              : null,
+          ]}
+          data={flatData}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onContentSizeChange={handleInitialContentSizeChange}
+          keyExtractor={keyExtractor}
+          keyboardShouldPersistTaps="handled"
+          //keyboardDismissMode="on-drag"
+          contentContainerStyle={{
+            // The composer floats above the list, so reserve its measured height
+            // plus its bottom offset and a small visual gap. This prevents the
+            // final messages from sitting underneath the input on first open.
+            paddingBottom:
+              composerHeight + Math.max(insets.bottom, 8) + theme.SPACING.md,
+            paddingTop: theme.SPACING.md,
+          }}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <>
+              {!isSyncing && messages.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyStateIcon}>
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={28}
+                      color={theme.COLORS.primary}
+                    />
+                  </View>
+                  <Text style={styles.emptyStateTitle}>
+                    A quiet little corner
+                  </Text>
+                  <Text style={styles.emptyStateText}>
+                    Send a message to start the conversation.
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          }
+          ListFooterComponent={
+            isSyncing && messages.length === 0 ? (
+              <View style={{ paddingVertical: theme.SPACING.xl }}>
+                <ChatBubbleSkeleton isOwn={false} />
+                <ChatBubbleSkeleton isOwn={true} />
+                <ChatBubbleSkeleton isOwn={false} />
               </View>
-              <Text style={styles.emptyStateTitle}>A quiet little corner</Text>
-              <Text style={styles.emptyStateText}>
-                Send a message to start the conversation.
-              </Text>
-            </View>
-          ) : null
-        }
-        ListFooterComponent={
-          isSyncing && messages.length === 0 ? (
-            <View style={{ paddingVertical: theme.SPACING.xl }}>
-              <ChatBubbleSkeleton isOwn={false} />
-              <ChatBubbleSkeleton isOwn={true} />
-              <ChatBubbleSkeleton isOwn={false} />
-            </View>
-          ) : isSyncing && messages.length > 0 ? (
-            <View style={styles.loadingMore}>
-              <Text style={styles.loadingMoreText}>Loading...</Text>
-            </View>
-          ) : null
-        }
-        onScrollToIndexFailed={handleScrollToIndexFailed}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollEnd={handleScrollEnd}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        onViewableItemsChanged={handleViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-      />
+            ) : null
+          }
+          onScrollToIndexFailed={handleScrollToIndexFailed}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+        />
+      </KeyboardAvoidingView>
 
       {/* FLOATING INPUT */}
       <Animated.View
+        onLayout={(event) => {
+          const nextHeight = event.nativeEvent.layout.height;
+          const heightChanged =
+            Math.abs(composerHeightRef.current - nextHeight) > 1;
+          composerHeightRef.current = nextHeight;
+          setComposerHeight((previous) =>
+            Math.abs(previous - nextHeight) > 1 ? nextHeight : previous,
+          );
+          // The first measured height is required before initial positioning.
+          // Later height changes only reposition if the reader was already at
+          // the bottom, so reading older messages is not interrupted.
+          if (
+            pendingLatestScrollRef.current ||
+            (heightChanged && nearBottomRef.current)
+          ) {
+            requestScrollToLatest(false);
+          }
+        }}
         style={[
           styles.floatingInputWrapper,
           {
@@ -1317,9 +1044,15 @@ const styles = StyleSheet.create({
     elevation: 5,
     backgroundColor: theme.COLORS.bgWhite,
   },
+  messageViewport: {
+    flex: 1,
+  },
   messageList: {
     flex: 1,
     backgroundColor: "#F7F6FB",
+  },
+  messageListHidden: {
+    opacity: 0,
   },
   jumpToUnreadTouchable: {
     position: "absolute",

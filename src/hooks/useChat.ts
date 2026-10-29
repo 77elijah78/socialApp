@@ -5,6 +5,10 @@ import { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
 import { mediaService } from "../services/MediaService";
 import { router } from "expo-router";
+import {
+  getRecentMessageCache,
+  setRecentMessageCache,
+} from "@/utils/recentMessageCache";
 
 interface CurrentUser {
   id: string;
@@ -57,6 +61,7 @@ interface UseChatReturn {
 
   markVisibleRead: (visibleMessageIds: string[]) => void;
   incomingMessageVersion: number;
+  initialSyncConversationId: string | null;
 }
 
 export function useChat({
@@ -64,9 +69,18 @@ export function useChat({
   currentUser,
   isFocused,
 }: UseChatParams): UseChatReturn {
-  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [messages, setMessages] = useState<MessageRow[]>(
+    () => getRecentMessageCache(conversationId)?.messages ?? [],
+  );
+  const [messagesConversationId, setMessagesConversationId] =
+    useState(conversationId);
   const [isSyncing, setIsSyncing] = useState(true);
+  const isCurrentConversation = messagesConversationId === conversationId;
+  const visibleMessages = isCurrentConversation ? messages : [];
+  const visibleIsSyncing = isCurrentConversation ? isSyncing : true;
   const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
+  const [initialSyncConversationId, setInitialSyncConversationId] =
+    useState<string | null>(null);
   const [isConnected, setConnected] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
@@ -199,30 +213,24 @@ export function useChat({
    * RELOAD
    * ---------------------------------------------------------
    */
-  const reload = useCallback(async () => {
-    if (!conversationId) return;
+  const reload = useCallback(
+    async (preserveExisting = false) => {
+      if (!conversationId) return;
 
-    const rows = await messageStore.getRecent(conversationId, 30);
+      const rows = await messageStore.getRecent(conversationId, 30);
 
-    if (!mountedRef.current) return;
-
-    setMessages(dedupeMessages(rows));
-  }, [conversationId, dedupeMessages]);
-
-  /**
-   * ---------------------------------------------------------
-   * SCROLL
-   * ---------------------------------------------------------
-   */
-  const scrollToEnd = useCallback((animated = true) => {
-    setTimeout(() => {
       if (!mountedRef.current) return;
 
-      flatListRef.current?.scrollToEnd({
-        animated,
+      setMessages((current) => {
+        const shouldMerge = preserveExisting || initializingRef.current;
+        const next = dedupeMessages(shouldMerge ? [...rows, ...current] : rows);
+        return shouldMerge
+          ? next.sort((a, b) => a.timestamp - b.timestamp)
+          : next;
       });
-    }, 80);
-  }, []);
+    },
+    [conversationId, dedupeMessages],
+  );
 
   /**
    * ---------------------------------------------------------
@@ -237,12 +245,17 @@ export function useChat({
     mountedRef.current = true;
     initializingRef.current = false;
     loadingMoreRef.current = false;
+    const initialCache = getRecentMessageCache(conversationId);
 
     /**
-     * Reset pagination for a new conversation.
+     * Reset state for a new conversation. The hook's returned messages are
+     * keyed by conversationId, so the previous room is never painted while
+     * this effect starts.
      */
+    setMessagesConversationId(conversationId);
+    setInitialSyncConversationId(null);
     setHasMore(true);
-    setMessages([]);
+    setMessages(initialCache?.messages ?? []);
     setIsSyncing(true);
 
     /**
@@ -282,16 +295,6 @@ export function useChat({
         return;
       }
 
-      const senderId = String(
-        (
-          msg as MessageRow & {
-            senderId?: string;
-          }
-        ).senderId ?? "",
-      );
-
-      const isOwnMessage = senderId === currentUserIdRef.current;
-
       /**
        * Append directly to state instead of
        * reloading all 30 messages from SQLite.
@@ -320,12 +323,8 @@ export function useChat({
         return;
       }
 
+      // Let the focused room screen decide whether to scroll to the new row.
       setIncomingMessageVersion((version) => version + 1);
-
-      /**
-       * New message should immediately appear.
-       */
-      scrollToEnd(true);
     };
 
     const handleDelivered = async ({
@@ -588,15 +587,18 @@ export function useChat({
 
       try {
         /**
-         * 1. Show local SQLite messages immediately.
+         * 1. Use the list-screen prefetch immediately, or fall back to SQLite.
          */
-        await reload();
+        if (!initialCache || Date.now() - initialCache.cachedAt > 5000) {
+          await reload();
+        }
 
         if (cancelled || !mountedRef.current) {
           return;
         }
 
-        scrollToEnd(false);
+        // PrivateRoom owns the initial latest-page scroll so message loading
+        // and viewport positioning stay coordinated.
 
         /**
          * 2. Synchronize with server.
@@ -629,15 +631,14 @@ export function useChat({
             }
 
             /**
-             * 3. Reload after synchronization.
+             * 3. Merge server results into the already-rendered cache snapshot.
+             * Keep the recent timeline stable while adding any newer server rows.
              */
-            await reload();
+            await reload(true);
 
             if (cancelled || !mountedRef.current) {
               return;
             }
-
-            scrollToEnd(false);
           } catch (error) {
             /**
              * Offline mode:
@@ -658,6 +659,7 @@ export function useChat({
 
         if (!cancelled && mountedRef.current) {
           setIsSyncing(false);
+          setInitialSyncConversationId(conversationId);
         }
       }
     };
@@ -697,10 +699,16 @@ export function useChat({
     currentUser.id,
     currentUser.token,
     reload,
-    scrollToEnd,
     updateMessageStatus,
     updateAllOwnMessagesAsRead,
   ]);
+
+  useEffect(() => {
+    if (messagesConversationId !== conversationId || messages.length === 0) {
+      return;
+    }
+    setRecentMessageCache(conversationId, messages.slice(-30));
+  }, [conversationId, messages, messagesConversationId]);
 
   /**
    * ---------------------------------------------------------
@@ -790,10 +798,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -810,10 +816,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -829,10 +833,8 @@ export function useChat({
       });
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -881,10 +883,8 @@ export function useChat({
       );
 
       await reload();
-
-      scrollToEnd(true);
     },
-    [currentUser.id, conversationId, reload, scrollToEnd],
+    [currentUser.id, conversationId, reload],
   );
 
   /**
@@ -948,8 +948,8 @@ export function useChat({
         return;
       }
 
-      // Keep the newly fetched older page in the current list. Reloading only
-      // the latest 30 rows here would discard it and stall older-position restore.
+      // Keep the fetched older page in the current list instead of replacing
+      // the timeline with only the latest 30 rows.
       setMessages((previousMessages) =>
         dedupeMessages([...serverOlder, ...previousMessages]).sort(
           (a, b) => a.timestamp - b.timestamp,
@@ -1010,7 +1010,7 @@ export function useChat({
   }, [conversationId, currentUser.id]);
 
   return {
-    messages,
+    messages: visibleMessages,
 
     send,
     retry,
@@ -1024,10 +1024,10 @@ export function useChat({
     typingUserId,
 
     isConnected,
-    isSyncing,
+    isSyncing: visibleIsSyncing,
     isOffline,
-    syncError,
-    hasMore,
+    syncError: isCurrentConversation ? syncError : null,
+    hasMore: isCurrentConversation ? hasMore : true,
 
     flatListRef,
 
@@ -1035,5 +1035,6 @@ export function useChat({
 
     markVisibleRead,
     incomingMessageVersion,
+    initialSyncConversationId,
   };
 }

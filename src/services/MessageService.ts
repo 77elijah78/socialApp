@@ -1,6 +1,6 @@
 import { BaseUploader } from "./BaseUploader";
 import { messageStore } from "../db/MessageStore";
-import { NewMessageRow } from "../db/schema";
+import { MessageRow, NewMessageRow } from "../db/schema";
 import { api } from "./api";
 
 function uid(): string {
@@ -29,6 +29,11 @@ interface SendMeta {
 
 export class MessageService extends BaseUploader {
   private readonly maxLength = 5000;
+  private readonly activeSyncs = new Map<string, Promise<MessageRow[]>>();
+  private readonly recentSyncResults = new Map<
+    string,
+    { messages: MessageRow[]; cachedAt: number }
+  >();
 
   private validate(text: string): void {
     if (!text || text.trim().length === 0) {
@@ -165,12 +170,53 @@ export class MessageService extends BaseUploader {
     }
   }
 
-  async syncFromServer(
+  syncFromServer(
     conversationId: string,
     currentUserId: string,
     cursor?: { lastTimestamp: number; lastId: string },
     limit = 30,
-  ) {
+  ): Promise<MessageRow[]> {
+    const cursorKey = cursor?.lastId ?? cursor?.lastTimestamp ?? "latest";
+    const syncKey = `${currentUserId}:${conversationId}:${cursorKey}:${limit}`;
+    const recent = this.recentSyncResults.get(syncKey);
+    if (!cursor && recent && Date.now() - recent.cachedAt < 750) {
+      return Promise.resolve(recent.messages);
+    }
+
+    const active = this.activeSyncs.get(syncKey);
+    if (active) return active;
+
+    const request = this.fetchFromServer(
+      conversationId,
+      currentUserId,
+      cursor,
+      limit,
+    );
+    this.activeSyncs.set(syncKey, request);
+    void request.then((messages) => {
+      if (!cursor) {
+        this.recentSyncResults.set(syncKey, { messages, cachedAt: Date.now() });
+        if (this.recentSyncResults.size > 20) {
+          const oldestKey = this.recentSyncResults.keys().next().value;
+          if (oldestKey) this.recentSyncResults.delete(oldestKey);
+        }
+      }
+    }).finally(() => {
+      if (this.activeSyncs.get(syncKey) === request) {
+        this.activeSyncs.delete(syncKey);
+      }
+    }).catch(() => {
+      // The caller handles the sync failure; do not leave a rejected cache chain.
+    });
+    return request;
+  }
+
+  private async fetchFromServer(
+    conversationId: string,
+    currentUserId: string,
+    cursor?: { lastTimestamp: number; lastId: string },
+    limit = 30,
+  ): Promise<MessageRow[]> {
     let url = `/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${limit}`;
 
     if (cursor?.lastId) {
@@ -182,8 +228,11 @@ export class MessageService extends BaseUploader {
     const data = await api.get<any>(url, this.authToken ?? undefined);
 
     const messages = Array.isArray(data) ? data : data.messages ?? data.data ?? [];
+    const serverIds = messages
+      .map((message: any) => String(message.id ?? ""))
+      .filter(Boolean);
 
-    const existing = await messageStore.getByRoom(conversationId);
+    const existing = await messageStore.getByIds(conversationId, serverIds);
     const statusByKey = new Map<string, string>();
     for (const row of existing) {
       const key = String(row.id ?? row.localId ?? "");

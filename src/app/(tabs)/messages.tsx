@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -24,9 +24,16 @@ import { useRooms } from "@/hooks/useRooms";
 import { mediaService } from "@/services/MediaService";
 import { showAppDialog } from "@/services/AppDialogService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
+import { messageStore } from "@/db/MessageStore";
+import { useAppSelector } from "@/store/hooks";
+import {
+  getRecentMessageCache,
+  setRecentMessageCache,
+} from "@/utils/recentMessageCache";
 
 export default function Messages() {
   const { rooms, loading, error, syncing, reload, deleteRoom } = useRooms();
+  const currentUserId = useAppSelector((state) => state.auth.user?.id);
   const { isOffline } = useNetworkStatus();
   const { openActionMenu } = useOverlay();
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,6 +105,45 @@ export default function Messages() {
     });
   }, [activeFilter, rooms, searchQuery]);
 
+  const openRoom = useCallback(
+    async (item: (typeof rooms)[number]) => {
+      // Start the latest-page refresh while the list is still on screen. The
+      // room screen joins this same request instead of issuing another one.
+      if (currentUserId) {
+        void mediaService.message
+          .syncFromServer(item.conversationId, currentUserId)
+          .then(async () => {
+            const latest = await messageStore.getRecent(item.conversationId, 30);
+            setRecentMessageCache(item.conversationId, latest);
+          })
+          .catch(() => {});
+      }
+
+      const cached = getRecentMessageCache(item.conversationId);
+      if (!cached || Date.now() - cached.cachedAt > 750) {
+        try {
+          const latest = await messageStore.getRecent(item.conversationId, 30);
+          setRecentMessageCache(item.conversationId, latest);
+        } catch {
+          // The room screen can still load from SQLite or synchronize itself.
+        }
+      }
+
+      router.push({
+        pathname: "/(chatRoom)/privateRoom",
+        params: {
+          conversationId: item.conversationId,
+          roomId: item.id,
+          receiverName: item.name,
+          receiverUsername: item.receiverUsername ?? "",
+          receiverAvatar: item.avatarUrl,
+          receiverId: item.receiverId ?? "",
+        },
+      });
+    },
+    [currentUserId],
+  );
+
   const skeletonData = useMemo(() => Array.from({ length: 6 }), []);
   const renderSkeleton = useCallback(
     ({ index }: { item: unknown; index: number }) => (
@@ -114,6 +160,27 @@ export default function Messages() {
       void reload();
     }, [reload]),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const preloadVisibleRooms = async () => {
+      for (const room of rooms.slice(0, 6)) {
+        const cached = getRecentMessageCache(room.conversationId);
+        if (cached && Date.now() - cached.cachedAt < 5000) continue;
+        try {
+          const recent = await messageStore.getRecent(room.conversationId, 30);
+          if (cancelled) return;
+          setRecentMessageCache(room.conversationId, recent);
+        } catch {
+          // Preloading is opportunistic; opening the room has its own fallback.
+        }
+      }
+    };
+    void preloadVisibleRooms();
+    return () => {
+      cancelled = true;
+    };
+  }, [rooms]);
 
   const renderEmpty = () => {
     const isSearching = searchQuery.trim().length > 0;
@@ -323,19 +390,7 @@ export default function Messages() {
                   height: 0,
                 })
               }
-              onPress={() =>
-                router.push({
-                  pathname: "/(chatRoom)/privateRoom",
-                  params: {
-                    conversationId: item.conversationId,
-                    roomId: item.id,
-                    receiverName: item.name,
-                    receiverUsername: item.receiverUsername ?? "",
-                    receiverAvatar: item.avatarUrl,
-                    receiverId: item.receiverId ?? "",
-                  },
-                })
-              }
+              onPress={() => void openRoom(item)}
             />
           )}
         />
