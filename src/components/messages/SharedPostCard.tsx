@@ -10,9 +10,17 @@ interface SharedPostCardProps {
   authorAvatarUrl: string | null;
   imageUrl?: string | null;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
-export default function SharedPostCard({ content, authorName, authorAvatarUrl, imageUrl, onPress }: SharedPostCardProps) {
+export default function SharedPostCard({
+  content,
+  authorName,
+  authorAvatarUrl,
+  imageUrl,
+  onPress,
+  onLongPress,
+}: SharedPostCardProps) {
   const [imageError, setImageError] = useState(false);
 
   const previewImage = useMemo(() => {
@@ -21,13 +29,23 @@ export default function SharedPostCard({ content, authorName, authorAvatarUrl, i
   }, [imageUrl, imageError]);
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      activeOpacity={0.9}
+    >
       <View style={styles.header}>
         <View style={styles.avatar}>
           {authorAvatarUrl ? (
-            <Image source={{ uri: authorAvatarUrl }} style={styles.avatarImage} />
+            <Image
+              source={{ uri: authorAvatarUrl }}
+              style={styles.avatarImage}
+            />
           ) : (
-            <Text style={styles.avatarText}>{authorName?.[0]?.toUpperCase() ?? "?"}</Text>
+            <Text style={styles.avatarText}>
+              {authorName?.[0]?.toUpperCase() ?? "?"}
+            </Text>
           )}
         </View>
         <View style={styles.headerText}>
@@ -36,7 +54,11 @@ export default function SharedPostCard({ content, authorName, authorAvatarUrl, i
           </Text>
           <Text style={styles.sharedLabel}>shared a post</Text>
         </View>
-        <Ionicons name="share-social-outline" size={18} color={theme.COLORS.textMuted} />
+        <Ionicons
+          name="share-social-outline"
+          size={18}
+          color={theme.COLORS.textMuted}
+        />
       </View>
 
       <View style={styles.body}>

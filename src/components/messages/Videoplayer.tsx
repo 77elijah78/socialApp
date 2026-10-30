@@ -1,36 +1,45 @@
-import React, {
+import {
+  memo,
   useCallback,
   useEffect,
   useRef,
   useState,
-  useMemo,
+  useContext,
 } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  Dimensions,
   Modal,
-  PanResponder,
-  Pressable,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
   type ViewStyle,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
 import { Image } from "expo-image";
-import { useChatMediaPlayback } from "@/hooks/useChatMediaPlayback";
-import { useMediaVisibility } from "@/utils/messaging/mediaVisibility";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
-import theme from "@/constants/theme";
+import {
+  ChatReadVisibility,
+  ChatMediaInteraction,
+} from "@/components/chat/ChatReadVisibility";
+import {
+  claimChatPlayback,
+  useChatMediaPlayback,
+} from "@/hooks/useChatMediaPlayback";
+import { useMediaVisibility } from "@/utils/messaging/mediaVisibility";
+import { fitMedia, formatDuration } from "@/utils/messaging/presentation";
+import {
+  getMediaGeometry,
+  rememberMediaGeometry,
+} from "@/utils/messaging/mediaGeometry";
+import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface VideoPlayerProps {
+interface Props {
   uri: string;
   playbackId?: string;
   width?: number;
@@ -38,544 +47,351 @@ interface VideoPlayerProps {
   thumbnail?: string;
   borderRadius?: number;
   style?: ViewStyle;
+  duration?: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  onLongPress?: () => void;
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const SPEED_OPTIONS = [0.5, 1, 1.5, 2] as const;
-type SpeedOption = (typeof SPEED_OPTIONS)[number];
-const HIDE_CONTROLS_MS = 3000;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatTime(seconds: number): string {
-  const s = Math.floor(seconds);
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return `${m}:${String(rem).padStart(2, "0")}`;
-}
-
-// ─── Seek Bar ─────────────────────────────────────────────────────────────────
-
-interface SeekBarProps {
-  progress: number; // 0–1
-  buffered?: number; // 0–1
-  onSeek: (p: number) => void;
-  onSeekStart: () => void;
-  onSeekEnd: () => void;
-}
-
-const SeekBar: React.FC<SeekBarProps> = ({
-  progress,
-  buffered = 0,
-  onSeek,
-  onSeekStart,
-  onSeekEnd,
-}) => {
-  const trackRef = useRef<View>(null);
-  const [trackWidth, setTrackWidth] = useState(0);
-
-  const computeSeek = useCallback(
-    (x: number) => {
-      onSeek(Math.max(0, Math.min(1, x / Math.max(1, trackWidth))));
-    },
-    [onSeek, trackWidth],
+function Poster({
+  uri,
+  onSize,
+}: {
+  uri: string;
+  onSize: (width: number, height: number) => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <Text style={styles.posterHint}>Preview unavailable</Text>
+  ) : (
+    <Image
+      source={{ uri }}
+      style={StyleSheet.absoluteFill}
+      contentFit="contain"
+      cachePolicy="memory-disk"
+      recyclingKey={uri}
+      onLoad={(event) => onSize(event.source.width, event.source.height)}
+      onError={() => setFailed(true)}
+    />
   );
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          onSeekStart();
-          computeSeek(event.nativeEvent.locationX);
-        },
-        onPanResponderMove: (event) => computeSeek(event.nativeEvent.locationX),
-        onPanResponderRelease: onSeekEnd,
-      }),
-    [computeSeek, onSeekStart, onSeekEnd],
-  );
-
-  return (
-    <View
-      ref={trackRef}
-      style={styles.seekTrack}
-      onLayout={(e) => {
-        setTrackWidth(e.nativeEvent.layout.width);
-      }}
-      {...panResponder.panHandlers}
-    >
-      {/* Buffered */}
-      <View style={[styles.seekBuffered, { width: `${buffered * 100}%` }]} />
-      {/* Played */}
-      <View style={[styles.seekFilled, { width: `${progress * 100}%` }]} />
-      {/* Thumb */}
-      <View style={[styles.seekThumb, { left: `${progress * 100}%` as any }]} />
-    </View>
-  );
-};
-
-// ─── Controls Overlay ─────────────────────────────────────────────────────────
-
-interface ControlsProps {
-  visible: boolean;
-  isPlaying: boolean;
-  isLoading: boolean;
-  progress: number;
-  buffered: number;
-  elapsed: number;
-  duration: number;
-  speed: SpeedOption;
-  isFullscreen: boolean;
-  onPlayPause: () => void;
-  onSeek: (p: number) => void;
-  onSeekStart: () => void;
-  onSeekEnd: () => void;
-  onSpeedPress: () => void;
-  onFullscreen: () => void;
 }
-
-const Controls: React.FC<ControlsProps> = ({
-  visible,
-  isPlaying,
-  isLoading,
-  progress,
-  buffered,
-  elapsed,
-  duration,
-  speed,
-  isFullscreen,
-  onPlayPause,
-  onSeek,
-  onSeekStart,
-  onSeekEnd,
-  onSpeedPress,
-  onFullscreen,
-}) => {
-  const [opacity] = useState(() => new Animated.Value(0));
-
+function VideoModal({
+  uri,
+  playbackId,
+  onClose,
+}: Pick<Props, "uri" | "playbackId"> & { onClose: () => void }) {
+  const visible = useMediaVisibility(playbackId);
+  const player = useVideoPlayer(null, (instance) => {
+    instance.loop = false;
+  });
+  const canPlay = useChatMediaPlayback(player, visible);
+  const { status, error: nativeError } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
+  const [failed, setFailed] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [rotated, setRotated] = useState(false);
+  const originalLock = useRef<ScreenOrientation.OrientationLock | null>(null);
+  const alive = useRef(true);
+  const loading = useRef(false);
+  const load = useCallback(async () => {
+    if (loading.current || !canPlay()) return;
+    loading.current = true;
+    setFailed(false);
+    try {
+      await player.replaceAsync({ uri, useCaching: true });
+      if (canPlay()) {
+        claimChatPlayback(player);
+        player.play();
+      }
+    } catch {
+      if (alive.current) setFailed(true);
+    } finally {
+      loading.current = false;
+    }
+  }, [canPlay, player, uri]);
+  const initialLoad = useRef(load);
   useEffect(() => {
-    Animated.timing(opacity, {
-      toValue: visible ? 1 : 0,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [visible, opacity]);
-
+    alive.current = true;
+    void initialLoad.current(); // Modal exists only after a deliberate play tap.
+    return () => {
+      alive.current = false;
+      if (originalLock.current != null)
+        void ScreenOrientation.lockAsync(originalLock.current).catch(() => {});
+      // useVideoPlayer disposes its native player and event subscriptions.
+    };
+  }, []);
+  const rotate = async () => {
+    try {
+      if (originalLock.current == null)
+        originalLock.current =
+          await ScreenOrientation.getOrientationLockAsync();
+      if (!alive.current) return;
+      await ScreenOrientation.lockAsync(
+        rotated
+          ? originalLock.current
+          : ScreenOrientation.OrientationLock.LANDSCAPE,
+      );
+      if (alive.current) setRotated((value) => !value);
+      else if (originalLock.current != null)
+        await ScreenOrientation.lockAsync(originalLock.current);
+    } catch {
+      /* Rotation is optional; portrait/native fullscreen still works. */
+    }
+  };
+  const error = failed || status === "error";
   return (
-    <Animated.View
-      style={[styles.controlsOverlay, { opacity }]}
-      pointerEvents={visible ? "box-none" : "none"}
+    <Modal
+      visible
+      animationType="fade"
+      supportedOrientations={["portrait", "landscape"]}
+      onRequestClose={onClose}
     >
-      {/* Center play/pause */}
-      <TouchableOpacity
-        onPress={onPlayPause}
-        style={styles.centerBtn}
-        activeOpacity={0.8}
+      <SafeAreaView
+        style={styles.modal}
+        edges={["top", "bottom", "left", "right"]}
       >
-        {isLoading ? (
-          <ActivityIndicator color={theme.COLORS.textWhite} size="large" />
-        ) : (
-          <Ionicons
-            name={isPlaying ? "pause" : "play"}
-            size={38}
-            color={theme.COLORS.textWhite}
-          />
-        )}
-      </TouchableOpacity>
-
-      {/* Bottom bar */}
-      <View style={styles.bottomBar}>
-        <SeekBar
-          progress={progress}
-          buffered={buffered}
-          onSeek={onSeek}
-          onSeekStart={onSeekStart}
-          onSeekEnd={onSeekEnd}
-        />
-        <View style={styles.bottomRow}>
-          {/* Timer */}
-          <Text style={styles.timer}>
-            {formatTime(elapsed)}
-            <Text style={styles.timerTotal}> / {formatTime(duration)}</Text>
-          </Text>
-
-          <View style={styles.rightControls}>
-            {/* Speed */}
-            <TouchableOpacity
-              onPress={onSpeedPress}
-              style={styles.speedBtn}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.speedText}>{speed}×</Text>
-            </TouchableOpacity>
-
-            {/* Fullscreen */}
-            <TouchableOpacity
-              onPress={onFullscreen}
-              style={styles.iconBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={isFullscreen ? "contract" : "expand"}
-                size={20}
-                color={theme.COLORS.textWhite}
-              />
-            </TouchableOpacity>
-          </View>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.toolbar}>
+          <Text style={styles.title}>Video</Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Change video speed"
+            style={styles.tool}
+            onPress={() => {
+              const choices = [0.5, 1, 1.5, 2];
+              const next =
+                choices[(choices.indexOf(speed) + 1) % choices.length];
+              // Native imperative player API, not React state mutation.
+              // eslint-disable-next-line react-hooks/immutability
+              player.playbackRate = next;
+              setSpeed(next);
+            }}
+          >
+            <Text style={styles.toolText}>{speed}×</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Rotate video player"
+            style={styles.tool}
+            onPress={() => {
+              void rotate();
+            }}
+          >
+            <Ionicons
+              name="phone-landscape-outline"
+              size={22}
+              color={COLORS.white}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close video player"
+            style={styles.tool}
+            onPress={onClose}
+          >
+            <Ionicons name="close" size={24} color={COLORS.white} />
+          </TouchableOpacity>
         </View>
-      </View>
-    </Animated.View>
+        <View style={styles.stage}>
+          <VideoView
+            player={player}
+            style={styles.video}
+            contentFit="contain"
+            nativeControls
+            fullscreenOptions={{ enable: true }}
+          />
+          {(status === "loading" || status === "idle") && !error && (
+            <View pointerEvents="none" style={styles.overlay}>
+              <ActivityIndicator size="large" color={COLORS.white} />
+              <Text style={styles.toolText}>Loading video</Text>
+            </View>
+          )}
+          {error && (
+            <View style={styles.errorOverlay}>
+              <Ionicons
+                name="videocam-off-outline"
+                size={30}
+                color={COLORS.white}
+              />
+              <Text style={styles.error} accessibilityRole="alert">
+                {nativeError?.message || "This video couldn’t be played."}
+              </Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.retry}
+                accessibilityLabel="Retry video"
+                onPress={() => {
+                  void load();
+                }}
+              >
+                <Text style={styles.toolText}>Retry video</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
-};
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-const VideoPlayer: React.FC<VideoPlayerProps> = ({
+}
+function VideoPlayer({
   uri,
   playbackId,
   width,
   height,
   thumbnail,
-  borderRadius = theme.BORDER_RADIUS.xxl,
+  borderRadius = BORDER_RADIUS.xxxl,
   style,
-}) => {
-  const screen = Dimensions.get("window");
-  const inlineWidth = width ?? screen.width * 0.75;
-  const inlineHeight = height ?? inlineWidth * (9 / 16);
-
-  const visible = useMediaVisibility(playbackId);
-  const loaded = useRef(false);
-  const player = useVideoPlayer(null, (p) => {
-    p.loop = false;
-    p.muted = false;
-    p.timeUpdateEventInterval = 0.25;
-  });
-
-  const { isPlaying } = useEvent(player, "playingChange", {
-    isPlaying: player.playing,
-  });
-  const { status: playbackStatus } = useEvent(player, "statusChange", {
-    status: player.status,
-  });
-  const time = useEvent(player, "timeUpdate");
-  const isLoading = playbackStatus === "loading";
-  const [seekSeconds, setSeekSeconds] = useState(0);
-  const duration = player.duration || 0;
-  const buffered =
-    duration > 0 ? Math.min(1, (time?.bufferedPosition ?? 0) / duration) : 0;
-  const [speed, setSpeed] = useState<SpeedOption>(1);
-  const [showControls, setShowControls] = useState(true);
-  const [isSeeking, setIsSeeking] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const orientationChanged = useRef(false);
-  const elapsed = isSeeking ? seekSeconds : (time?.currentTime ?? 0);
-  const progress = duration > 0 ? elapsed / duration : 0;
-  const canPlay = useChatMediaPlayback(player, visible);
-  const [playbackFailed, setPlaybackFailed] = useState(false);
-
-  // Auto-hide controls
-  const scheduleHide = useCallback(() => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(
-      () => setShowControls(false),
-      HIDE_CONTROLS_MS,
-    );
-  }, []);
-
-  const handleTap = useCallback(() => {
-    setShowControls((prev) => {
-      if (!prev) scheduleHide();
-      else if (hideTimer.current) clearTimeout(hideTimer.current);
-      return !prev;
-    });
-  }, [scheduleHide]);
-
-  // ── Play / Pause ──────────────────────────────────────────────────────────
-  const handlePlayPause = useCallback(async () => {
-    try {
-      if (!canPlay()) return;
-      setPlaybackFailed(false);
-      if (!loaded.current) {
-        await player.replaceAsync({ uri, useCaching: true });
-        if (!canPlay()) return;
-        loaded.current = true;
-      }
-      if (player.playing) player.pause();
-      else player.play();
-      scheduleHide();
-    } catch {
-      if (canPlay()) setPlaybackFailed(true);
-    }
-  }, [player, scheduleHide, uri, canPlay]);
-
-  // ── Seek ──────────────────────────────────────────────────────────────────
-  const handleSeek = useCallback(
-    (p: number) => {
-      const dur = player.duration ?? 0;
-      player.seekBy(p * dur - (player.currentTime ?? 0));
-      setSeekSeconds(p * dur);
+  duration,
+  mediaWidth,
+  mediaHeight,
+  onLongPress,
+}: Props) {
+  const window = useWindowDimensions();
+  const [open, setOpen] = useState(false);
+  const coverReads = useContext(ChatReadVisibility);
+  const confirmVisibility = useContext(ChatMediaInteraction);
+  const releaseReadCover = useRef<(() => void) | null>(null);
+  const close = () => {
+    setOpen(false);
+    releaseReadCover.current?.();
+    releaseReadCover.current = null;
+  };
+  useEffect(() => () => releaseReadCover.current?.(), []);
+  const [dimensions, setDimensions] = useState(() =>
+    mediaWidth && mediaHeight
+      ? { width: mediaWidth, height: mediaHeight }
+      : getMediaGeometry(uri),
+  );
+  const remember = useCallback(
+    (w: number, h: number) => {
+      rememberMediaGeometry(uri, w, h);
+      if (w > 0 && h > 0) setDimensions({ width: w, height: h });
     },
-    [player],
+    [uri],
   );
-
-  const handleSeekStart = useCallback(() => {
-    setIsSeeking(true);
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-  }, []);
-
-  const handleSeekEnd = useCallback(() => {
-    setIsSeeking(false);
-    scheduleHide();
-  }, [scheduleHide]);
-
-  // ── Speed ─────────────────────────────────────────────────────────────────
-  const handleSpeed = useCallback(() => {
-    const idx = SPEED_OPTIONS.indexOf(speed);
-    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length];
-    setSpeed(next);
-    // expo-video exposes this native imperative setter; this is not React state.
-    // eslint-disable-next-line react-hooks/immutability
-    player.playbackRate = next;
-    scheduleHide();
-  }, [speed, player, scheduleHide]);
-
-  // ── Fullscreen ────────────────────────────────────────────────────────────
-  const handleFullscreen = useCallback(async () => {
-    try {
-      if (!isFullscreen) {
-        orientationChanged.current = true;
-        await ScreenOrientation.lockAsync(
-          ScreenOrientation.OrientationLock.LANDSCAPE,
-        );
-      } else {
-        await ScreenOrientation.lockAsync(
-          ScreenOrientation.OrientationLock.PORTRAIT_UP,
-        );
-        orientationChanged.current = false;
-      }
-      setIsFullscreen((f) => !f);
-      scheduleHide();
-    } catch (error) {
-      if (__DEV__) console.warn("[video] orientation failed", error);
-    }
-  }, [isFullscreen, scheduleHide]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-      // useVideoPlayer disposes its native player; do not pause a released handle.
-      if (orientationChanged.current)
-        void ScreenOrientation.lockAsync(
-          ScreenOrientation.OrientationLock.PORTRAIT_UP,
-        ).catch((error) => {
-          if (__DEV__)
-            console.warn("[video] orientation restore failed", error);
-        });
-    };
-  }, [player]);
-
-  // ── Shared player view ────────────────────────────────────────────────────
-  const renderPlayer = (w: number, h: number, fs: boolean) => (
-    <Pressable
-      onPress={handleTap}
-      style={[
-        styles.container,
-        { width: w, height: h, borderRadius: fs ? 0 : borderRadius },
-      ]}
-    >
-      <VideoView
-        player={player}
-        style={{ width: w, height: h }}
-        contentFit="contain"
-        nativeControls={false}
-      />
-      {thumbnail && !isPlaying ? (
-        <Image
-          source={thumbnail}
-          style={StyleSheet.absoluteFill}
-          contentFit="contain"
-          cachePolicy="memory-disk"
-          pointerEvents="none"
-        />
-      ) : null}
-      {playbackFailed && (
-        <Text accessibilityRole="alert" style={styles.playbackError}>
-          Couldn’t play video. Tap play to retry.
-        </Text>
-      )}
-      <Controls
-        visible={showControls}
-        isPlaying={isPlaying}
-        isLoading={isLoading}
-        progress={progress}
-        buffered={buffered}
-        elapsed={elapsed}
-        duration={duration}
-        speed={speed}
-        isFullscreen={fs}
-        onPlayPause={handlePlayPause}
-        onSeek={handleSeek}
-        onSeekStart={handleSeekStart}
-        onSeekEnd={handleSeekEnd}
-        onSpeedPress={handleSpeed}
-        onFullscreen={handleFullscreen}
-      />
-    </Pressable>
+  const frame = fitMedia(
+    dimensions?.width ?? 16,
+    dimensions?.height ?? 9,
+    width ?? window.width * 0.72,
+    height ?? window.height * 0.5,
   );
-
   return (
-    <>
-      {/* Inline bubble */}
-      <View style={[styles.wrapper, style]}>
-        {renderPlayer(inlineWidth, inlineHeight, false)}
-      </View>
-
-      {/* Fullscreen modal */}
-      <Modal
-        visible={isFullscreen}
-        animationType="fade"
-        statusBarTranslucent
-        supportedOrientations={["landscape"]}
-        onRequestClose={handleFullscreen}
-      >
-        <StatusBar hidden />
-        <View style={styles.fullscreenBg}>
-          {renderPlayer(screen.height, screen.width, true)}
+    <View style={style}>
+      <View style={[styles.preview, frame, { borderRadius }]}>
+        {thumbnail ? (
+          <Poster key={thumbnail} uri={thumbnail} onSize={remember} />
+        ) : (
+          <Ionicons name="videocam-outline" size={30} color={COLORS.wave3} />
+        )}
+        <View style={styles.duration}>
+          <Ionicons name="videocam" size={12} color={COLORS.white} />
+          <Text style={styles.durationText}>
+            {formatDuration(duration) || "Video"}
+          </Text>
         </View>
-      </Modal>
-    </>
+        <TouchableOpacity
+          accessibilityLabel={uri ? "Play video" : "Video unavailable"}
+          accessibilityRole="button"
+          disabled={!uri}
+          onLongPress={onLongPress}
+          onPress={() => {
+            confirmVisibility(playbackId);
+            releaseReadCover.current?.();
+            releaseReadCover.current = coverReads();
+            setOpen(true);
+          }}
+          style={styles.play}
+        >
+          <Ionicons name="play" size={28} color={COLORS.white} />
+        </TouchableOpacity>
+        {!uri && <Text style={styles.posterHint}>Video unavailable</Text>}
+      </View>
+      {open && <VideoModal uri={uri} playbackId={playbackId} onClose={close} />}
+    </View>
   );
-};
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
+}
+export default memo(VideoPlayer);
 const styles = StyleSheet.create({
-  playbackError: {
-    position: "absolute",
-    bottom: 8,
-    alignSelf: "center",
-    color: theme.COLORS.white,
-    fontSize: 12,
-  },
-  wrapper: {
-    alignSelf: "flex-start",
-  },
-  container: {
+  preview: {
     overflow: "hidden",
-    backgroundColor: theme.COLORS.black,
-    position: "relative",
-    width: "100%",
-    height: "100%",
+    backgroundColor: COLORS.bgChat,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  fullscreenBg: {
+  play: {
+    position: "absolute",
+    width: 58,
+    height: 58,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  duration: {
+    position: "absolute",
+    left: SPACING.md,
+    top: SPACING.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.shadowBlack,
+  },
+  durationText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: "500",
+  },
+  posterHint: { color: COLORS.textGray, fontSize: TYPOGRAPHY.fontSize.md },
+  modal: { flex: 1, backgroundColor: COLORS.black },
+  toolbar: { flexDirection: "row", alignItems: "center", padding: SPACING.md },
+  title: {
     flex: 1,
-    backgroundColor: theme.COLORS.black,
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.xxxl,
+    fontWeight: "600",
+    paddingHorizontal: SPACING.md,
+  },
+  tool: {
+    minWidth: 44,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Controls overlay
-  controlsOverlay: {
+  toolText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: "600",
+  },
+  stage: { flex: 1, position: "relative" },
+  video: { flex: 1 },
+  overlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: theme.COLORS.shadowBlack,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  centerBtn: {
-    width: theme.SIZING.centerPlayBtn,
-    height: theme.SIZING.centerPlayBtn,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxxxxxl,
-    backgroundColor: theme.COLORS.centerPlayBtnBg,
     alignItems: "center",
     justifyContent: "center",
+    gap: SPACING.lg,
   },
-
-  // Bottom bar
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: theme.SPACING.lg,
-    paddingBottom: 10,
-    paddingTop: 6,
-    gap: 6,
-  },
-  bottomRow: {
-    flexDirection: "row",
+  errorOverlay: {
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  rightControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.md,
-  },
-
-  // Timer
-  timer: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textWhite,
-  },
-  timerTotal: {
-    fontWeight: theme.TYPOGRAPHY.fontWeight.regular,
-    color: theme.COLORS.timerTotal,
-  },
-
-  // Speed
-  speedBtn: {
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: 3,
-    borderRadius: theme.BORDER_RADIUS.md,
-    backgroundColor: theme.COLORS.speedBtnBg,
-  },
-  speedText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textWhite,
-  },
-  iconBtn: {
-    padding: theme.SPACING.xs,
-  },
-
-  // Seek bar
-  seekTrack: {
-    height: 28,
     justifyContent: "center",
-    position: "relative",
+    gap: SPACING.lg,
+    backgroundColor: COLORS.black,
+    padding: SPACING.xl,
   },
-  seekBuffered: {
-    position: "absolute",
-    height: 3,
-    borderRadius: theme.BORDER_RADIUS.xs,
-    backgroundColor: theme.COLORS.seekBuffered,
-    left: 0,
+  error: {
+    color: COLORS.white,
+    textAlign: "center",
+    fontSize: TYPOGRAPHY.fontSize.xl,
   },
-  seekFilled: {
-    position: "absolute",
-    height: 3,
-    borderRadius: theme.BORDER_RADIUS.xs,
-    backgroundColor: theme.COLORS.textWhite,
-    left: 0,
-  },
-  seekThumb: {
-    position: "absolute",
-    width: 13,
-    height: 13,
-    borderRadius: 7,
-    backgroundColor: theme.COLORS.textWhite,
-    top: "50%" as any,
-    marginTop: -6.5,
-    marginLeft: -6.5,
-    shadowColor: theme.COLORS.black,
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
+  retry: {
+    backgroundColor: COLORS.primaryDark,
+    minHeight: 44,
+    paddingHorizontal: SPACING.xl,
+    borderRadius: BORDER_RADIUS.xxl,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
-
-export default React.memo(VideoPlayer);

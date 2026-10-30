@@ -1,5 +1,5 @@
-import { and, eq, gt } from "drizzle-orm";
-import { db } from "./db";
+import { and, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
+import { db, withDatabaseTransaction } from "./db";
 import { receiptOutbox } from "./schema";
 
 type Kind = "READ" | "DELIVERED";
@@ -25,6 +25,38 @@ export const receiptQueue = {
       .where(and(eq(receiptOutbox.kind, kind), gt(receiptOutbox.key, afterKey)))
       .orderBy(receiptOutbox.key)
       .limit(limit);
+  },
+  /** Claim at most once per socket connection, without an ever-growing RAM
+   * dedupe set. The durable row remains until an authoritative confirmation.
+   * A new connection token replays unconfirmed reads after offline/restart. */
+  claimReads(attemptToken: string, limit = 100) {
+    return withDatabaseTransaction(async (tx) => {
+      const batch = await tx
+        .select()
+        .from(receiptOutbox)
+        .where(
+          and(
+            eq(receiptOutbox.kind, "READ"),
+            or(
+              isNull(receiptOutbox.attemptToken),
+              ne(receiptOutbox.attemptToken, attemptToken),
+            ),
+          ),
+        )
+        .orderBy(receiptOutbox.key)
+        .limit(limit);
+      if (!batch.length) return [];
+      await tx
+        .update(receiptOutbox)
+        .set({ attemptToken })
+        .where(
+          inArray(
+            receiptOutbox.key,
+            batch.map((row) => row.key),
+          ),
+        );
+      return batch;
+    });
   },
   async acknowledge(kind: Kind, messageId: string) {
     await db

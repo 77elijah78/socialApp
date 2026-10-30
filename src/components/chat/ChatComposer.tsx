@@ -1,7 +1,6 @@
-import { memo, useRef, useState } from "react";
+import { memo, useRef, useState, useEffect, useContext } from "react";
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   Pressable,
@@ -15,8 +14,18 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import type { MessageRow } from "@/db/schema";
+import type { AttachmentInfo } from "@/utils/messaging/presentation";
+import { replyPreview } from "@/utils/messaging/presentation";
+import { ChatReadVisibility } from "./ChatReadVisibility";
+import ReplyPreview from "../messages/ReplyPreview";
 import type { PickedFile } from "@/types";
-import theme from "@/constants/theme";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  SHADOWS,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
 import { showAppDialog } from "@/services/AppDialogService";
 import MediaPickerModal from "../messages/MediaPickerModal";
 
@@ -26,7 +35,14 @@ interface Props {
   onCancelReply: () => void;
   onTyping: () => void;
   onSend: (text: string, replyId?: string) => Promise<void>;
-  onSendMedia: (type: string, uri: string, duration?: number) => Promise<void>;
+  onSendMedia: (
+    type: string,
+    uri: string,
+    duration?: number,
+    replyId?: string,
+    attachment?: AttachmentInfo,
+  ) => Promise<void>;
+  onReplyPress?: (id: string) => void;
 }
 function ChatComposer({
   replyingTo,
@@ -35,17 +51,37 @@ function ChatComposer({
   onTyping,
   onSend,
   onSendMedia,
+  onReplyPress,
 }: Props) {
   const [text, setText] = useState("");
   const draft = useRef("");
   const [picker, setPicker] = useState(false);
+  const coverReads = useContext(ChatReadVisibility);
+  const releasePicker = useRef<(() => void) | null>(null);
+  const closePicker = () => {
+    setPicker(false);
+    releasePicker.current?.();
+    releasePicker.current = null;
+  };
+  useEffect(() => () => releasePicker.current?.(), []);
   const input = useRef<TextInput>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recording = useAudioRecorderState(recorder);
   const recordingHeld = useRef(false);
   const preparing = useRef(false);
+  const stopping = useRef(false);
+  const recordingReplyId = useRef<string | undefined>(undefined);
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+      recordingHeld.current = false;
+    },
+    [],
+  );
 
   const failed = () =>
+    alive.current &&
     showAppDialog({
       title: "Message not sent",
       message:
@@ -68,19 +104,27 @@ function ChatComposer({
   };
   const stopRecording = async () => {
     recordingHeld.current = false;
-    if (!recorder.isRecording) return;
+    if (!recorder.isRecording || stopping.current) return;
+    stopping.current = true;
     try {
       const duration = recording.durationMillis / 1000;
       await recorder.stop();
-      if (recorder.uri) await onSendMedia("audio/mp4", recorder.uri, duration);
+      if (recorder.uri && alive.current) {
+        const replyId = recordingReplyId.current;
+        onCancelReply();
+        await onSendMedia("audio/mp4", recorder.uri, duration, replyId);
+      }
     } catch {
       failed();
+    } finally {
+      stopping.current = false;
     }
   };
   const startRecording = async () => {
     recordingHeld.current = true;
     if (preparing.current || recorder.isRecording) return;
     preparing.current = true;
+    recordingReplyId.current = replyingTo?.id ?? undefined;
     try {
       const permission = await AudioModule.requestRecordingPermissionsAsync();
       if (!permission.granted) {
@@ -92,8 +136,9 @@ function ChatComposer({
         });
         return;
       }
-      if (!recordingHeld.current) return;
+      if (!recordingHeld.current || !alive.current) return;
       await recorder.prepareToRecordAsync();
+      if (!alive.current) return;
       recorder.record();
       // Releasing while permissions/preparation were pending must not leave an
       // invisible recorder running indefinitely.
@@ -105,9 +150,21 @@ function ChatComposer({
     }
   };
   const sendFiles = async (files: PickedFile[]) => {
-    setPicker(false);
+    closePicker();
+    const replyId = replyingTo?.id ?? undefined;
+    onCancelReply();
     try {
-      await Promise.all(files.map((file) => onSendMedia(file.type, file.uri)));
+      await Promise.all(
+        files.map((file) =>
+          onSendMedia(file.type, file.uri, file.duration, replyId, {
+            name: file.name,
+            size: file.size,
+            mimeType: file.type,
+            width: file.width,
+            height: file.height,
+          }),
+        ),
+      );
     } catch {
       failed();
     }
@@ -117,28 +174,18 @@ function ChatComposer({
       <View style={styles.floatingInputWrapper} testID="chat-composer">
         {replyingTo && (
           <View style={styles.replyPreview}>
-            <View style={styles.replyPreviewLine} />
-            <View style={styles.replyPreviewContent}>
-              <Text style={styles.replyPreviewName}>
-                {replyingTo.senderId === userId ? "You" : "Message"}
-              </Text>
-              <Text style={styles.replyPreviewText} numberOfLines={1}>
-                {replyingTo.content ??
-                  (replyingTo.type === "IMAGE"
-                    ? "Photo"
-                    : replyingTo.type === "VIDEO"
-                      ? "Video"
-                      : replyingTo.type === "AUDIO"
-                        ? "Voice message"
-                        : "Message")}
-              </Text>
-            </View>
+            <ReplyPreview
+              message={replyPreview(replyingTo)}
+              userId={userId}
+              onPress={onReplyPress}
+              compact
+            />
             <TouchableOpacity
               accessibilityLabel="Cancel reply"
               onPress={onCancelReply}
               style={styles.replyPreviewClose}
             >
-              <Ionicons name="close" size={18} color={theme.COLORS.textMuted} />
+              <Ionicons name="close" size={18} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
         )}
@@ -146,16 +193,20 @@ function ChatComposer({
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Attach media"
-            onPress={() => setPicker(true)}
+            onPress={() => {
+              releasePicker.current?.();
+              releasePicker.current = coverReads();
+              setPicker(true);
+            }}
             style={styles.attachButton}
           >
-            <Ionicons name="add" size={22} color={theme.COLORS.primary} />
+            <Ionicons name="add" size={22} color={COLORS.primary} />
           </TouchableOpacity>
           <View style={styles.textInputWrapper}>
             <TextInput
               ref={input}
               placeholder={replyingTo ? "Reply..." : "Message..."}
-              placeholderTextColor={theme.COLORS.textMuted}
+              placeholderTextColor={COLORS.textMuted}
               style={styles.textInput}
               multiline
               value={text}
@@ -186,7 +237,7 @@ function ChatComposer({
               <Ionicons
                 name={recording.isRecording ? "radio-button-on" : "mic-outline"}
                 size={20}
-                color={theme.COLORS.white}
+                color={COLORS.white}
               />
             </Pressable>
           ) : (
@@ -197,14 +248,14 @@ function ChatComposer({
                 void send();
               }}
             >
-              <Ionicons name="arrow-up" size={21} color={theme.COLORS.white} />
+              <Ionicons name="arrow-up" size={21} color={COLORS.white} />
             </TouchableOpacity>
           )}
         </View>
       </View>
       <MediaPickerModal
         visible={picker}
-        onClose={() => setPicker(false)}
+        onClose={closePicker}
         onSend={(files) => {
           void sendFiles(files);
         }}
@@ -215,62 +266,62 @@ function ChatComposer({
 export default memo(ChatComposer);
 const styles = StyleSheet.create({
   floatingInputWrapper: {
-    marginHorizontal: theme.SPACING.md,
-    marginVertical: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgWhite,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.sm,
+    backgroundColor: COLORS.bgWhite,
     borderRadius: 23,
     borderWidth: 1,
     borderColor: "#EAE8F1",
-    ...theme.SHADOWS.md,
-    paddingHorizontal: theme.SPACING.sm,
-    paddingVertical: theme.SPACING.sm,
+    ...SHADOWS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
     flexDirection: "column",
     zIndex: 20,
   },
   replyPreview: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.md,
+    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     backgroundColor: "#F7F6FB",
     borderRadius: 14,
-    paddingVertical: theme.SPACING.sm,
+    paddingVertical: SPACING.sm,
   },
   replyPreviewLine: {
     width: 3,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    marginRight: theme.SPACING.sm,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primary,
+    marginRight: SPACING.sm,
     alignSelf: "stretch",
   },
   replyPreviewContent: {
     flex: 1,
   },
   replyPreviewName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.textPrimary,
   },
   replyPreviewText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.textMuted,
   },
   replyPreviewClose: {
-    padding: theme.SPACING.xs,
-    marginLeft: theme.SPACING.sm,
+    padding: SPACING.xs,
+    marginLeft: SPACING.sm,
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: theme.SPACING.sm,
+    gap: SPACING.sm,
   },
   attachButton: {
     width: 43,
     height: 43,
     borderRadius: 15,
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: COLORS.primaryGhost,
     borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
+    borderColor: COLORS.primaryGhostBorder,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -278,18 +329,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F6FB",
     borderRadius: 17,
-    paddingHorizontal: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
     borderWidth: 1,
     borderColor: "#ECEAF4",
     minHeight: 43,
     justifyContent: "center",
   },
   textInput: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
-    color: theme.COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xxl,
+    color: COLORS.textPrimary,
     maxHeight: 120,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
+    lineHeight: TYPOGRAPHY.lineHeight.lg,
     paddingVertical: 0,
     textAlignVertical: "center",
   },
@@ -299,8 +350,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.primary,
-    ...theme.SHADOWS.primary,
+    backgroundColor: COLORS.primary,
+    ...SHADOWS.primary,
   },
   micButtonActive: {
     transform: [{ scale: 1.2 }],

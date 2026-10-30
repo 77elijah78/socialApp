@@ -1,10 +1,12 @@
+import type { MessageAuthorInfo, ReplyPreviewModel } from "./presentation";
 import type { NewMessageRow } from "../../db/schema";
 
 export interface RemoteMessage {
   id: string;
   conversationId: string;
   senderId?: string;
-  sender?: { id: string; username?: string; avatarUrl?: string };
+  sender?: MessageAuthorInfo & { id: string };
+  repliedTo?: ReplyPreviewModel | null;
   receiverId?: string | null;
   content?: string | null;
   text?: string | null;
@@ -29,6 +31,8 @@ export interface RemoteMessage {
 export function normalizeRemoteMessage(
   payload: RemoteMessage,
   userId: string,
+  isGroup = false,
+  authors?: Map<string, MessageAuthorInfo>,
 ): NewMessageRow {
   const senderId = payload.senderId ?? payload.sender?.id;
   const createdAt = payload.createdAt ?? payload.timestamp;
@@ -42,21 +46,61 @@ export function normalizeRemoteMessage(
   ) {
     throw new Error("Invalid server message identity or timestamp");
   }
-  const status = (
+  const remoteStatus = (
     payload.status ?? (senderId === userId ? "SENT" : "DELIVERED")
   ).toUpperCase();
+  const receiverId =
+    payload.receiverId !== undefined
+      ? payload.receiverId
+      : isGroup || senderId === userId
+        ? null
+        : userId;
+  // A group/global READ is not evidence this individual recipient viewed it.
+  const individualRead = !isGroup && receiverId === userId;
+  const status =
+    senderId !== userId && !individualRead && remoteStatus === "READ"
+      ? "DELIVERED"
+      : remoteStatus;
   return {
     localId: payload.id,
     id: payload.id,
     content: payload.content ?? payload.text ?? null,
+    senderData:
+      payload.sender || authors?.has(senderId)
+        ? JSON.stringify({
+            ...authors?.get(senderId),
+            ...payload.sender,
+            id: senderId,
+          })
+        : null,
+    replyData: payload.repliedTo
+      ? JSON.stringify({
+          id: payload.repliedTo.id,
+          content: (payload.repliedTo.content ?? "").slice(0, 180),
+          type: payload.repliedTo.type,
+          senderId: payload.repliedTo.senderId,
+          sender: {
+            ...authors?.get(payload.repliedTo.senderId),
+            ...payload.repliedTo.sender,
+          },
+          mediaUrl: payload.repliedTo.mediaUrl,
+          thumbnailUrl: payload.repliedTo.thumbnailUrl,
+          duration: payload.repliedTo.duration,
+          deleted: payload.repliedTo.deleted,
+        })
+      : null,
+    attachmentData: null,
     mediaUrl: payload.mediaUrl ?? null,
     thumbnailUrl: payload.thumbnailUrl ?? null,
     type: (payload.type ?? "TEXT").toUpperCase(),
     status,
     senderId,
-    receiverId: payload.receiverId ?? (senderId === userId ? null : userId),
+    receiverId,
     conversationId: payload.conversationId,
-    isRead: payload.isRead === true || status === "READ",
+    isRead:
+      senderId !== userId && !individualRead
+        ? false
+        : payload.isRead === true || status === "READ",
     timestamp,
     editedAt: payload.editedAt ?? null,
     deletedAt: payload.deletedAt ?? null,

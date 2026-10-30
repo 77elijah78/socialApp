@@ -118,6 +118,8 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
             name: asset.fileName ?? `image_${Date.now()}.jpg`,
             type: asset.mimeType ?? "image/jpeg",
             size: asset.fileSize,
+            width: asset.width,
+            height: asset.height,
           })),
         );
       }
@@ -141,6 +143,9 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
             name: asset.fileName ?? `video_${Date.now()}.mp4`,
             type: asset.mimeType ?? "video/mp4",
             size: asset.fileSize,
+            width: asset.width,
+            height: asset.height,
+            duration: asset.duration != null ? asset.duration / 1000 : undefined,
           })),
         );
       }

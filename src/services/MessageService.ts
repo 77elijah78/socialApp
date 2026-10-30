@@ -8,12 +8,20 @@ import {
   type RemoteMessage,
 } from "../utils/messaging/serialization";
 import { compareMessages } from "../utils/messaging/timeline";
+import { roomAuthors } from "../utils/messaging/roomAuthors";
+import { receiptQueue } from "../db/receiptQueue";
+import { replyPreview } from "../utils/messaging/presentation";
+import type {
+  AttachmentInfo,
+  MessageAuthorInfo,
+} from "../utils/messaging/presentation";
 import { api } from "./api";
 
 interface SendMeta {
   senderId: string;
   receiverId: string | null;
   conversationId: string;
+  sender?: MessageAuthorInfo;
 }
 interface ServerCursor {
   lastTimestamp: number;
@@ -37,6 +45,7 @@ export class MessageService extends BaseUploader {
   // Persisted outgoing timestamps stay immutable. Page cursors must instead
   // follow server ordering, including when the client clock differs.
   private readonly pageCursors = new WeakMap<MessageRow[], ServerCursor>();
+  private readonly pageSizes = new WeakMap<MessageRow[], number>();
 
   resetSession() {
     this.session += 1;
@@ -57,6 +66,7 @@ export class MessageService extends BaseUploader {
     patch: Partial<NewMessageRow>,
   ): NewMessageRow {
     const localId = uid();
+    const { sender, ...identity } = meta;
     return {
       localId,
       id: localId,
@@ -65,7 +75,10 @@ export class MessageService extends BaseUploader {
       thumbnailUrl: null,
       type: "TEXT",
       status: "SENDING",
-      ...meta,
+      ...identity,
+      senderData: sender ? JSON.stringify(sender) : null,
+      replyData: null,
+      attachmentData: null,
       isRead: false,
       timestamp: Date.now(),
       editedAt: null,
@@ -87,6 +100,21 @@ export class MessageService extends BaseUploader {
     const epoch = this.session;
     const release = messageStore.beginOutgoing(meta.senderId);
     try {
+      if (patch.repliedToId) {
+        const parent = (
+          await messageStore.getByIds(meta.conversationId, [patch.repliedToId])
+        )[0];
+        if (parent)
+          patch = {
+            ...patch,
+            replyData: JSON.stringify({
+              ...replyPreview(parent),
+              content: parent.deletedAt
+                ? ""
+                : (parent.content || "").slice(0, 180),
+            }),
+          };
+      }
       const message = await messageStore.save(this.optimistic(meta, patch));
       if (epoch !== this.session) return null;
       return await this.transmit(message, epoch);
@@ -151,7 +179,20 @@ export class MessageService extends BaseUploader {
         mediaUrl = uploaded.url;
         thumbnailUrl = uploaded.thumbnailUrl ?? null;
         if (epoch !== this.session) return null;
-        await messageStore.patch(message.localId, { mediaUrl, thumbnailUrl });
+        const localMetadata = message.attachmentData
+          ? (JSON.parse(message.attachmentData) as AttachmentInfo)
+          : {};
+        await messageStore.patch(message.localId, {
+          mediaUrl,
+          thumbnailUrl,
+          attachmentData: JSON.stringify({
+            ...localMetadata,
+            size: uploaded.size ?? localMetadata.size,
+            width: uploaded.width ?? localMetadata.width,
+            height: uploaded.height ?? localMetadata.height,
+            mimeType: uploaded.mimeType ?? localMetadata.mimeType,
+          }),
+        });
       }
       if (epoch !== this.session) return null;
       const endpoint = message.repliedToId ? "reply" : "messages";
@@ -159,11 +200,12 @@ export class MessageService extends BaseUploader {
         `/messages/conversations/${encodeURIComponent(message.conversationId)}/${endpoint}`,
         {
           content: message.content ?? "",
-          receiverId: message.receiverId,
-          ...(message.repliedToId
-            ? { repliedToId: message.repliedToId }
-            : { type: message.type }),
+          ...(message.receiverId ? { receiverId: message.receiverId } : {}),
+          type: message.type,
+          ...(message.repliedToId ? { repliedToId: message.repliedToId } : {}),
           ...(mediaUrl ? { mediaUrl } : {}),
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
+          ...(message.duration != null ? { duration: message.duration } : {}),
         },
         this.authToken ?? undefined,
       );
@@ -193,6 +235,8 @@ export class MessageService extends BaseUploader {
     mediaUrl: string | null,
     meta: SendMeta,
     duration?: number,
+    repliedToId?: string,
+    attachment?: AttachmentInfo,
   ) {
     if (!mediaUrl) throw new Error("Attachment URI is required.");
     const messageType =
@@ -207,6 +251,12 @@ export class MessageService extends BaseUploader {
       type: messageType,
       mediaUrl,
       duration: duration ?? null,
+      repliedToId: repliedToId ?? null,
+      content:
+        messageType === "DOCUMENT" || messageType === "AUDIO"
+          ? (attachment?.name ?? null)
+          : null,
+      attachmentData: attachment ? JSON.stringify(attachment) : null,
     });
   }
 
@@ -240,7 +290,14 @@ export class MessageService extends BaseUploader {
   async uploadMedia(
     file: { uri: string; name: string; type: string },
     onProgress?: (percent: number) => void,
-  ): Promise<{ url: string; thumbnailUrl?: string }> {
+  ): Promise<{
+    url: string;
+    thumbnailUrl?: string;
+    width?: number;
+    height?: number;
+    size?: number;
+    mimeType?: string;
+  }> {
     const formData = new FormData();
     formData.append("file", file as unknown as Blob);
     const response = (await this._uploadWithProgress(
@@ -248,13 +305,24 @@ export class MessageService extends BaseUploader {
       formData,
       onProgress,
     )) as {
-      data?: { url: string; thumbnailUrl?: string };
+      data?: {
+        url: string;
+        thumbnailUrl?: string;
+        width?: number;
+        height?: number;
+        size?: number;
+        mimeType?: string;
+      };
       url?: string;
       thumbnailUrl?: string;
+      width?: number;
+      height?: number;
+      size?: number;
+      mimeType?: string;
     };
     const data = response.data ?? response;
     if (!data.url) throw new Error("Upload response did not include a URL.");
-    return { url: data.url, thumbnailUrl: data.thumbnailUrl };
+    return { ...data, url: data.url };
   }
 
   syncFromServer(
@@ -289,10 +357,12 @@ export class MessageService extends BaseUploader {
     epoch: number,
     cursor?: ServerCursor,
     limit = 30,
+    page?: number,
   ) {
     const requestStartedAt = Date.now();
     const roomVersion = messageStore.getRoomVersion(conversationId);
     let url = `/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${limit}`;
+    if (page) url += `&page=${page}`;
     if (cursor?.lastId) url += `&cursorId=${encodeURIComponent(cursor.lastId)}`;
     else if (cursor?.lastTimestamp) url += `&before=${cursor.lastTimestamp}`;
     const response = await api.get<
@@ -303,8 +373,11 @@ export class MessageService extends BaseUploader {
       : (response.messages ?? response.data);
     if (!Array.isArray(remote))
       throw new Error("Invalid message history response.");
+    const room = (await roomStore.findRoom(conversationId))[0];
+    const isGroup = room?.isGroup === true;
+    const authors = roomAuthors(room);
     const incoming = remote.map((message) =>
-      normalizeRemoteMessage(message, userId),
+      normalizeRemoteMessage(message, userId, isGroup, authors),
     );
     if (incoming.some((row) => row.conversationId !== conversationId))
       throw new Error("History response contains another conversation.");
@@ -319,6 +392,20 @@ export class MessageService extends BaseUploader {
     const rows = (await messageStore.saveMany(incoming, requestStartedAt)).sort(
       compareMessages,
     );
+    this.pageSizes.set(rows, remote.length);
+    // This backend echoes reads only to the sender. A fresh DM history response
+    // with this recipient's committed READ is also authoritative confirmation.
+    // Group-wide READ cannot confirm an individual member; never infer that.
+    for (const row of incoming) {
+      if (
+        !isGroup &&
+        row.receiverId === userId &&
+        row.senderId !== userId &&
+        row.isRead &&
+        row.id
+      )
+        await receiptQueue.acknowledge("READ", row.id);
+    }
     const oldest = incoming.reduce<NewMessageRow | undefined>(
       (previous, row) =>
         !previous || compareMessages(row, previous) < 0 ? row : previous,
@@ -426,6 +513,110 @@ export class MessageService extends BaseUploader {
       });
     }
     if (isCurrent()) await syncStateStore.delete(conversationId);
+  }
+
+  /** Explicit, cancellable reply search on the existing page/limit API. Cache
+   * first allows offline jumps. Fetching through the parent also discovers all
+   * later direct replies without inventing a replies/around-message endpoint. */
+  private async getReplyRange(conversationId: string, parent: MessageRow) {
+    // Outgoing insertion timestamps are intentionally immutable. Clock skew
+    // must not hide replies whose server timestamps precede that local key.
+    const replies = await messageStore.getReplies(conversationId, [
+      parent.localId,
+      parent.id || parent.localId,
+    ]);
+    let earliest = parent;
+    for (const reply of replies)
+      if (compareMessages(reply, earliest) < 0) earliest = reply;
+    return messageStore.getFromMessage(conversationId, earliest);
+  }
+
+  async loadReplyContext(
+    conversationId: string,
+    userId: string,
+    targetId: string,
+    isCurrent: () => boolean,
+  ): Promise<{
+    parent: MessageRow;
+    rows: MessageRow[];
+    complete: boolean;
+    error: string | null;
+  }> {
+    const epoch = this.session;
+    const version = messageStore.getRoomVersion(conversationId);
+    const current = () =>
+      isCurrent() &&
+      epoch === this.session &&
+      version === messageStore.getRoomVersion(conversationId);
+    let parent = (await messageStore.getByIds(conversationId, [targetId]))[0];
+    if (parent?.deletedAt) throw new Error("The original message was deleted.");
+    let cached = parent ? await this.getReplyRange(conversationId, parent) : [];
+    if (!current()) throw new Error("Reply navigation cancelled.");
+    if (!this.authToken) {
+      if (parent)
+        return {
+          parent,
+          rows: cached,
+          complete: false,
+          error: "Showing cached replies. Connect to check for more.",
+        };
+      throw new Error(
+        "The original message isn’t cached. Connect and try again.",
+      );
+    }
+    const seen = new Set<string>();
+    try {
+      for (let page = 1; current(); page++) {
+        const rows = await this.fetchFromServer(
+          conversationId,
+          userId,
+          epoch,
+          undefined,
+          100,
+          page,
+        );
+        if (!current()) throw new Error("Reply navigation cancelled.");
+        const found = rows.find(
+          (row) => row.id === targetId || row.localId === targetId,
+        );
+        if (found) {
+          if (found.deletedAt)
+            throw new Error("The original message was deleted.");
+          parent = found;
+          cached = await this.getReplyRange(conversationId, parent);
+          return { parent, rows: cached, complete: true, error: null };
+        }
+        const advancing = rows.some((row) => !seen.has(row.id || row.localId));
+        rows.forEach((row) => seen.add(row.id || row.localId));
+        if (
+          !rows.length ||
+          !advancing ||
+          (this.pageSizes.get(rows) ?? rows.length) < 100
+        )
+          break;
+      }
+      throw new Error(
+        "The original message is no longer available in server history.",
+      );
+    } catch (error) {
+      if (!current()) throw new Error("Reply navigation cancelled.");
+      const latestParent = (
+        await messageStore.getByIds(conversationId, [targetId])
+      )[0];
+      if (latestParent?.deletedAt)
+        throw new Error("The original message was deleted.");
+      if (parent)
+        return {
+          parent,
+          rows: await this.getReplyRange(conversationId, parent),
+          complete: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Couldn’t check all replies. Try again.",
+        };
+      throw error;
+    }
   }
 
   async delete(id: string, deleteFor: "me" | "everyone" = "me") {

@@ -8,6 +8,7 @@ import {
   rooms,
 } from "./schema";
 import { inArray, or, eq, and, lte, sql } from "drizzle-orm";
+import { synchronizeReplySnapshots } from "./replySnapshots";
 import { mergePersistedMessage } from "../utils/messaging/timeline";
 
 export class MessageInsertQueries {
@@ -64,7 +65,7 @@ export class MessageInsertQueries {
             ),
           );
       }
-      return row;
+      return (await synchronizeReplySnapshots(tx, [row]))[0];
     });
   }
 
@@ -110,7 +111,7 @@ export class MessageInsertQueries {
           .returning();
         result.push(row);
       }
-      return result;
+      return synchronizeReplySnapshots(tx, result);
     });
   }
 }

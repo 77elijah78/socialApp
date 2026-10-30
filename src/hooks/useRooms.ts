@@ -87,6 +87,8 @@ function toRoomRow(
   return {
     id: conversation.id,
     name,
+    isGroup: conversation.isGroup,
+    participantsData: JSON.stringify(conversation.participants.map(({ user }) => ({ id: user.id, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl }))),
     conversationId: conversation.id,
     avatarUrl,
     lastMessage: lastMessageContent,

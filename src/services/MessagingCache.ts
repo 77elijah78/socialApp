@@ -4,6 +4,8 @@ import { roomStore } from "../db/RoomStore";
 import { syncStateStore } from "../db/syncStateStore";
 import { receiptQueue } from "../db/receiptQueue";
 import { clearRecentMessageCache } from "../utils/recentMessageCache";
+import { clearRoomAuthors } from "../utils/messaging/roomAuthors";
+import { documentDownloads } from "./DocumentDownloads";
 import { mediaService } from "./MediaService";
 
 const OWNER_KEY = "messaging-cache-owner";
@@ -16,6 +18,8 @@ export async function prepareMessagingAccount(
     mediaService.message.resetSession();
     mediaService.disconnectSocket();
     clearRecentMessageCache();
+    clearRoomAuthors();
+    await documentDownloads.clear();
     await messageStore.deleteAll();
     await roomStore.deleteAll();
     await receiptQueue.clear();

@@ -59,12 +59,26 @@ test("offline visibility receipts are replayed and retained until server echo ac
   await settle();
   assert.equal((await receiptQueue.getBatch("READ")).length, 0);
 });
-test("self read echo without ID must not mark own sent messages READ", async () => {
+test("idless and self-read events cannot mark outgoing messages read; explicit recipient receipt can", async () => {
   await messageStore.save(row(1, { senderId: "me" }));
   socket.receive("message:read", { userId: "me", conversationId: "room" });
   await settle();
   assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
   socket.receive("message:read", { userId: "other", conversationId: "room" });
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  socket.receive("message:read", {
+    userId: "me",
+    messageId: row(1).id,
+    conversationId: "room",
+  });
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  socket.receive("message:read", {
+    userId: "other",
+    messageId: row(1).id,
+    conversationId: "room",
+  });
   await settle();
   assert.equal((await messageStore.getById(row(1).id)).status, "READ");
 });
@@ -172,5 +186,148 @@ test("a notification paused after message persistence cannot recreate a deleted 
   } finally {
     roomStore.findRoom = original;
     pending.resolve([]);
+  }
+});
+
+test("an existing outgoing receipt updates while an unrelated upload is still pending", async () => {
+  await messageStore.save(row(1, { senderId: "me" }));
+  const release = messageStore.beginOutgoing("me");
+  try {
+    socket.receive("message:read", {
+      userId: "other",
+      conversationId: "room",
+      messageId: row(1).id,
+    });
+    await settle();
+    assert.equal(
+      (await messageStore.getById(row(1).id)).status,
+      "READ",
+      "must not wait for the other outgoing request",
+    );
+  } finally {
+    release();
+  }
+});
+test("delivery, visibility read, and read-replay stay distinct without duplicate online emissions", async () => {
+  await messageStore.saveMany([row(1), row(2)]);
+  socket.receive("connect");
+  await settle();
+  receiver.emitMessageDelivered("room", row(1).id);
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).status, "DELIVERED");
+  assert.equal((await receiptQueue.getBatch("READ")).length, 0);
+  await messageStore.markVisibleReadIds([row(1).id], "room", "me");
+  receiver.emitMessageRead("room", row(1).id);
+  await settle();
+  for (let i = 0; i < 4; i++) await receiver.flushReceipts();
+  receiver.emitMessageDelivered("room", row(2).id);
+  await settle();
+  assert.equal(
+    socket.emitted.filter((event) => event.event === "message:read").length,
+    1,
+  );
+  assert.equal(
+    (await receiptQueue.getBatch("READ")).length,
+    1,
+    "legacy server has not acknowledged it",
+  );
+  socket.receive("disconnect");
+  socket.receive("connect");
+  await settle();
+  assert.equal(
+    socket.emitted.filter((event) => event.event === "message:read").length,
+    2,
+    "reconnect replays the durable unconfirmed receipt once",
+  );
+});
+test("another group member's receipt cannot mark my incoming messages read; any reader can read my outgoing", async () => {
+  await messageStore.saveMany([row(1), row(2, { senderId: "me" })]);
+  socket.receive("message:read", {
+    userId: "third-member",
+    conversationId: "room",
+    messageId: row(1).id,
+  });
+  socket.receive("message:read", {
+    userId: "third-member",
+    conversationId: "room",
+    messageId: row(2).id,
+  });
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).isRead, false);
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  assert.equal((await messageStore.getById(row(2).id)).status, "READ");
+});
+test("pending status applies to its canonical ID without waiting for other outstanding sends", async () => {
+  const releaseA = messageStore.beginOutgoing("me"),
+    releaseB = messageStore.beginOutgoing("me");
+  await messageStore.save(
+    row(1, {
+      id: "temporary",
+      localId: "stable",
+      senderId: "me",
+      status: "SENDING",
+    }),
+  );
+  try {
+    socket.receive("message:read", {
+      userId: "other",
+      messageId: "confirmed",
+      conversationId: "room",
+    });
+    socket.receive("message:delivered", {
+      userId: "other",
+      messageId: "confirmed",
+      conversationId: "room",
+    });
+    await settle();
+    await messageStore.confirm("stable", "confirmed");
+    await settle();
+    assert.equal((await messageStore.getByLocalId("stable")).status, "READ");
+  } finally {
+    releaseA();
+    releaseB();
+  }
+});
+test("socket refresh/disconnect removes its store subscription instead of accumulating listeners", async () => {
+  const count = messageStore.subscribers.size;
+  receiver.connect("me", "refreshed-token");
+  assert.equal(messageStore.subscribers.size, count);
+  receiver.connect("me", "another-token");
+  assert.equal(messageStore.subscribers.size, count);
+  receiver.disconnect();
+  assert.equal(messageStore.subscribers.size, count - 1);
+});
+
+test("slow delivery HTTP cannot block an immediate visibility read over the existing socket", async () => {
+  const response = deferred();
+  let deliveryStarted = false;
+  server.response = async (url) => {
+    if (url.includes("/messages/delivered")) {
+      deliveryStarted = true;
+      return response.promise;
+    }
+    return { ok: true, status: 200, json: async () => ({ data: [] }) };
+  };
+  await messageStore.save(row(1));
+  socket.receive("connect");
+  await settle();
+  receiver.emitMessageDelivered("room", row(1).id);
+  await settle();
+  assert.equal(deliveryStarted, true);
+  try {
+    await messageStore.markVisibleReadIds([row(1).id], "room", "me");
+    receiver.emitMessageRead("room", row(1).id);
+    await settle();
+    assert.equal(
+      socket.emitted.filter((event) => event.event === "message:read").length,
+      1,
+    );
+  } finally {
+    response.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true }),
+    });
+    await settle();
   }
 });

@@ -11,13 +11,28 @@ interface SharedStoryCardProps {
   authorAvatarUrl: string | null;
   expiresAt?: string | Date;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
-export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorName, authorAvatarUrl, expiresAt, onPress }: SharedStoryCardProps) {
+export default function SharedStoryCard({
+  mediaUrl,
+  mediaType,
+  caption,
+  authorName,
+  authorAvatarUrl,
+  expiresAt,
+  onPress,
+  onLongPress,
+}: SharedStoryCardProps) {
   const [imageError, setImageError] = useState(false);
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      activeOpacity={0.9}
+    >
       <View style={styles.mediaWrapper}>
         {!imageError ? (
           <Image
@@ -28,19 +43,26 @@ export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorNa
           />
         ) : (
           <View style={styles.mediaPlaceholder}>
-            <Ionicons name="image-outline" size={32} color={theme.COLORS.textMuted} />
-            <Text style={styles.unavailableText}>
-              Media unavailable
-            </Text>
+            <Ionicons
+              name="image-outline"
+              size={32}
+              color={theme.COLORS.textMuted}
+            />
+            <Text style={styles.unavailableText}>Media unavailable</Text>
           </View>
         )}
         <View style={styles.overlay}>
           <View style={styles.headerRow}>
             <View style={styles.avatar}>
               {authorAvatarUrl ? (
-                <Image source={{ uri: authorAvatarUrl }} style={styles.avatarImage} />
+                <Image
+                  source={{ uri: authorAvatarUrl }}
+                  style={styles.avatarImage}
+                />
               ) : (
-                <Text style={styles.avatarText}>{authorName?.[0]?.toUpperCase() ?? "?"}</Text>
+                <Text style={styles.avatarText}>
+                  {authorName?.[0]?.toUpperCase() ?? "?"}
+                </Text>
               )}
             </View>
             <Text style={styles.authorName} numberOfLines={1}>
@@ -48,7 +70,11 @@ export default function SharedStoryCard({ mediaUrl, mediaType, caption, authorNa
             </Text>
           </View>
           <View style={styles.storyBadge}>
-            <Ionicons name="share-social-outline" size={14} color={theme.COLORS.textWhite} />
+            <Ionicons
+              name="share-social-outline"
+              size={14}
+              color={theme.COLORS.textWhite}
+            />
             <Text style={styles.storyBadgeText}>Story</Text>
           </View>
         </View>

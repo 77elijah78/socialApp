@@ -23,11 +23,14 @@ const { mediaService } = require("../../src/services/MediaService.ts");
 const { socketReceiver } = require("../../src/services/SocketReceiver.ts");
 let renderer, chat, server;
 function Probe({ room = "room", focused = true }) {
-  chat = useChat({
+  const value = useChat({
     conversationId: room,
     currentUser: { id: "me", token: "token" },
     isFocused: focused,
   });
+  React.useLayoutEffect(() => {
+    chat = value;
+  }, [value]);
   return null;
 }
 async function mount(props) {
@@ -164,22 +167,23 @@ test("late old-room initialization and pagination never paint the new room", asy
     messageStore.getRecent = original;
   }
 });
-test("visibility reads only received visible messages; blur and room changes cancel timers", async () => {
+test("visibility reads immediately for received visible messages; blurred and old-room callbacks cannot read", async () => {
   await messageStore.saveMany([row(1), row(2), row(3, { senderId: "me" })]);
   await mount();
   await act(async () => {
     chat.markVisibleRead([row(1).localId, row(3).localId]);
-    await new Promise((done) => setTimeout(done, 280));
+    await settle();
   });
   assert.equal((await messageStore.getById(row(1).id)).status, "READ");
   assert.equal((await messageStore.getById(row(2).id)).status, "SENT");
   assert.equal((await messageStore.getById(row(3).id)).status, "SENT");
+  await act(async () =>
+    renderer.update(React.createElement(Probe, { focused: false })),
+  );
   chat.markVisibleRead([row(2).localId]);
   await act(async () => {
     renderer.update(React.createElement(Probe, { room: "other-room" }));
-  });
-  await act(async () => {
-    await new Promise((done) => setTimeout(done, 280));
+    await settle();
   });
   assert.equal((await messageStore.getById(row(2).id)).status, "SENT");
 });
@@ -249,4 +253,312 @@ test("deletion in a mounted background room does not navigate the active screen 
   } finally {
     router.back = back;
   }
+});
+
+test("visible messages are replayed on focus without a touch or a new viewability callback", async () => {
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  await mount({ focused: false });
+  chat.markVisibleRead([row(1).localId]);
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  await act(async () => {
+    renderer.update(React.createElement(Probe, { focused: true }));
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(1).id)).status, "READ");
+  assert.equal((await receiptQueue.getBatch("READ")).length, 1);
+});
+test("foreground return replays the existing visible viewport without waiting for network or interaction", async () => {
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  await mount();
+  appState.change("background");
+  chat.markVisibleRead([row(1).id]);
+  await settle();
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  await act(async () => {
+    appState.change("active");
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(1).id)).status, "READ");
+});
+test("an early viewport report before session effects is not lost", async () => {
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  function EarlyView({ value }) {
+    const mark = value.markVisibleRead;
+    React.useLayoutEffect(() => {
+      mark([row(1).localId]);
+    }, [mark]);
+    return null;
+  }
+  function Parent() {
+    const value = useChat({
+      conversationId: "room",
+      currentUser: { id: "me", token: "token" },
+      isFocused: true,
+    });
+    React.useLayoutEffect(() => {
+      chat = value;
+    }, [value]);
+    return React.createElement(EarlyView, { value });
+  }
+  await act(async () => {
+    renderer = create(React.createElement(Parent));
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(1).id)).status, "READ");
+});
+test("rows committed after their viewport report are read immediately without another scroll event", async () => {
+  server.failure = new Error("offline");
+  await mount();
+  chat.markVisibleRead([row(22).localId]);
+  await act(async () => {
+    await messageStore.saveReceived(row(22), () => true, "me");
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(22).id)).status, "READ");
+});
+test("rapid duplicate visibility reports start one immediate durable read transaction", async () => {
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  await mount();
+  const original = messageStore.markVisibleReadIds;
+  let calls = 0;
+  messageStore.markVisibleReadIds = function (...args) {
+    calls++;
+    return original.apply(this, args);
+  };
+  try {
+    await act(async () => {
+      chat.markVisibleRead([row(1).localId]);
+      assert.equal(
+        calls,
+        1,
+        "the write starts in this event, not after a timeout",
+      );
+      for (let i = 0; i < 10; i++) chat.markVisibleRead([row(1).localId]);
+      await settle();
+    });
+    assert.equal(calls, 1);
+    assert.equal((await receiptQueue.getBatch("READ")).length, 1);
+    assert.equal(
+      server.calls.some((call) => /\/read$/.test(call.path)),
+      false,
+      "never mark unseen conversation messages read via REST",
+    );
+  } finally {
+    messageStore.markVisibleReadIds = original;
+  }
+});
+test("a far cached reply target extends loaded history without dropping current messages", async () => {
+  await messageStore.saveMany(
+    Array.from({ length: 550 }, (_, index) => row(index)),
+  );
+  server.failure = new Error("offline");
+  await mount();
+  const latest = chat.messages.at(-1).id;
+  await act(async () => {
+    const result = await chat.loadReplyTarget(row(5).id, () => true);
+    assert.equal(result.complete, false);
+  });
+  assert.equal(chat.messages[0].id, row(5).id);
+  assert.equal(chat.messages.at(-1).id, latest);
+  assert.equal(chat.messages.length, 545);
+  assert.equal(new Set(chat.messages.map((row) => row.id)).size, 545);
+});
+
+test("native modal coverage gates otherwise visible messages until the chat is uncovered", async () => {
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  let covered = true;
+  const canRead = () => !covered;
+  function CoveredProbe() {
+    const value = useChat({
+      conversationId: "room",
+      currentUser: { id: "me", token: "token" },
+      isFocused: true,
+      canRead,
+    });
+    React.useLayoutEffect(() => {
+      chat = value;
+    }, [value]);
+    return null;
+  }
+  await act(async () => {
+    renderer = create(React.createElement(CoveredProbe));
+    await settle();
+  });
+  await act(async () => {
+    chat.markVisibleRead([row(1).id]);
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(1).id)).status, "SENT");
+  covered = false;
+  await act(async () => {
+    chat.markVisibleRead([row(1).id]);
+    await settle();
+  });
+  assert.equal((await messageStore.getById(row(1).id)).status, "READ");
+});
+
+test("old cached rows recover real author names from the existing persisted participant roster offline", async () => {
+  await roomStore.upsertRoom({
+    id: "room",
+    conversationId: "room",
+    name: "Group",
+    avatarUrl: "",
+    lastMessage: "",
+    lastMessageType: "TEXT",
+    lastMessageTimestamp: 0,
+    unreadCount: 0,
+    cachedAt: 1,
+    updatedAt: 1,
+    isGroup: true,
+    participantsData: JSON.stringify([
+      {
+        id: "other",
+        username: "yuki",
+        displayName: "Yuki Tanaka",
+        avatarUrl: "https://cdn.test/yuki.jpg",
+      },
+    ]),
+  });
+  await messageStore.save(row(1));
+  server.failure = new Error("offline");
+  await mount();
+  assert.equal(
+    JSON.parse(chat.messages[0].senderData).displayName,
+    "Yuki Tanaka",
+  );
+});
+
+test("an unloaded original's edit/delete updates only its loaded reply previews and stays redacted offline", async () => {
+  const original = row(1, { content: "old original" });
+  const quote = JSON.stringify({
+    id: original.id,
+    content: original.content,
+    senderId: "other",
+    type: "TEXT",
+  });
+  await messageStore.saveMany([
+    original,
+    ...Array.from({ length: 80 }, (_, index) =>
+      row(index + 2, {
+        repliedToId: index === 79 ? original.id : null,
+        replyData: index === 79 ? quote : null,
+      }),
+    ),
+  ]);
+  server.failure = new Error("offline");
+  await mount();
+  assert.equal(
+    chat.messages.some((message) => message.id === original.id),
+    false,
+  );
+  await act(async () => {
+    await messageStore.editText(original.id, "edited original");
+    await settle();
+  });
+  const reply = chat.messages.at(-1);
+  assert.equal(JSON.parse(reply.replyData).content, "edited original");
+  await act(async () => {
+    await messageStore.deleteOne(original.id);
+    await settle();
+  });
+  assert.equal(JSON.parse(chat.messages.at(-1).replyData).deleted, true);
+  assert.equal(
+    JSON.parse((await messageStore.getById(reply.id)).replyData).content,
+    "",
+  );
+});
+
+test("a cached unloaded media original supplies a real thumbnail/duration without inserting it into visible history", async () => {
+  const original = row(1, {
+    type: "VIDEO",
+    thumbnailUrl: "https://cdn.test/original.jpg",
+    duration: 47,
+  });
+  await messageStore.saveMany([
+    original,
+    ...Array.from({ length: 80 }, (_, i) =>
+      row(i + 2, { repliedToId: i === 0 || i === 79 ? original.id : null }),
+    ),
+  ]);
+  server.failure = new Error("offline");
+  await mount();
+  assert.equal(
+    chat.messages.some((row) => row.id === original.id),
+    false,
+  );
+  const quote = JSON.parse(chat.messages.at(-1).replyData);
+  assert.equal(quote.type, "VIDEO");
+  assert.equal(quote.duration, 47);
+  assert.equal(quote.thumbnailUrl, original.thumbnailUrl);
+  await act(async () => {
+    await chat.loadReplyTarget(original.id, () => true);
+  });
+  await act(async () => {
+    await messageStore.deleteOne(original.id);
+    await settle();
+  });
+  assert.equal(
+    JSON.parse(
+      chat.messages.find((message) => message.id === row(2).id).replyData,
+    ).deleted,
+    true,
+  );
+});
+
+test("a pending quote hydration cannot repopulate a conversation after deletion", async () => {
+  const original = row(1),
+    response = deferred(),
+    get = messageStore.getByIds;
+  await messageStore.saveMany([
+    original,
+    ...Array.from({ length: 80 }, (_, i) =>
+      row(i + 2, { repliedToId: i === 79 ? original.id : null }),
+    ),
+  ]);
+  server.failure = new Error("offline");
+  messageStore.getByIds = (...args) =>
+    args[1].includes(original.id)
+      ? response.promise
+      : get.apply(messageStore, args);
+  try {
+    await mount();
+    await act(async () => {
+      await messageStore.deleteRoom("room");
+      response.resolve([original]);
+      await settle();
+    });
+    assert.equal(chat.messages.length, 0);
+  } finally {
+    messageStore.getByIds = get;
+    response.resolve([]);
+  }
+});
+
+test("a receipt for an unloaded reply cannot hydrate it into the current timeline or create a history gap", async () => {
+  await messageStore.saveMany(
+    Array.from({ length: 90 }, (_, i) =>
+      row(i, { repliedToId: i === 2 ? row(1).id : null }),
+    ),
+  );
+  server.failure = new Error("offline");
+  await mount();
+  const before = chat.messages.map((row) => row.id);
+  await act(async () => {
+    await messageStore.markRead(row(2).id, "room");
+    await settle();
+  });
+  assert.deepEqual(
+    chat.messages.map((row) => row.id),
+    before,
+  );
+  assert.equal(
+    chat.messages.some((message) => message.id === row(2).id),
+    false,
+  );
 });

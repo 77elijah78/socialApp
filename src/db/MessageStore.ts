@@ -114,6 +114,12 @@ export class MessageStore {
   getOlderThan(roomId: string, cursor: MessageCursor, limit = 30) {
     return messageGetQueries.getOlderThan(roomId, cursor, limit);
   }
+  getFromMessage(roomId: string, parent: MessageRow) {
+    return messageGetQueries.getFromMessage(roomId, parent);
+  }
+  getReplies(roomId: string, parentIds: string[]) {
+    return messageGetQueries.getReplies(roomId, parentIds);
+  }
   getByLocalId(id: string) {
     return messageGetQueries.getByLocalId(id);
   }
@@ -172,9 +178,7 @@ export class MessageStore {
     return row;
   }
   async saveMany(batch: NewMessageRow[], requestStartedAt?: number) {
-    return this.publishRows(
-      await messageInsertQueries.upsertMany(batch, requestStartedAt),
-    );
+    return this.publishRows(await messageInsertQueries.upsertMany(batch, requestStartedAt));
   }
   confirm(localId: string, serverId: string, timestamp?: number) {
     return this.changed(

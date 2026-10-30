@@ -1,13 +1,14 @@
-import React, {
+import {
+  memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  useMemo,
+  useContext,
 } from "react";
 import {
   ActivityIndicator,
-  Animated,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,13 +21,22 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
-import theme from "@/constants/theme";
-import { useChatMediaPlayback } from "@/hooks/useChatMediaPlayback";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  OPACITY,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
+import { ChatMediaInteraction } from "@/components/chat/ChatReadVisibility";
+import {
+  claimChatPlayback,
+  useChatMediaPlayback,
+} from "@/hooks/useChatMediaPlayback";
 import { useMediaVisibility } from "@/utils/messaging/mediaVisibility";
+import { formatDuration, waveformPeaks } from "@/utils/messaging/presentation";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface VoiceMessageBubbleProps {
+interface Props {
   audioUri: string;
   playbackId?: string;
   duration: number;
@@ -35,349 +45,301 @@ interface VoiceMessageBubbleProps {
   timestamp?: string;
   isRead?: boolean;
   style?: ViewStyle;
+  onLongPress?: () => void;
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const WAVEFORM_BARS = 40;
-const BAR_WIDTH = 3;
-const BAR_GAP = theme.BORDER_RADIUS.sm;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function generateWaveform(seed: string, count: number): number[] {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++)
-    h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
-  return Array.from({ length: count }, (_, i) => {
-    h = (Math.imul(1664525, h) + 1013904223) | 0;
-    const base = 10 + (Math.abs(h) % 60);
-    const edge = Math.min(i, count - 1 - i) / (count * 0.15);
-    return Math.round(Math.min(100, base * Math.min(1, edge + 0.4)));
-  });
-}
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-// ─── Equalizer Hook ───────────────────────────────────────────────────────────
-
-function useEqualizer(count: number, isPlaying: boolean) {
-  const [values] = useState(() =>
-    Array.from({ length: count }, () => new Animated.Value(1)),
-  );
-  useEffect(() => {
-    if (!isPlaying) {
-      values.forEach((value) => value.setValue(1));
-      return;
-    }
-    const animations = values.map((value, index) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(value, {
-            toValue: 0.6 + (index % 5) * 0.15,
-            duration: 180 + (index % 3) * 50,
-            useNativeDriver: true,
-          }),
-          Animated.timing(value, {
-            toValue: 1.2,
-            duration: 220,
-            useNativeDriver: true,
-          }),
-        ]),
-      ),
-    );
-    animations.forEach((animation) => animation.start());
-    return () => animations.forEach((animation) => animation.stop());
-  }, [isPlaying, values]);
-  return values;
-}
-
-// ─── Waveform Component ───────────────────────────────────────────────────────
-
-interface WaveformProps {
-  bars: number[];
-  animValues: Animated.Value[];
+interface TrackProps {
+  peaks: number[] | null;
   progress: number;
-  onSeek?: (progress: number) => void;
+  elapsed: number;
+  total: number;
+  onSeek?: (ratio: number) => void;
 }
-
-const Waveform: React.FC<WaveformProps> = ({
-  bars,
-  animValues,
+const VoiceTrack = memo(function VoiceTrack({
+  peaks,
   progress,
+  elapsed,
+  total,
   onSeek,
-}) => {
-  const playedCount = Math.round(progress * bars.length);
-
-  const trackWidth = useRef(1);
-  const handleTouch = useCallback(
-    (event: { nativeEvent: { locationX: number } }) => {
-      onSeek?.(
-        Math.max(
-          0,
-          Math.min(1, event.nativeEvent.locationX / trackWidth.current),
-        ),
-      );
-    },
-    [onSeek],
-  );
-
+}: TrackProps) {
+  const width = useRef(1);
   return (
-    <TouchableOpacity
-      activeOpacity={theme.OPACITY.pressed}
-      onPress={handleTouch}
-      onLayout={(event) => {
-        trackWidth.current = Math.max(1, event.nativeEvent.layout.width);
-      }}
-      style={styles.waveformContainer}
-      accessible
-      accessibilityLabel="Voice message waveform, tap to seek"
-    >
-      {bars.map((amplitude, i) => {
-        const played = i < playedCount;
-        const staticHeight = Math.max(
-          3,
-          (amplitude / 100) * theme.SIZING.waveformHeight,
-        );
-
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              styles.bar,
-              {
-                height: staticHeight,
-                transform: [{ scaleY: animValues[i] }],
-                backgroundColor: played
-                  ? theme.COLORS.playedWave
-                  : theme.COLORS.unplayedWave,
-              },
-            ]}
-          />
-        );
-      })}
-    </TouchableOpacity>
+    <View style={styles.trackColumn}>
+      <TouchableOpacity
+        style={styles.waveform}
+        activeOpacity={OPACITY.subtle}
+        accessibilityRole={onSeek ? "adjustable" : "text"}
+        accessibilityLabel={
+          peaks
+            ? "Audio waveform"
+            : "Audio progress. No waveform data available"
+        }
+        accessibilityValue={{ min: 0, max: Math.max(1, total), now: elapsed }}
+        accessibilityActions={
+          onSeek
+            ? [
+                { name: "increment", label: "Forward five seconds" },
+                { name: "decrement", label: "Back five seconds" },
+              ]
+            : []
+        }
+        onAccessibilityAction={(event) => {
+          if (total)
+            onSeek?.(
+              Math.max(
+                0,
+                Math.min(
+                  1,
+                  (elapsed +
+                    (event.nativeEvent.actionName === "increment" ? 5 : -5)) /
+                    total,
+                ),
+              ),
+            );
+        }}
+        onLayout={(event) => {
+          width.current = Math.max(1, event.nativeEvent.layout.width);
+        }}
+        onPress={(event) =>
+          onSeek?.(
+            Math.max(
+              0,
+              Math.min(1, event.nativeEvent.locationX / width.current),
+            ),
+          )
+        }
+      >
+        {peaks ? (
+          peaks.map((peak, index) => (
+            <View
+              key={index}
+              style={[
+                styles.bar,
+                {
+                  height: Math.max(3, peak * 30),
+                  backgroundColor:
+                    index / peaks.length < progress
+                      ? COLORS.primaryDark
+                      : COLORS.wave1,
+                },
+              ]}
+            />
+          ))
+        ) : (
+          <View style={styles.rail}>
+            <View style={[styles.fill, { width: `${progress * 100}%` }]} />
+          </View>
+        )}
+      </TouchableOpacity>
+      <Text style={styles.duration}>
+        {total > 0
+          ? `${elapsed > 0 ? `${formatDuration(elapsed) || "0:00"} / ` : ""}${formatDuration(total)}`
+          : "Voice message"}
+      </Text>
+    </View>
   );
-};
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-const VoiceMessageBubble: React.FC<VoiceMessageBubbleProps> = ({
+});
+function ActiveVoice({
   audioUri,
   playbackId,
   duration,
   waveform,
-  isOwn = false,
-  timestamp,
-  isRead = false,
   style,
-}) => {
-  const bars = useMemo(
-    () =>
-      waveform && waveform.length >= 10
-        ? waveform
-        : generateWaveform(audioUri, WAVEFORM_BARS),
-    [waveform, audioUri],
-  );
+  onLongPress,
+}: Props) {
   const visible = useMediaVisibility(playbackId);
-  const player = useAudioPlayer(null);
-  const playerStatus = useAudioPlayerStatus(player);
-  const loaded = useRef(false);
+  const player = useAudioPlayer(null, { updateInterval: 200 });
+  const status = useAudioPlayerStatus(player);
+  const allowed = useChatMediaPlayback(player, visible);
+  const loaded = useRef(false),
+    loading = useRef(false),
+    alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
   const [failed, setFailed] = useState(false);
-  const isPlaying = Boolean(playerStatus.playing);
-  const elapsed = playerStatus.currentTime ?? 0;
-  const actualDuration =
-    playerStatus.duration > 0 ? playerStatus.duration : duration;
-  const progress = actualDuration > 0 ? elapsed / actualDuration : 0;
-  const status = failed
-    ? "error"
-    : playerStatus.isBuffering
-      ? "loading"
-      : isPlaying
-        ? "playing"
-        : elapsed > 0
-          ? "paused"
-          : "idle";
-  const animValues = useEqualizer(bars.length, isPlaying && visible);
-  const canPlay = useChatMediaPlayback(player, visible);
-  const handlePlayPause = async () => {
+  const [starting, setStarting] = useState(true);
+  const peaks = useMemo(() => waveformPeaks(waveform), [waveform]);
+  const total = status.duration > 0 ? status.duration : duration;
+  const elapsed = Math.max(
+    0,
+    Math.min(total || Infinity, status.currentTime || 0),
+  );
+  const error =
+    failed || Boolean(status.error) || status.playbackState === "error";
+  const busy = !error && (starting || status.isBuffering);
+  const play = useCallback(async () => {
+    if (loading.current) return;
+    if (!allowed()) {
+      if (alive.current) setStarting(false);
+      return;
+    }
+    loading.current = true;
     try {
       setFailed(false);
       if (player.playing) {
         player.pause();
         return;
       }
+      setStarting(true);
       await setAudioModeAsync({
         allowsRecording: false,
         playsInSilentMode: true,
       });
-      if (!canPlay()) return;
-      if (!loaded.current) {
+      if (!allowed()) return;
+      if (!loaded.current || status.error || status.playbackState === "error") {
         player.replace({ uri: audioUri });
         loaded.current = true;
       }
-      if (playerStatus.didJustFinish) await player.seekTo(0);
-      if (canPlay()) player.play();
+      if (status.didJustFinish) await player.seekTo(0);
+      if (allowed()) {
+        claimChatPlayback(player);
+        player.play();
+      }
     } catch {
-      setFailed(true);
+      if (allowed()) {
+        loaded.current = false;
+        setFailed(true);
+      }
+    } finally {
+      loading.current = false;
+      if (alive.current) setStarting(false);
     }
+  }, [
+    allowed,
+    player,
+    audioUri,
+    status.didJustFinish,
+    status.error,
+    status.playbackState,
+  ]);
+  // This child is created only by an explicit play tap, not while scrolling.
+  const initialPlay = useRef(play);
+  useEffect(() => {
+    void initialPlay.current();
+  }, []);
+  const seek = (ratio: number) => {
+    if (loaded.current && total > 0)
+      void player.seekTo(ratio * total).catch(() => {
+        if (allowed()) setFailed(true);
+      });
   };
-  const handleSeek = (position: number) => {
-    if (loaded.current)
-      void player
-        .seekTo(position * actualDuration)
-        .catch(() => setFailed(true));
-  };
-  const displayTime =
-    status === "idle" ? formatTime(actualDuration) : formatTime(elapsed);
-
   return (
-    <View style={[styles.row, isOwn ? styles.rowOwn : styles.rowOther, style]}>
-      <View
-        style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}
-      >
+    <View style={[styles.wrapper, style]}>
+      <View style={styles.row}>
         <TouchableOpacity
-          onPress={handlePlayPause}
-          style={styles.playBtn}
-          activeOpacity={theme.OPACITY.pressed}
+          onLongPress={onLongPress}
+          style={styles.play}
+          onPress={() => {
+            void play();
+          }}
+          disabled={busy}
           accessibilityRole="button"
+          accessibilityState={{ busy, disabled: busy }}
           accessibilityLabel={
-            isPlaying ? "Pause voice message" : "Play voice message"
+            error
+              ? "Retry voice message"
+              : status.playing
+                ? "Pause voice message"
+                : "Play voice message"
           }
-          disabled={status === "loading"}
         >
-          {status === "loading" ? (
-            <ActivityIndicator size="small" color={theme.COLORS.textWhite} />
+          {busy ? (
+            <ActivityIndicator color={COLORS.white} size="small" />
           ) : (
             <Ionicons
-              name={isPlaying ? "pause" : "play"}
-              size={theme.SIZING.avatarXs}
-              color={theme.COLORS.textWhite}
+              name={error ? "refresh" : status.playing ? "pause" : "play"}
+              size={21}
+              color={COLORS.white}
             />
           )}
         </TouchableOpacity>
-
-        <View style={styles.right}>
-          <Waveform
-            bars={bars}
-            animValues={animValues}
-            progress={progress}
-            onSeek={handleSeek}
-          />
-
-          <View style={styles.meta}>
-            <Text style={styles.durationText}>{displayTime}</Text>
-            {timestamp && (
-              <View style={styles.timestampRow}>
-                <Text style={styles.timestampText}>{timestamp}</Text>
-                {isOwn && (
-                  <Ionicons
-                    name={isRead ? "checkmark-done" : "checkmark"}
-                    size={theme.SIZING.avatarXs}
-                    color={
-                      isRead
-                        ? theme.COLORS.playedWave
-                        : theme.COLORS.unplayedWave
-                    }
-                    style={styles.tick}
-                  />
-                )}
-              </View>
-            )}
-          </View>
-        </View>
+        <VoiceTrack
+          peaks={peaks}
+          progress={total ? Math.max(0, Math.min(1, elapsed / total)) : 0}
+          elapsed={elapsed}
+          total={total}
+          onSeek={seek}
+        />
       </View>
+      {error && (
+        <Text style={styles.error} accessibilityRole="alert">
+          Couldn’t play this audio. Tap retry.
+        </Text>
+      )}
     </View>
   );
-};
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
+}
+function VoiceMessage(props: Props) {
+  const confirmVisibility = useContext(ChatMediaInteraction);
+  const [activeUri, setActiveUri] = useState<string | null>(null);
+  const peaks = useMemo(() => waveformPeaks(props.waveform), [props.waveform]);
+  if (activeUri) return <ActiveVoice {...props} audioUri={activeUri} />;
+  return (
+    <View style={[styles.wrapper, props.style]}>
+      <View style={styles.row}>
+        <TouchableOpacity
+          onLongPress={props.onLongPress}
+          style={styles.play}
+          onPress={() => {
+            confirmVisibility(props.playbackId);
+            setActiveUri(props.audioUri);
+          }}
+          disabled={!props.audioUri}
+          accessibilityRole="button"
+          accessibilityLabel={
+            props.audioUri ? "Play voice message" : "Audio unavailable"
+          }
+        >
+          <Ionicons name="play" size={21} color={COLORS.white} />
+        </TouchableOpacity>
+        <VoiceTrack
+          peaks={peaks}
+          progress={0}
+          elapsed={0}
+          total={props.duration}
+        />
+      </View>
+      {!props.audioUri && <Text style={styles.error}>Audio unavailable</Text>}
+    </View>
+  );
+}
+export default memo(VoiceMessage);
 const styles = StyleSheet.create({
+  wrapper: { width: "100%", gap: SPACING.sm },
   row: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    marginVertical: theme.SPACING.xs,
-  },
-  rowOther: {
-    justifyContent: "flex-end",
-  },
-  rowOwn: {
-    justifyContent: "flex-start",
-  },
-
-  bubble: {
-    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.lg,
-    width: theme.SIZING.messageWidth,
-    backgroundColor: theme.COLORS.bubbleBg,
-    gap: theme.SPACING.lg,
+    gap: SPACING.lg,
+    minHeight: 66,
   },
-  bubbleOther: {
-    borderRadius: theme.BORDER_RADIUS.xxxl,
-    borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
-  },
-  bubbleOwn: {
-    borderRadius: theme.BORDER_RADIUS.xxxl,
-    borderBottomRightRadius: theme.BORDER_RADIUS.sm,
-  },
-
-  playBtn: {
-    width: theme.SIZING.voicePlayButton,
-    height: theme.SIZING.voicePlayButton,
-    borderRadius: theme.SIZING.voicePlayButton / 2,
-    backgroundColor: theme.COLORS.playedWave,
+  play: {
+    width: 46,
+    height: 46,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
   },
-
-  right: {
-    flex: 1,
-    gap: theme.SPACING.sm,
-  },
-
-  waveformContainer: {
+  trackColumn: { flex: 1, minWidth: 0 },
+  waveform: {
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
-    height: theme.SIZING.waveformHeight,
-    maxHeight: theme.SIZING.waveformHeight,
+    gap: 2,
     overflow: "hidden",
-    gap: BAR_GAP,
   },
-  bar: {
-    width: BAR_WIDTH,
-    borderRadius: theme.BORDER_RADIUS.xs,
-    minHeight: 3,
+  bar: { flex: 1, maxWidth: 4, borderRadius: BORDER_RADIUS.full },
+  rail: {
+    width: "100%",
+    height: 4,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.wave1,
+    overflow: "hidden",
   },
-
-  meta: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  durationText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textBlack,
-  },
-  timestampRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.BORDER_RADIUS.xs,
-  },
-  timestampText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.unplayedWave,
-  },
-  tick: {
-    marginLeft: theme.BORDER_RADIUS.xs,
-  },
+  fill: { height: "100%", backgroundColor: COLORS.primaryDark },
+  duration: { fontSize: TYPOGRAPHY.fontSize.md, color: COLORS.textGray },
+  error: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.fontSize.md },
 });
-
-export default React.memo(VoiceMessageBubble);

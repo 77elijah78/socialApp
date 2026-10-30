@@ -1,5 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
+import { roomAuthors } from "../utils/messaging/roomAuthors";
 import { roomStore } from "../db/RoomStore";
 import { receiptQueue } from "../db/receiptQueue";
 import {
@@ -7,6 +8,15 @@ import {
   type RemoteMessage,
 } from "../utils/messaging/serialization";
 import { api } from "./api";
+
+interface PendingReceipt {
+  messageId: string;
+  conversationId: string;
+  userId?: string;
+  status: "READ" | "DELIVERED";
+}
+const receiptAttempt = () =>
+  `${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
 type Listener = (data?: any) => void;
 export class SocketReceiver {
@@ -17,8 +27,13 @@ export class SocketReceiver {
   private generation = 0;
   private pendingSync: Promise<void> | null = null;
   private flushing: Promise<void> | null = null;
+  private readFlushing: Promise<void> | null = null;
+  private readAgain = false;
   private flushAgain = false;
   private previousUserId = "";
+  private readAttemptToken = receiptAttempt();
+  private pendingReceipts = new Map<string, PendingReceipt>();
+  private receiptSubscription: (() => void) | null = null;
   private roomReferences = new Map<string, number>();
 
   constructor(private readonly baseUrl: string) {}
@@ -51,6 +66,7 @@ export class SocketReceiver {
     };
     socket.on("connect", () => {
       if (!current()) return;
+      this.readAttemptToken = receiptAttempt();
       socket.emit("presence:join-personal");
       for (const room of this.roomReferences.keys())
         socket.emit("conversation:join", room);
@@ -59,7 +75,11 @@ export class SocketReceiver {
       safe(() => this.flushReceipts());
     });
     socket.on("disconnect", (reason) => {
-      if (current()) this.emit("disconnect", reason);
+      if (current()) {
+        this.readAttemptToken = receiptAttempt();
+        this.readFlushing = null;
+        this.emit("disconnect", reason);
+      }
     });
     socket.on("connect_error", (error) => {
       if (current()) this.emit("error", error.message);
@@ -71,7 +91,15 @@ export class SocketReceiver {
       const stillCurrent = () =>
         current() &&
         roomVersion === messageStore.getRoomVersion(payload.conversationId);
-      const incoming = normalizeRemoteMessage(payload, userId);
+      const room = (await roomStore.findRoom(payload.conversationId))[0];
+      const isGroup = room?.isGroup === true;
+      if (!stillCurrent()) return;
+      const incoming = normalizeRemoteMessage(
+        payload,
+        userId,
+        isGroup,
+        roomAuthors(room),
+      );
       const row = await messageStore.saveReceived(
         incoming,
         stillCurrent,
@@ -125,45 +153,35 @@ export class SocketReceiver {
     socket.on("message:notification", (payload) =>
       safe(() => receive(payload, true)),
     );
+    // Known messages update immediately, even if another upload/send is still
+    // pending. Only an unresolved server identity waits for its own commit.
+    this.receiptSubscription = messageStore.subscribe((change) => {
+      if (!current()) return;
+      if (change.type === "clear") {
+        for (const [key, receipt] of this.pendingReceipts)
+          if (
+            !change.conversationId ||
+            receipt.conversationId === change.conversationId
+          )
+            this.pendingReceipts.delete(key);
+        return;
+      }
+      for (const row of change.rows) {
+        const receipt = this.pendingReceipts.get(
+          `${row.conversationId}:${row.id}`,
+        );
+        if (receipt) safe(() => this.applyReceipt(receipt, current));
+      }
+    });
     socket.on("message:delivered", (payload) =>
       safe(async () => {
-        if (!current()) return;
-        await messageStore.waitForOutgoing(userId);
-        if (!current()) return;
-        await messageStore.markDelivered(
-          payload.messageId,
-          payload.conversationId,
-        );
+        await this.applyReceipt({ ...payload, status: "DELIVERED" }, current);
         if (current()) this.emit("message:delivered", payload);
       }),
     );
     socket.on("message:read", (payload) =>
       safe(async () => {
-        if (!current()) return;
-        await messageStore.waitForOutgoing(userId);
-        if (!current()) return;
-        if (payload.userId === userId) {
-          if (payload.messageId) {
-            await messageStore.markRead(
-              payload.messageId,
-              payload.conversationId,
-              userId,
-            );
-            await receiptQueue.acknowledge("READ", payload.messageId);
-          } else {
-            await receiptQueue.acknowledgeRoom(payload.conversationId);
-          }
-        } else if (payload.messageId) {
-          await messageStore.markRead(
-            payload.messageId,
-            payload.conversationId,
-          );
-        } else {
-          await messageStore.markSentMessagesAsRead(
-            payload.conversationId,
-            userId,
-          );
-        }
+        await this.applyReceipt({ ...payload, status: "READ" }, current);
         if (current()) this.emit("message:read", payload);
       }),
     );
@@ -215,8 +233,67 @@ export class SocketReceiver {
     }
   }
 
+  private async applyReceipt(receipt: PendingReceipt, current: () => boolean) {
+    if (!current() || !receipt.messageId || !receipt.conversationId) return;
+    const row = (
+      await messageStore.getByIds(receipt.conversationId, [receipt.messageId])
+    )[0];
+    if (!current()) return;
+    const key = `${receipt.conversationId}:${receipt.messageId}`;
+    if (!row) {
+      if (receipt.userId === this.currentUserId) return;
+      const existing = this.pendingReceipts.get(key);
+      if (existing?.status !== "READ") this.pendingReceipts.set(key, receipt);
+      // Unknown IDs are bounded metadata, not optimistic/body duplicates. The
+      // server's persisted status is the recovery source after reconnect.
+      if (this.pendingReceipts.size > 512)
+        this.pendingReceipts.delete(this.pendingReceipts.keys().next().value!);
+      // Close the read-before-confirm registration race: confirmation may have
+      // committed between the first query and installing this pending entry.
+      const committed = (
+        await messageStore.getByIds(receipt.conversationId, [receipt.messageId])
+      )[0];
+      if (current() && committed)
+        await this.applyReceipt(
+          this.pendingReceipts.get(key) ?? receipt,
+          current,
+        );
+      return;
+    }
+    this.pendingReceipts.delete(key);
+    if (row.deletedAt) return;
+    if (receipt.userId === this.currentUserId) {
+      // A history fetch on the legacy backend can produce a self-read event
+      // for an OWN message. It is not evidence another recipient read it.
+      if (row.senderId === this.currentUserId) return;
+      if (receipt.status === "READ") {
+        await messageStore.markRead(
+          receipt.messageId,
+          receipt.conversationId,
+          this.currentUserId,
+        );
+        if (current())
+          await receiptQueue.acknowledge("READ", receipt.messageId);
+      }
+      return;
+    }
+    // Another group member reading an incoming message must not mark it seen
+    // by this user. READ on our outgoing message means ANY recipient (product choice).
+    if (row.senderId !== this.currentUserId || !receipt.userId) return;
+    if (receipt.status === "READ")
+      await messageStore.markRead(receipt.messageId, receipt.conversationId);
+    else
+      await messageStore.markDelivered(
+        receipt.messageId,
+        receipt.conversationId,
+      );
+  }
+
   disconnect(): void {
     this.generation += 1;
+    this.receiptSubscription?.();
+    this.receiptSubscription = null;
+    this.pendingReceipts.clear();
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
@@ -224,6 +301,7 @@ export class SocketReceiver {
     this.authToken = "";
     this.pendingSync = null;
     this.flushing = null;
+    this.readFlushing = null;
     // Screen listeners/reference counts survive token refresh; screens own them.
   }
   retainRoom(conversationId: string): () => void {
@@ -264,7 +342,9 @@ export class SocketReceiver {
   }
   emitMessageRead(_conversationId: string, _messageId: string) {
     // markVisibleReadIds already queued the receipt atomically with SQLite READ.
-    void this.flushReceipts().catch((error) => this.emit("sync:error", error));
+    void this.flushReadReceipts().catch((error) =>
+      this.emit("sync:error", error),
+    );
   }
   emitMessageDelivered(conversationId: string, messageId: string) {
     void receiptQueue
@@ -274,6 +354,58 @@ export class SocketReceiver {
   }
 
   flushReceipts(): Promise<void> {
+    // Separate transports: a slow delivered-HTTP request must NEVER hold up a
+    // visibility-driven socket read acknowledgement.
+    return Promise.all([
+      this.flushReadReceipts(),
+      this.flushDeliveryReceipts(),
+    ]).then(() => undefined);
+  }
+
+  private flushReadReceipts(): Promise<void> {
+    if (this.readFlushing) {
+      this.readAgain = true;
+      return this.readFlushing.then(() =>
+        this.readAgain ? this.flushReadReceipts() : undefined,
+      );
+    }
+    const socket = this.socket,
+      generation = this.generation,
+      attempt = this.readAttemptToken;
+    const current = () =>
+      generation === this.generation &&
+      socket === this.socket &&
+      attempt === this.readAttemptToken &&
+      Boolean(socket?.connected);
+    if (!current()) return Promise.resolve();
+    const work = (async () => {
+      do {
+        this.readAgain = false;
+        while (current()) {
+          const batch = await receiptQueue.claimReads(attempt);
+          if (!batch.length || !current()) break;
+          for (const receipt of batch) {
+            if (!current()) break;
+            socket!.emit("message:read", {
+              conversationId: receipt.conversationId,
+              messageId: receipt.messageId,
+            });
+          }
+          // emit() is not an ACK. Legacy confirmations come from the sender-only
+          // event's own echo (if supported) or a fresh DM history READ.
+        }
+      } while (this.readAgain && current());
+    })();
+    this.readFlushing = work;
+    void work
+      .finally(() => {
+        if (this.readFlushing === work) this.readFlushing = null;
+      })
+      .catch(() => {});
+    return work;
+  }
+
+  private flushDeliveryReceipts(): Promise<void> {
     if (this.flushing) {
       this.flushAgain = true;
       return this.flushing;
@@ -288,18 +420,6 @@ export class SocketReceiver {
     const work = (async () => {
       do {
         this.flushAgain = false;
-        let after = "";
-        while (current()) {
-          const batch = await receiptQueue.getBatch("READ", after);
-          if (!batch.length || !current()) break;
-          for (const receipt of batch)
-            socket!.emit("message:read", {
-              conversationId: receipt.conversationId,
-              messageId: receipt.messageId,
-            });
-          after = batch[batch.length - 1].key;
-          // READ is removed only on the server's read echo, not merely emit().
-        }
         while (current()) {
           const batch = await receiptQueue.getBatch("DELIVERED");
           if (!batch.length || !current()) break;
@@ -354,8 +474,11 @@ export class SocketReceiver {
         previous = signature;
         for (const remote of batch) {
           if (!current()) return;
+          const room = (await roomStore.findRoom(remote.conversationId))[0];
+          const isGroup = room?.isGroup === true;
+          if (!current()) return;
           const row = await messageStore.saveReceived(
-            normalizeRemoteMessage(remote, userId),
+            normalizeRemoteMessage(remote, userId, isGroup, roomAuthors(room)),
             current,
             userId,
           );

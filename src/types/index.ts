@@ -11,7 +11,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────
 
 export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'SHARED_POST' | 'SHARED_STORY';
-export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ';
+export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SYSTEM';
 
 export interface User {
@@ -254,6 +254,7 @@ export interface StoryItem {
 
 export interface MessageAuthor {
   id: string;
+  displayName?: string | null;
   username: string;
   avatarUrl: string | null;
 }
@@ -382,16 +383,12 @@ export interface MessageCardProps {
   playbackId?: string;
   duration?: number;
   onRetry?: () => void;
-  repliedTo?: {
-    id: string;
-    content: string;
-    senderId: string;
-    type: string;
-    sender?: {
-      username: string;
-      avatarUrl: string;
-    };
-  };
+  senderAvatar?: string | null;
+  showAuthor?: boolean;
+  ownerId?: string;
+  attachment?: import('@/utils/messaging/presentation').AttachmentInfo;
+  onReplyPress?: (id: string) => void;
+  repliedTo?: import('@/utils/messaging/presentation').ReplyPreviewModel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -417,4 +414,7 @@ export interface PickedFile {
   name: string;
   type: string;
   size?: number;
+  width?: number;
+  height?: number;
+  duration?: number;
 }

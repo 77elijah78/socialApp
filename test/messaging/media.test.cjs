@@ -35,7 +35,7 @@ test("media gates late async play after blur/background/unmount and pauses on ba
   await act(async () => renderer.unmount());
   assert.equal(allowed(), false);
 });
-test("message media wiring preserves playback identity, fixed image geometry, attachment menu and explicit retry", async () => {
+test("message media wiring preserves playback identity, aspect-aware image geometry, attachment menu and explicit retry", async () => {
   const { mock } = require("./harness.cjs");
   const menus = [];
   mock("@/components/messages/VoiceMessage", (props) =>
@@ -74,8 +74,8 @@ test("message media wiring preserves playback identity, fixed image geometry, at
     "stable-local",
   );
   renderer.root
-    .findByProps({ name: "download-outline" })
-    .parent.props.onPress();
+    .findByProps({ accessibilityLabel: "Attachment options" })
+    .props.onPress();
   assert.equal(menus.length, 1);
   renderer.root
     .findByProps({ accessibilityLabel: "Retry failed message" })
@@ -88,8 +88,14 @@ test("message media wiring preserves playback identity, fixed image geometry, at
   });
   const image = renderer.root.findByType("ExpoImage");
   assert.equal(image.props.cachePolicy, "memory-disk");
-  assert.equal(image.props.style[1].height, 390 * 0.55);
-  assert.equal(image.props.transition, 0);
+  assert.equal(image.props.contentFit, "contain");
+  assert.equal(image.props.transition, 120);
+  await act(async () =>
+    image.props.onLoad({ source: { width: 800, height: 1200 } }),
+  );
+  const frame = renderer.root.findByType("ExpoImage").parent.parent.props.style;
+  assert.ok(frame[1].width <= 390 * 0.84);
+  assert.ok(Math.abs(frame[1].width / frame[1].height - 800 / 1200) < 1e-9);
   await act(async () => renderer.unmount());
 });
 test("shared story route selects the requested loaded ID and never opens an unrelated story for an unavailable ID", async () => {

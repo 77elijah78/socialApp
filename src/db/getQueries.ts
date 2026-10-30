@@ -5,6 +5,7 @@ import {
   eq,
   and,
   lt,
+  gte,
   desc,
   asc,
   ne,
@@ -74,6 +75,26 @@ export class MessageGetQueries {
       .orderBy(desc(messages.timestamp), desc(messages.localId))
       .limit(limit);
     return rows.reverse();
+  }
+
+  /** Contiguous cached range through a known original; one indexed query, not
+   * hundreds of getById calls or a full-conversation read. */
+  async getFromMessage(roomId: string, parent: MessageRow): Promise<MessageRow[]> {
+    return db.select().from(messages).where(and(
+      eq(messages.conversationId, roomId), isNull(messages.deletedAt),
+      or(
+        sql`${messages.timestamp} > ${parent.timestamp}`,
+        and(eq(messages.timestamp, parent.timestamp), gte(messages.localId, parent.localId)),
+      ),
+    )).orderBy(asc(messages.timestamp), asc(messages.localId));
+  }
+
+  async getReplies(roomId: string, parentIds: string[]): Promise<MessageRow[]> {
+    if (!parentIds.length) return [];
+    return db.select().from(messages).where(and(
+      eq(messages.conversationId, roomId), isNull(messages.deletedAt),
+      inArray(messages.repliedToId, parentIds),
+    )).orderBy(asc(messages.timestamp), asc(messages.localId));
   }
 
   async getByLocalId(localId: string): Promise<MessageRow | null> {

@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import {
   View,
+  AppState,
   Text,
   StyleSheet,
   TouchableOpacity,
@@ -17,7 +18,14 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useLayoutEffect,
+} from "react";
 import {
   KeyboardAvoidingView,
   useKeyboardState,
@@ -33,13 +41,32 @@ import type { MessageRow } from "@/db/schema";
 import {
   createListItemBuilder,
   type ChatListItem,
+  type ReplyContextSelection,
 } from "@/utils/messaging/listItems";
 import {
   setVisibleMedia,
   clearVisibleMedia,
 } from "@/utils/messaging/mediaVisibility";
+import type {
+  AttachmentInfo,
+  MessageAuthorInfo,
+} from "@/utils/messaging/presentation";
+import {
+  ChatReadVisibility,
+  ChatMediaInteraction,
+} from "@/components/chat/ChatReadVisibility";
+import MeasuredMessageCell, {
+  MessageCellMeasurements,
+} from "@/components/chat/MeasuredMessageCell";
+import { ReplyNavigator } from "@/utils/messaging/replyNavigation";
 import { LatestViewport } from "@/utils/messaging/viewport";
-import theme from "@/constants/theme";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  SHADOWS,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
 import { mediaService } from "@/services/MediaService";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
@@ -52,18 +79,35 @@ interface RoomParams {
   receiverAvatar?: string;
   conversationId: string;
   receiverId: string;
+  isGroup?: string;
 }
 const maintainPosition = { minIndexForVisible: 0 };
 const viewabilityConfig = {
-  itemVisiblePercentThreshold: 50,
+  // Whole small rows, or half the viewport for oversized text/media rows.
+  viewAreaCoveragePercentThreshold: 50,
+  waitForInteraction: false,
   minimumViewTime: 300,
+};
+const mediaViewabilityConfig = {
+  itemVisiblePercentThreshold: 1,
+  waitForInteraction: false,
 };
 const keyExtractor = (item: ChatListItem) => item.id;
 
 export default function PrivateRoom() {
   const params = useLocalSearchParams() as unknown as RoomParams;
-  const userId = useAppSelector((state) => state.auth.user?.id) ?? "";
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id ?? "";
   const token = useAppSelector((state) => state.auth.token) ?? "";
+  const author = useMemo(
+    () => ({
+      id: userId,
+      username: user?.username,
+      displayName: user?.displayName,
+      avatarUrl: user?.avatarUrl,
+    }),
+    [userId, user?.username, user?.displayName, user?.avatarUrl],
+  );
   // Remount room-scoped layout/composer state when Router reuses this screen.
   return (
     <Conversation
@@ -71,6 +115,7 @@ export default function PrivateRoom() {
       params={params}
       userId={userId}
       token={token}
+      author={author}
     />
   );
 }
@@ -79,10 +124,12 @@ function Conversation({
   params,
   userId,
   token,
+  author,
 }: {
   params: RoomParams;
   userId: string;
   token: string;
+  author: MessageAuthorInfo;
 }) {
   const {
     conversationId,
@@ -100,6 +147,22 @@ function Conversation({
   const list = useRef<FlatList<ChatListItem>>(null);
   const [mediaOwner] = useState(() => Symbol("chat-media"));
   const visibleIds = useRef<string[]>([]);
+  const mediaIds = useRef<string[]>([]);
+  const [replyContext, setReplyContext] =
+    useState<ReplyContextSelection | null>(null);
+  const contextActive = useRef(false);
+  const navigationRequest = useRef(0);
+  const manualDrag = useRef(false);
+  const listHeight = useRef(0);
+  const covered = useRef(0);
+  const canRead = useCallback(() => covered.current === 0, []);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<{
+    id: string;
+    token: number;
+  } | null>(null);
+  const rowsRef = useRef<MessageRow[]>([]);
+  const mounted = useRef(true);
   const focusedRef = useRef(false);
   const [viewport] = useState(() => new LatestViewport());
   const [buildItems] = useState(createListItemBuilder);
@@ -121,29 +184,110 @@ function Conversation({
     syncError,
     paginationError,
     loadMore,
+    loadReplyTarget,
     hasMore,
     refresh,
     releaseHistory,
   } = useChat({
     roomId,
     conversationId,
-    currentUser: { id: userId, token },
+    currentUser: useMemo(
+      () => ({ ...author, id: userId, token }),
+      [author, userId, token],
+    ),
     isFocused,
+    canRead,
   });
+
+  const coverReads = useCallback(() => {
+    covered.current++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      covered.current = Math.max(0, covered.current - 1);
+      if (!covered.current && focusedRef.current) {
+        markVisibleRead(visibleIds.current);
+        list.current?.recordInteraction?.();
+      }
+    };
+  }, [markVisibleRead]);
+
+  const confirmMediaInteraction = useCallback(
+    (id?: string) => {
+      if (!id || !focusedRef.current) return;
+      mediaIds.current = [...new Set([...mediaIds.current, id])];
+      setVisibleMedia(mediaOwner, mediaIds.current);
+    },
+    [mediaOwner],
+  );
+
+  const [navigator] = useState(() => new ReplyNavigator());
+  useLayoutEffect(
+    () =>
+      navigator.configure({
+        list: () => list.current,
+        height: () => listHeight.current,
+        arrived: (id, serial) => setHighlight({ id, token: serial }),
+        failed: () =>
+          setNavigationError(
+            "Couldn’t locate the exact position. Tap the reply again to retry.",
+          ),
+      }),
+    [navigator],
+  );
+  const measurements = useMemo(
+    () => ({
+      measure: (id: string, index: number, y: number, height: number) =>
+        navigator.measure(id, index, y, height),
+      remove: (id: string) => navigator.unmeasure(id),
+    }),
+    [navigator],
+  );
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      navigationRequest.current++;
+      navigator.cancel();
+    },
+    [navigator],
+  );
 
   useFocusEffect(
     useCallback(() => {
       setFocused(true);
       focusedRef.current = true;
-      setVisibleMedia(mediaOwner, visibleIds.current);
+      setVisibleMedia(mediaOwner, mediaIds.current);
+      list.current?.recordInteraction?.();
       // Focus never changes scroll position (e.g. returning from image viewer).
       return () => {
         focusedRef.current = false;
-        setFocused(false);
+        if (mounted.current) {
+          setFocused(false);
+          setReplyContext((previous) =>
+            previous?.status === "loading"
+              ? {
+                  ...previous,
+                  status: "cached",
+                  error: "Context check paused. Tap to check again.",
+                }
+              : previous,
+          );
+        }
         clearVisibleMedia(mediaOwner);
+        navigationRequest.current++;
+        navigator.cancel();
       };
-    }, [mediaOwner]),
+    }, [mediaOwner, navigator]),
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && focusedRef.current)
+        list.current?.recordInteraction?.();
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!unreadSnapshotTaken.current && messages.length) {
@@ -165,17 +309,89 @@ function Conversation({
     [messages, userId],
   );
   const data = useMemo(
-    () => buildItems(messages, userId, firstUnreadId),
-    [buildItems, messages, userId, firstUnreadId],
+    () => buildItems(messages, userId, firstUnreadId, new Date(), replyContext),
+    [buildItems, messages, userId, firstUnreadId, replyContext],
   );
+
+  useLayoutEffect(() => {
+    rowsRef.current = messages;
+    contextActive.current = replyContext !== null;
+    navigator.update(data);
+  }, [messages, replyContext, navigator, data]);
+  const goToMessage = useCallback(
+    (id: string, showContext = true) => {
+      const request = ++navigationRequest.current;
+      const current = () =>
+        request === navigationRequest.current && focusedRef.current;
+      manualDrag.current = false;
+      viewport.leaveLatest();
+      setShowJump(true);
+      setNavigationError(null);
+      setReplyContext(
+        showContext ? { parentId: id, page: 0, status: "loading" } : null,
+      );
+      navigator.request(id);
+      if (
+        !showContext &&
+        rowsRef.current.some((row) => row.id === id || row.localId === id)
+      )
+        return;
+      void loadReplyTarget(id, current)
+        .then((result) => {
+          if (!current()) return;
+          if (showContext)
+            setReplyContext((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    parentId: result.parent.id || result.parent.localId,
+                    status: result.complete ? "complete" : "cached",
+                    error: result.error,
+                  }
+                : previous,
+            );
+        })
+        .catch((error) => {
+          if (!current()) return;
+          navigator.cancel();
+          setNavigationError(
+            error instanceof Error
+              ? error.message
+              : "Couldn’t load the original message. Try again.",
+          );
+          setReplyContext((previous) =>
+            previous ? { ...previous, status: "error" } : previous,
+          );
+        });
+    },
+    [loadReplyTarget, navigator, viewport],
+  );
+  const closeContext = useCallback(() => {
+    navigationRequest.current++;
+    navigator.cancel();
+    setReplyContext(null);
+    setNavigationError(null);
+  }, [navigator]);
+  const contextPage = useCallback(
+    (page: number) =>
+      setReplyContext((previous) =>
+        previous ? { ...previous, page } : previous,
+      ),
+    [],
+  );
+  const refreshContext = useCallback(() => {
+    if (replyContext) goToMessage(replyContext.parentId);
+  }, [replyContext, goToMessage]);
 
   const scrollLatest = useCallback(
     (animated = false) => {
+      closeContext();
+      manualDrag.current = false;
       if (viewport.requestLatest())
         list.current?.scrollToOffset({ offset: 0, animated });
       setShowJump(false);
     },
-    [viewport],
+    [viewport, closeContext],
   );
   const handleSend = useCallback(
     async (text: string, replyId?: string) => {
@@ -187,9 +403,15 @@ function Conversation({
     [receiverId, replyMsg, send, scrollLatest],
   );
   const handleMedia = useCallback(
-    async (type: string, uri: string, duration?: number) => {
+    async (
+      type: string,
+      uri: string,
+      duration?: number,
+      replyId?: string,
+      attachment?: AttachmentInfo,
+    ) => {
       scrollLatest();
-      await sendMedia(type, uri, receiverId, duration);
+      await sendMedia(type, uri, receiverId, duration, replyId, attachment);
     },
     [receiverId, sendMedia, scrollLatest],
   );
@@ -229,7 +451,22 @@ function Conversation({
           key: "reply",
           icon: "arrow-undo-outline",
           label: "Reply",
-          onPress: () => setReplyingTo(message),
+          onPress: () => {
+            if (
+              message.status === "SENDING" ||
+              message.status === "FAILED" ||
+              !message.id
+            ) {
+              showAppDialog({
+                title: "Send this message first",
+                message:
+                  "A message needs a server identity before others can reply to it.",
+                tone: "info",
+              });
+              return;
+            }
+            setReplyingTo(message);
+          },
         },
         ...(own && message.status === "FAILED"
           ? [
@@ -334,19 +571,50 @@ function Conversation({
         receiverName={receiverName}
         onAction={onAction}
         onRetry={onRetry}
+        isGroup={params.isGroup === "true"}
+        onNavigate={goToMessage}
+        onContextClose={closeContext}
+        onContextPage={contextPage}
+        onContextRefresh={refreshContext}
+        highlight={
+          item.kind === "message" && item.message.localId === highlight?.id
+            ? highlight.token
+            : 0
+        }
       />
     ),
-    [userId, receiverName, onAction, onRetry],
+    [
+      userId,
+      receiverName,
+      onAction,
+      onRetry,
+      params.isGroup,
+      goToMessage,
+      closeContext,
+      contextPage,
+      refreshContext,
+      highlight,
+    ],
   );
   const onViewable = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<ChatListItem>[] }) => {
       visibleIds.current = viewableItems.flatMap(({ item }) =>
         item.kind === "message" ? [item.message.localId] : [],
       );
-      if (focusedRef.current) setVisibleMedia(mediaOwner, visibleIds.current);
       markVisibleRead(visibleIds.current);
+      navigator.viewable(visibleIds.current);
     },
-    [markVisibleRead, mediaOwner],
+    [markVisibleRead, navigator],
+  );
+  const onMediaViewable = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<ChatListItem>[] }) => {
+      mediaIds.current = viewableItems.flatMap(({ item }) =>
+        item.kind === "message" ? [item.message.localId] : [],
+      );
+      if (focusedRef.current) setVisibleMedia(mediaOwner, mediaIds.current);
+      navigator.progress(mediaIds.current);
+    },
+    [mediaOwner, navigator],
   );
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -359,18 +627,34 @@ function Conversation({
   const onScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       viewport.endInteraction(event.nativeEvent.contentOffset.y);
-      if (event.nativeEvent.contentOffset.y <= 1) releaseHistory();
+      navigator.settled();
+      if (!manualDrag.current && (navigator.pending || contextActive.current))
+        viewport.leaveLatest();
+      if (
+        event.nativeEvent.contentOffset.y <= 1 &&
+        !navigator.pending &&
+        !contextActive.current
+      )
+        releaseHistory();
     },
-    [viewport, releaseHistory],
+    [viewport, releaseHistory, navigator],
   );
   const onOlder = useCallback(() => {
-    if (viewport.hasInteracted && hasMore && !isLoadingMore && !paginationError)
+    if (
+      manualDrag.current &&
+      viewport.hasInteracted &&
+      hasMore &&
+      !isLoadingMore &&
+      !paginationError
+    )
       void loadMore();
   }, [viewport, hasMore, isLoadingMore, paginationError, loadMore]);
 
   const pendingJump = useRef<number | null>(null);
   const jumpAttempts = useRef(0);
   const jumpUnread = useCallback(() => {
+    closeContext();
+    manualDrag.current = false;
     if (!unread.length) {
       scrollLatest(true);
       return;
@@ -384,7 +668,7 @@ function Conversation({
     pendingJump.current = index;
     jumpAttempts.current = 0;
     list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
-  }, [unread, data, scrollLatest, viewport]);
+  }, [unread, data, scrollLatest, viewport, closeContext]);
   const onIndexFailed = useCallback(
     ({
       index,
@@ -393,6 +677,7 @@ function Conversation({
       index: number;
       averageItemLength: number;
     }) => {
+      if (navigator.indexFailed(averageItemLength)) return;
       // One estimate, followed by a retry on actual viewability/layout progress.
       // No fixed-height getItemLayout and no frame/timeout retry chain.
       pendingJump.current = index;
@@ -405,7 +690,7 @@ function Conversation({
         animated: false,
       });
     },
-    [],
+    [navigator],
   );
   const onMeasuredViewable = useCallback(
     (info: { viewableItems: ViewToken<ChatListItem>[] }) => {
@@ -426,6 +711,17 @@ function Conversation({
       }
     },
     [onViewable],
+  );
+
+  const viewabilityPairs = useMemo(
+    () => [
+      { viewabilityConfig, onViewableItemsChanged: onMeasuredViewable },
+      {
+        viewabilityConfig: mediaViewabilityConfig,
+        onViewableItemsChanged: onMediaViewable,
+      },
+    ],
+    [onMeasuredViewable, onMediaViewable],
   );
 
   return (
@@ -451,167 +747,253 @@ function Conversation({
       </SafeAreaView>
       {/* KeyboardProvider suppresses native Android IME resizing while active.
         This ONE controller KAV therefore resizes list + composer on BOTH platforms. */}
-      <KeyboardAvoidingView
-        style={styles.messageViewport}
-        behavior="padding"
-        enabled
-        automaticOffset
-      >
-        <View style={styles.listViewport} testID="chat-message-viewport">
-          <FlatList
-            ref={list}
-            testID="chat-message-list"
-            style={styles.messageList}
-            data={data}
-            inverted
-            keyExtractor={keyExtractor}
-            renderItem={renderItem}
-            maintainVisibleContentPosition={maintainPosition}
-            automaticallyAdjustKeyboardInsets={false}
-            contentInsetAdjustmentBehavior="never"
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={
-              Platform.OS === "ios" ? "interactive" : "on-drag"
-            }
-            contentContainerStyle={styles.listContent}
-            onLayout={(event) => {
-              if (viewport.layout(event.nativeEvent.layout.height))
-                list.current?.scrollToOffset({ offset: 0, animated: false });
-            }}
-            onContentSizeChange={(_width, height) => {
-              if (viewport.content(height))
-                list.current?.scrollToOffset({ offset: 0, animated: false });
-              if (viewport.atLatest && !viewport.interacting) releaseHistory();
-            }}
-            onScrollBeginDrag={() => viewport.beginInteraction()}
-            onMomentumScrollBegin={() => viewport.beginInteraction()}
-            onScrollEndDrag={onScrollEnd}
-            onMomentumScrollEnd={onScrollEnd}
-            onScroll={onScroll}
-            scrollEventThrottle={32}
-            onEndReached={onOlder}
-            onEndReachedThreshold={0.3}
-            onViewableItemsChanged={onMeasuredViewable}
-            viewabilityConfig={viewabilityConfig}
-            onScrollToIndexFailed={onIndexFailed}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              isSyncing ? (
-                <View style={styles.emptyLoading}>
-                  <ChatBubbleSkeleton isOwn={false} />
-                  <ChatBubbleSkeleton isOwn />
-                  <ChatBubbleSkeleton isOwn={false} />
-                </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyStateIcon}>
-                    <Ionicons
-                      name="chatbubble-ellipses-outline"
-                      size={28}
-                      color={theme.COLORS.primary}
-                    />
-                  </View>
-                  <Text style={styles.emptyStateTitle}>
-                    A quiet little corner
-                  </Text>
-                  <Text style={styles.emptyStateText}>
-                    Send a message to start the conversation.
-                  </Text>
-                </View>
-              )
-            }
-          />
-          {/* Pagination feedback is overlayed, never inserted before the anchor. */}
-          {(isLoadingMore || paginationError || syncError) && (
-            <View style={styles.paginationStatus}>
-              {isLoadingMore ? (
-                <ActivityIndicator size="small" color={theme.COLORS.primary} />
-              ) : (
-                <TouchableOpacity
-                  onPress={() => {
-                    void (paginationError ? loadMore() : refresh());
+      <ChatReadVisibility.Provider value={coverReads}>
+        <ChatMediaInteraction.Provider value={confirmMediaInteraction}>
+          <KeyboardAvoidingView
+            style={styles.messageViewport}
+            behavior="padding"
+            enabled
+            automaticOffset
+          >
+            <View style={styles.listViewport} testID="chat-message-viewport">
+              <MessageCellMeasurements.Provider value={measurements}>
+                <FlatList
+                  CellRendererComponent={MeasuredMessageCell}
+                  initialNumToRender={12}
+                  maxToRenderPerBatch={8}
+                  windowSize={9}
+                  ref={list}
+                  testID="chat-message-list"
+                  style={styles.messageList}
+                  data={data}
+                  inverted
+                  keyExtractor={keyExtractor}
+                  renderItem={renderItem}
+                  maintainVisibleContentPosition={maintainPosition}
+                  automaticallyAdjustKeyboardInsets={false}
+                  contentInsetAdjustmentBehavior="never"
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode={
+                    Platform.OS === "ios" ? "interactive" : "on-drag"
+                  }
+                  contentContainerStyle={styles.listContent}
+                  onLayout={(event) => {
+                    listHeight.current = event.nativeEvent.layout.height;
+                    if (
+                      viewport.layout(listHeight.current) &&
+                      !navigator.pending &&
+                      !contextActive.current
+                    )
+                      list.current?.scrollToOffset({
+                        offset: 0,
+                        animated: false,
+                      });
+                    navigator.settled();
                   }}
-                  accessibilityLabel="Retry loading messages"
+                  onContentSizeChange={(_width, height) => {
+                    if (focusedRef.current) list.current?.recordInteraction?.();
+                    if (
+                      viewport.content(height) &&
+                      !navigator.pending &&
+                      !contextActive.current
+                    )
+                      list.current?.scrollToOffset({
+                        offset: 0,
+                        animated: false,
+                      });
+                    if (
+                      viewport.atLatest &&
+                      !viewport.interacting &&
+                      !navigator.pending &&
+                      !contextActive.current
+                    )
+                      releaseHistory();
+                  }}
+                  onScrollBeginDrag={() => {
+                    manualDrag.current = true;
+                    navigator.cancel();
+                    viewport.beginInteraction();
+                  }}
+                  onMomentumScrollBegin={() => {
+                    navigator.started();
+                    viewport.beginInteraction();
+                  }}
+                  onScrollEndDrag={onScrollEnd}
+                  onMomentumScrollEnd={onScrollEnd}
+                  onScroll={onScroll}
+                  scrollEventThrottle={32}
+                  onEndReached={onOlder}
+                  onEndReachedThreshold={0.3}
+                  viewabilityConfigCallbackPairs={viewabilityPairs}
+                  onScrollToIndexFailed={onIndexFailed}
+                  showsVerticalScrollIndicator={false}
+                  ListEmptyComponent={
+                    isSyncing ? (
+                      <View style={styles.emptyLoading}>
+                        <ChatBubbleSkeleton isOwn={false} />
+                        <ChatBubbleSkeleton isOwn />
+                        <ChatBubbleSkeleton isOwn={false} />
+                      </View>
+                    ) : (
+                      <View style={styles.emptyState}>
+                        <View style={styles.emptyStateIcon}>
+                          <Ionicons
+                            name="chatbubble-ellipses-outline"
+                            size={28}
+                            color={COLORS.primary}
+                          />
+                        </View>
+                        <Text style={styles.emptyStateTitle}>
+                          A quiet little corner
+                        </Text>
+                        <Text style={styles.emptyStateText}>
+                          Send a message to start the conversation.
+                        </Text>
+                      </View>
+                    )
+                  }
+                />
+              </MessageCellMeasurements.Provider>
+              {replyContext?.status === "loading" &&
+                !messages.some(
+                  (row) =>
+                    row.id === replyContext.parentId ||
+                    row.localId === replyContext.parentId,
+                ) && (
+                  <View style={styles.navigationNotice}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                    <Text style={styles.loadingMoreText}>
+                      Finding the original message and replies…
+                    </Text>
+                    <TouchableOpacity
+                      accessibilityLabel="Cancel reply lookup"
+                      onPress={closeContext}
+                      style={{ minHeight: 44, justifyContent: "center" }}
+                    >
+                      <Text style={styles.loadingMoreText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              {navigationError && (
+                <TouchableOpacity
+                  style={styles.navigationNotice}
+                  accessibilityLabel="Dismiss reply navigation notice"
+                  onPress={() => setNavigationError(null)}
                 >
-                  <Text style={styles.loadingMoreText}>
-                    Couldn’t load messages · Tap to retry
+                  <Text
+                    style={styles.loadingMoreText}
+                    accessibilityRole="alert"
+                  >
+                    {navigationError}
                   </Text>
                 </TouchableOpacity>
               )}
+              {/* Pagination feedback is overlayed, never inserted before the anchor. */}
+              {(isLoadingMore || paginationError || syncError) && (
+                <View style={styles.paginationStatus}>
+                  {isLoadingMore ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        void (paginationError ? loadMore() : refresh());
+                      }}
+                      accessibilityLabel="Retry loading messages"
+                    >
+                      <Text style={styles.loadingMoreText}>
+                        Couldn’t load messages · Tap to retry
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              {showJump && (
+                <TouchableOpacity
+                  style={styles.jumpToUnreadTouchable}
+                  onPress={jumpUnread}
+                  accessibilityLabel={
+                    unread.length
+                      ? `Jump to ${unread.length} unread messages`
+                      : "Jump to latest message"
+                  }
+                >
+                  <LinearGradient
+                    colors={[COLORS.primary, COLORS.accentPurple]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.jumpToUnread}
+                  >
+                    <Text style={styles.jumpText}>
+                      {unread.length
+                        ? `${unread.length} unread ${unread.length === 1 ? "message" : "messages"}`
+                        : "Latest messages"}
+                    </Text>
+                    <Ionicons
+                      name="arrow-down"
+                      size={17}
+                      color={COLORS.white}
+                    />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
-          )}
-          {showJump && (
-            <TouchableOpacity
-              style={styles.jumpToUnreadTouchable}
-              onPress={jumpUnread}
-              accessibilityLabel={
-                unread.length
-                  ? `Jump to ${unread.length} unread messages`
-                  : "Jump to latest message"
-              }
+            <View
+              style={{
+                paddingBottom: keyboardVisible ? 0 : insets.bottom,
+                backgroundColor: "#F7F6FB",
+              }}
             >
-              <LinearGradient
-                colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.jumpToUnread}
-              >
-                <Text style={styles.jumpText}>
-                  {unread.length
-                    ? `${unread.length} unread ${unread.length === 1 ? "message" : "messages"}`
-                    : "Latest messages"}
-                </Text>
-                <Ionicons
-                  name="arrow-down"
-                  size={17}
-                  color={theme.COLORS.white}
-                />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-        </View>
-        <View
-          style={{
-            paddingBottom: keyboardVisible ? 0 : insets.bottom,
-            backgroundColor: "#F7F6FB",
-          }}
-        >
-          <ChatComposer
-            replyingTo={replyingTo}
-            userId={userId}
-            onCancelReply={cancelReply}
-            onTyping={onTyping}
-            onSend={handleSend}
-            onSendMedia={handleMedia}
-          />
-        </View>
-      </KeyboardAvoidingView>
+              <ChatComposer
+                replyingTo={replyingTo}
+                userId={userId}
+                onCancelReply={cancelReply}
+                onTyping={onTyping}
+                onSend={handleSend}
+                onSendMedia={handleMedia}
+                onReplyPress={goToMessage}
+              />
+            </View>
+          </KeyboardAvoidingView>
+        </ChatMediaInteraction.Provider>
+      </ChatReadVisibility.Provider>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.COLORS.bgMain },
-  headerSafeArea: { backgroundColor: theme.COLORS.bgWhite },
+  navigationNotice: {
+    position: "absolute",
+    top: SPACING.lg,
+    left: SPACING.xl,
+    right: SPACING.xl,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.bgWhite,
+    borderRadius: BORDER_RADIUS.xxl,
+    borderWidth: 1,
+    borderColor: COLORS.primaryGhostBorder,
+    zIndex: 4,
+  },
+  container: { flex: 1, backgroundColor: COLORS.bgMain },
+  headerSafeArea: { backgroundColor: COLORS.bgWhite },
   headerWrapper: {
     zIndex: 10,
     elevation: 5,
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: COLORS.bgWhite,
   },
   messageViewport: { flex: 1 },
   listViewport: { flex: 1, minHeight: 0 },
   messageList: { flex: 1, backgroundColor: "#F7F6FB" },
-  listContent: { paddingVertical: theme.SPACING.md },
+  listContent: { paddingVertical: SPACING.md },
   emptyLoading: {
-    paddingVertical: theme.SPACING.xl,
+    paddingVertical: SPACING.xl,
     transform: [{ scaleY: -1 }],
   },
   emptyState: {
     minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: theme.SPACING.xxxxxl,
-    paddingVertical: theme.SPACING.xxxxl,
+    paddingHorizontal: SPACING.xxxxxl,
+    paddingVertical: SPACING.xxxxl,
     transform: [{ scaleY: -1 }],
   },
   emptyStateIcon: {
@@ -621,17 +1003,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#EEEAFE",
-    marginBottom: theme.SPACING.lg,
+    marginBottom: SPACING.lg,
   },
   emptyStateTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xl4,
     fontWeight: "700",
-    marginBottom: theme.SPACING.xs,
+    marginBottom: SPACING.xs,
   },
   emptyStateText: {
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    color: COLORS.textSecondary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
     lineHeight: 20,
     textAlign: "center",
   },
@@ -641,11 +1023,11 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     padding: 8,
     borderRadius: 12,
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: COLORS.bgWhite,
   },
   loadingMoreText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   jumpToUnreadTouchable: {
     position: "absolute",
@@ -653,20 +1035,20 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     borderRadius: 18,
     zIndex: 10,
-    ...theme.SHADOWS.md,
+    ...SHADOWS.md,
   },
   jumpToUnread: {
-    paddingVertical: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.SPACING.md,
+    gap: SPACING.md,
     overflow: "hidden",
   },
   jumpText: {
-    color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
     fontWeight: "600",
   },
 });

@@ -1,235 +1,158 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
+import { memo, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { Image } from "expo-image";
-import { VideoView, useVideoPlayer } from "expo-video";
-import { useAudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
-import theme from "@/constants/theme";
-
-type MessageType = "image" | "video" | "audio" | "file";
+import { router } from "expo-router";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  OPACITY,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
+import { fitMedia } from "@/utils/messaging/presentation";
+import {
+  getMediaGeometry,
+  rememberMediaGeometry,
+} from "@/utils/messaging/mediaGeometry";
 
 interface Props {
-  type: MessageType;
   uri: string;
-  fileName?: string;
-  fileSize?: string;
-  duration?: string;
-  isMe?: boolean;
-  time?: string;
+  thumbnail?: string;
+  name: string;
+  maxWidth: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  onLongPress?: () => void;
 }
-
-export default function BubbleMessage({
-  type,
+function ImageMessage({
   uri,
-  fileName,
-  fileSize,
-  duration,
-  isMe = false,
-  time,
+  thumbnail,
+  name,
+  maxWidth,
+  mediaWidth,
+  mediaHeight,
+  onLongPress,
 }: Props) {
-  const videoPlayer = type === "video" ? useVideoPlayer(uri) : null;
-
-  const audioPlayer = type === "audio" ? useAudioPlayer(uri) : null;
-
-  const toggleAudio = async () => {
-    if (!audioPlayer) return;
-
-    if (audioPlayer.playing) {
-      await audioPlayer.pause();
-    } else {
-      await audioPlayer.play();
-    }
-  };
-
-  const bubbleStyle = [
-    styles.bubble,
-    isMe ? styles.myBubble : styles.otherBubble,
-  ];
-
+  const { height } = useWindowDimensions();
+  const [dimensions, setDimensions] = useState(() =>
+    mediaWidth && mediaHeight
+      ? { width: mediaWidth, height: mediaHeight }
+      : getMediaGeometry(uri),
+  );
+  const [state, setState] = useState<"loading" | "ready" | "error">(
+    uri ? "loading" : "error",
+  );
+  const [attempt, setAttempt] = useState(0);
+  const frame = fitMedia(
+    dimensions?.width ?? 4,
+    dimensions?.height ?? 3,
+    maxWidth,
+    height * 0.5,
+  );
+  const source = thumbnail || uri;
   return (
-    <View
-      style={[styles.container, isMe ? styles.alignEnd : styles.alignStart]}
-    >
-      <View style={bubbleStyle}>
-        {/* ✅ IMAGE */}
-        {type === "image" && (
-          <Pressable onPress={() => Linking.openURL(uri)}>
-            <Image
-              source={{ uri }}
-              style={styles.image}
-              contentFit="cover"
-              transition={200}
-            />
-          </Pressable>
-        )}
-
-        {/* ✅ VIDEO */}
-        {type === "video" && videoPlayer && (
-          <VideoView
-            player={videoPlayer}
-            style={styles.video}
-            allowsPictureInPicture
+    <View style={[styles.frame, frame]}>
+      {state !== "error" && (
+        <TouchableOpacity
+          onLongPress={onLongPress}
+          style={StyleSheet.absoluteFill}
+          accessibilityRole="button"
+          accessibilityLabel={`Open photo from ${name}`}
+          activeOpacity={OPACITY.subtle}
+          onPress={() =>
+            router.push({
+              pathname: "/(chatRoom)/imageViewer",
+              params: { uri, name },
+            })
+          }
+        >
+          <Image
+            key={`${source}:${attempt}`}
+            source={{ uri: source }}
+            style={styles.image}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            recyclingKey={source}
+            transition={120}
+            allowDownscaling
+            onLoad={(event) => {
+              const { width, height: sourceHeight } = event.source;
+              rememberMediaGeometry(uri, width, sourceHeight);
+              if (width > 0 && sourceHeight > 0)
+                setDimensions({ width, height: sourceHeight });
+              setState("ready");
+            }}
+            onError={() => setState("error")}
           />
-        )}
-
-        {/* ✅ AUDIO */}
-        {type === "audio" && audioPlayer && (
-          <Pressable style={styles.audioRow} onPress={toggleAudio}>
-            <View style={styles.playButton}>
-              <Ionicons
-                name={audioPlayer.playing ? "pause" : "play"}
-                size={18}
-                color={theme.COLORS.textWhite}
-              />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <View style={styles.waveRow}>
-                <View style={[styles.wave, { height: 6 }]} />
-                <View style={[styles.wave, { height: 14 }]} />
-                <View style={[styles.wave, { height: 10 }]} />
-                <View style={[styles.wave, { height: 18 }]} />
-                <View style={[styles.wave, { height: 8 }]} />
-              </View>
-
-              {duration && <Text style={styles.duration}>{duration}</Text>}
-            </View>
-          </Pressable>
-        )}
-
-        {/* ✅ FILE */}
-        {type === "file" && (
-          <Pressable
-            style={styles.fileRow}
-            onPress={() => Linking.openURL(uri)}
-          >
-            <View style={styles.fileIcon}>
-              <Ionicons name="document" size={22} color={theme.COLORS.primary} />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={styles.fileName}>
-                {fileName || "Document"}
-              </Text>
-              {fileSize && <Text style={styles.fileSize}>{fileSize}</Text>}
-            </View>
-          </Pressable>
-        )}
-
-        {/* ✅ TIME */}
-        {time && <Text style={styles.time}>{time}</Text>}
-      </View>
+        </TouchableOpacity>
+      )}
+      {state === "loading" && (
+        <View style={styles.overlay} pointerEvents="none">
+          <ActivityIndicator color={COLORS.primary} />
+          <Text style={styles.hint}>Loading photo</Text>
+        </View>
+      )}
+      {state === "error" && (
+        <View style={styles.overlay}>
+          <Ionicons
+            name="image-outline"
+            size={28}
+            color={COLORS.textSecondary}
+          />
+          <Text style={styles.hint}>Photo unavailable</Text>
+          {!!uri && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Retry photo"
+              style={styles.retry}
+              onPress={() => {
+                setAttempt((value) => value + 1);
+                setState("loading");
+              }}
+            >
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </View>
   );
 }
-
+export default memo(ImageMessage);
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.lg,
+  frame: {
+    position: "relative",
+    borderRadius: BORDER_RADIUS.xxxl,
+    overflow: "hidden",
+    backgroundColor: COLORS.bgChat,
   },
-  alignStart: { alignItems: "flex-start" },
-  alignEnd: { alignItems: "flex-end" },
-
-  bubble: {
-    maxWidth: "75%",
-    borderRadius: theme.BORDER_RADIUS.xl,
-    padding: theme.SPACING.sm,
-  },
-
-  myBubble: {
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
-  },
-
-  otherBubble: {
-    backgroundColor: theme.COLORS.bgWhite,
-    ...theme.SHADOWS.sm,
-  },
-
-  /* IMAGE */
-  image: {
-    width: theme.SIZING.messageMaxImage,
-    height: theme.SIZING.messageMaxImage,
-    borderRadius: theme.BORDER_RADIUS.lg,
-  },
-
-  /* VIDEO */
-  video: {
-    width: theme.SIZING.messageMaxImage,
-    height: theme.SIZING.messageMaxImage,
-    borderRadius: theme.BORDER_RADIUS.lg,
-  },
-
-  /* AUDIO */
-  audioRow: {
-    flexDirection: "row",
+  image: { width: "100%", height: "100%" },
+  overlay: {
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
-    gap: theme.SPACING.md,
-  },
-
-  playButton: {
-    width: theme.SIZING.voicePlayButton,
-    height: theme.SIZING.voicePlayButton,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
     justifyContent: "center",
+    gap: SPACING.md,
+  },
+  hint: { color: COLORS.textGray, fontSize: TYPOGRAPHY.fontSize.lg },
+  retry: {
+    minHeight: 44,
+    minWidth: 64,
     alignItems: "center",
-  },
-
-  waveRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.BORDER_RADIUS.xs,
-  },
-
-  wave: {
-    width: theme.BORDER_RADIUS.sm,
-    backgroundColor: theme.COLORS.wave4,
-    borderRadius: theme.BORDER_RADIUS.xs,
-  },
-
-  duration: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textMuted,
-    marginTop: theme.SPACING.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-
-  /* FILE */
-  fileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.md,
-  },
-
-  fileIcon: {
-    width: theme.SIZING.cardHeight,
-    height: theme.SIZING.cardHeight,
-    borderRadius: theme.BORDER_RADIUS.md,
-    backgroundColor: theme.COLORS.primaryGhost,
     justifyContent: "center",
-    alignItems: "center",
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.bgWhite,
   },
-
-  fileName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-    color: theme.COLORS.textPrimary,
-  },
-
-  fileSize: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textMuted,
-    marginTop: theme.BORDER_RADIUS.xs,
-  },
-
-  /* TIME */
-  time: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    color: theme.COLORS.textMuted,
-    alignSelf: "flex-end",
-    marginTop: theme.SPACING.xs,
+  retryText: {
+    color: COLORS.primaryDark,
+    fontWeight: "600",
+    fontSize: TYPOGRAPHY.fontSize.lg,
   },
 });

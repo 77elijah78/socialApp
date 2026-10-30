@@ -4,6 +4,10 @@ export const messages = sqliteTable("messages", {
   localId: text("local_id").primaryKey().notNull(),
   id: text("id"),
   content: text("content"),
+  // Local-only copies of existing API author/reply and upload/picker metadata.
+  senderData: text("sender_data"),
+  replyData: text("reply_data"),
+  attachmentData: text("attachment_data"),
   mediaUrl: text("media_url"),
   thumbnailUrl: text("thumbnail_url"),
   type: text("type").notNull().default("TEXT"),
@@ -29,6 +33,8 @@ export const messages = sqliteTable("messages", {
 export const rooms = sqliteTable("rooms", {
   id: text("id").primaryKey().notNull(),
   name: text("name").notNull(),
+  isGroup: integer("is_group", { mode: "boolean" }).notNull().default(false),
+  participantsData: text("participants_data"),
   conversationId: text("conversation_id").notNull(),
   avatarUrl: text("avatar_url").notNull(),
   lastMessage: text("last_message").notNull(),
@@ -58,6 +64,7 @@ export const receiptOutbox = sqliteTable("message_receipt_outbox", {
   messageId: text("message_id").notNull(),
   conversationId: text("conversation_id").notNull(),
   kind: text("kind").notNull(),
+  attemptToken: text("attempt_token"),
 });
 
 // Resume an interrupted offline catch-up without mistaking a sparse cache for

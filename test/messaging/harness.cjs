@@ -1,3 +1,4 @@
+/* global __dirname */
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
@@ -87,7 +88,12 @@ const native = {
   },
   PanResponder: { create: () => ({ panHandlers: {} }) },
   Keyboard: { dismiss() {}, addListener: () => ({ remove() {} }) },
-  Linking: { openURL() {} },
+  Linking: { async openURL() {} },
+  Share: {
+    async share() {
+      return { action: "dismissedAction" };
+    },
+  },
 };
 for (const name of [
   "View",
@@ -162,6 +168,53 @@ function mock(name, value) {
 }
 mock("react-native", native);
 mock("expo-sqlite", { openDatabaseAsync: async () => sql });
+const files = new Map();
+const fileSystem = {
+  documentDirectory: "file:///documents/",
+  async getInfoAsync(uri) {
+    return files.get(uri) ?? { exists: false, isDirectory: false };
+  },
+  async makeDirectoryAsync() {},
+  async deleteAsync(uri) {
+    for (const key of files.keys())
+      if (key === uri || key.startsWith(uri.endsWith("/") ? uri : uri + "/"))
+        files.delete(key);
+  },
+  async copyAsync({ from, to }) {
+    const file = files.get(from);
+    if (!file?.exists) throw new Error("Missing source");
+    files.set(to, { ...file, uri: to });
+  },
+  async moveAsync({ from, to }) {
+    const file = files.get(from);
+    if (!file?.exists) throw new Error("Missing source");
+    files.set(to, { ...file, uri: to });
+    files.delete(from);
+  },
+  async getContentUriAsync(uri) {
+    return `content://files/${encodeURIComponent(uri)}`;
+  },
+  createDownloadResumable(url, uri, options, callback) {
+    return {
+      async pauseAsync() {},
+      async downloadAsync() {
+        callback?.({
+          totalBytesWritten: 4096,
+          totalBytesExpectedToWrite: 4096,
+        });
+        files.set(uri, { exists: true, size: 4096, isDirectory: false, uri });
+        return { uri, status: 200 };
+      },
+    };
+  },
+};
+mock("expo-file-system/legacy", fileSystem);
+mock("expo-sharing", {
+  async isAvailableAsync() {
+    return true;
+  },
+  async shareAsync() {},
+});
 mock("@react-native-async-storage/async-storage", {
   default: null,
   async getItem(key) {
@@ -275,6 +328,9 @@ function row(index, overrides = {}) {
     localId: `id-${String(index).padStart(5, "0")}`,
     id: `id-${String(index).padStart(5, "0")}`,
     content: `Message ${index}`,
+    senderData: null,
+    replyData: null,
+    attachmentData: null,
     mediaUrl: null,
     thumbnailUrl: null,
     type: "TEXT",
@@ -327,7 +383,6 @@ function installServer(messages = []) {
     server.calls.push({ path: parsed.pathname + parsed.search, options });
     if (server.failure) throw server.failure;
     if (server.response) return server.response(url, options);
-    const body = options.body ? JSON.parse(options.body) : {};
     let result;
     if (parsed.pathname.endsWith("/pending/delivery")) result = { data: [] };
     else if (parsed.pathname.endsWith("/delivered")) result = { success: true };
@@ -359,8 +414,13 @@ function installServer(messages = []) {
         );
       result = {
         data: candidates.slice(
-          0,
-          Number(parsed.searchParams.get("limit") ?? 30),
+          parsed.searchParams.has("page")
+            ? (Number(parsed.searchParams.get("page")) - 1) *
+                Number(parsed.searchParams.get("limit") ?? 30)
+            : 0,
+          (parsed.searchParams.has("page")
+            ? Number(parsed.searchParams.get("page"))
+            : 1) * Number(parsed.searchParams.get("limit") ?? 30),
         ),
       };
     }
@@ -385,6 +445,8 @@ module.exports = {
   database,
   storage,
   sockets,
+  files,
+  fileSystem,
   appState,
   native,
   scrolls,

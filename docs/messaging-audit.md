@@ -1,5 +1,7 @@
 # Messaging audit and implementation
 
+> **Historical baseline:** This records the earlier messaging stabilization. The current [reply/receipt/bubble upgrade audit](messaging-upgrade-audit.md) documents the frontend-only follow-up, the separately inspected backend, SQLite v2, and the remaining server/device verification blockers. The original synthetic benchmark is preserved.
+
 **Date:** 2026-10-29 · **Baseline:** `c0b7d994b274a9aa7bf06274edae3ddd9c402a1b` · **Branch:** `arena/e4dfc24a-socialapp`
 
 ## Status and scope

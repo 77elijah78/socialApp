@@ -134,6 +134,7 @@ export default function Messages() {
         params: {
           conversationId: item.conversationId,
           roomId: item.id,
+          isGroup: item.isGroup ? "true" : "false",
           receiverName: item.name,
           receiverUsername: item.receiverUsername ?? "",
           receiverAvatar: item.avatarUrl,

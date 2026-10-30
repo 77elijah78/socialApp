@@ -1,3 +1,4 @@
+import { parseMetadata } from "./presentation";
 import type { MessageRow, NewMessageRow } from "../../db/schema";
 
 export interface MessageCursor {
@@ -40,6 +41,30 @@ export function sameMessage(a: MessageRow, b: MessageRow): boolean {
   );
 }
 
+function mergePresentation(existing?: string | null, incoming?: string | null) {
+  if (!incoming || incoming === existing) return existing ?? incoming ?? null;
+  if (!existing) return incoming;
+  const previous = parseMetadata<Record<string, unknown>>(existing),
+    next = parseMetadata<Record<string, unknown>>(incoming);
+  if (!previous || !next || (previous.id && next.id && previous.id !== next.id))
+    return incoming;
+  return JSON.stringify({
+    ...previous,
+    ...next,
+    ...(previous.deleted === true
+      ? { deleted: true, content: "", mediaUrl: null, thumbnailUrl: null }
+      : {}),
+    ...(previous.sender && next.sender
+      ? {
+          sender: {
+            ...(previous.sender as object),
+            ...(next.sender as object),
+          },
+        }
+      : {}),
+  });
+}
+
 /** All fields are scalar. Preserve local identity, insertion order and monotonic receipts. */
 export function mergePersistedMessage(
   existing: MessageRow | NewMessageRow | undefined,
@@ -77,6 +102,10 @@ export function mergePersistedMessage(
       existing.status === "READ" ||
       incoming.isRead ||
       incoming.status === "READ",
+    // Sparse socket/legacy history must not erase richer cached presentation.
+    senderData: mergePresentation(existing.senderData, incoming.senderData),
+    replyData: mergePresentation(existing.replyData, incoming.replyData),
+    attachmentData: incoming.attachmentData ?? existing.attachmentData ?? null,
     deliveredAt: incoming.deliveredAt ?? existing.deliveredAt,
     readAt: incoming.readAt ?? existing.readAt,
     deletedAt: existing.deletedAt ?? incoming.deletedAt,

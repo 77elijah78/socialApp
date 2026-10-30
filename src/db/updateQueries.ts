@@ -7,6 +7,7 @@ import {
   type RoomRow,
 } from "./schema";
 import { eq, and, lte, or, ne, inArray, sql, isNull } from "drizzle-orm";
+import { synchronizeReplySnapshots } from "./replySnapshots";
 import { mergePersistedMessage } from "../utils/messaging/timeline";
 
 type StatusValue = "SENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED";
@@ -41,6 +42,7 @@ export class MessageUpdateQueries {
         )
         .returning();
       if (!row) return null;
+      await synchronizeReplySnapshots(tx, [row]);
       if (
         currentUserId &&
         row.senderId !== currentUserId &&
@@ -269,7 +271,12 @@ export class MessageUpdateQueries {
 
   editText(id: string, content: string) {
     const now = new Date().toISOString();
-    return this.patch(id, { content, editedAt: now, updatedAt: now });
+    return withDatabaseTransaction(async (tx) => {
+      const [row] = await tx.update(messages).set({ content, editedAt: now, updatedAt: now })
+        .where(or(eq(messages.localId, id), eq(messages.id, id))).returning();
+      if (row) await synchronizeReplySnapshots(tx, [row]);
+      return row ?? null;
+    });
   }
 
   async bulkSetStatus(localIds: string[], status: StatusValue): Promise<void> {

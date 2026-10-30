@@ -18,7 +18,7 @@ export function runMigrations(): Promise<void> {
   return (migrations ??= migrate());
 }
 
-async function migrate(): Promise<void> {
+async function migrateV1(): Promise<void> {
   const versions = await db.values<[number]>(sql`PRAGMA user_version`);
   if (Number(versions[0]?.[0] ?? 0) >= 1) return;
   await db.run(sql`
@@ -170,5 +170,26 @@ async function migrate(): Promise<void> {
       sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rooms_conversation_unique ON rooms(conversation_id)`,
     );
     await tx.run(sql`PRAGMA user_version = 1`);
+  });
+}
+
+/** Additive v2 upgrade. An interrupted ALTER is safe to resume; never replace
+ * app.db or discard historical messages, queues, or account ownership. */
+async function migrate(): Promise<void> {
+  await migrateV1();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 2) return;
+  await addColumn("messages", "sender_data", "TEXT");
+  await addColumn("messages", "reply_data", "TEXT");
+  await addColumn("messages", "attachment_data", "TEXT");
+  await addColumn("rooms", "is_group", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("rooms", "participants_data", "TEXT");
+  await addColumn("message_receipt_outbox", "attempt_token", "TEXT");
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_reply_context
+      ON messages(conversation_id, replied_to_id, timestamp, local_id)`);
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_receipt_attempt
+      ON message_receipt_outbox(kind, attempt_token, key)`);
+    await tx.run(sql`PRAGMA user_version = 2`);
   });
 }
