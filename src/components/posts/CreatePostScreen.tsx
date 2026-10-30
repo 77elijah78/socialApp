@@ -2,10 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,7 +10,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 
 import theme from "@/constants/theme";
 import {
@@ -30,6 +28,8 @@ import { showAppDialog } from "@/services/AppDialogService";
 const MAX_IMAGES = 4;
 
 export default function CreatePostScreen() {
+  const insets = useSafeAreaInsets();
+  const [footerHeight, setFooterHeight] = useState(0);
   const token = useAppSelector((state) => state.auth.token);
   const user = useAppSelector((state) => state.auth.user);
   const params = useLocalSearchParams<{ postId?: string }>();
@@ -172,11 +172,7 @@ export default function CreatePostScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
+      <View style={styles.keyboardView}>
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
@@ -212,7 +208,14 @@ export default function CreatePostScreen() {
           </Pressable>
         </View>
 
-        <ScrollView
+        {/* The controller scrolls only an obscured caret; do not wrap this in
+            another keyboard avoider or enable native keyboard insets as well. */}
+        <KeyboardAwareScrollView
+          bottomOffset={footerHeight}
+          extraKeyboardSpace={-insets.bottom}
+          automaticallyAdjustKeyboardInsets={false}
+          contentInsetAdjustmentBehavior="never"
+          keyboardDismissMode="on-drag"
           style={styles.body}
           contentContainerStyle={styles.bodyContent}
           showsVerticalScrollIndicator={false}
@@ -326,9 +329,15 @@ export default function CreatePostScreen() {
               A little context makes your photos even more memorable.
             </Text>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
-        <View style={styles.footer}>
+        {/* The outer safe area already removes the system bottom inset. Add it
+            back to the keyboard translation instead of leaving a gap above IME. */}
+        <KeyboardStickyView
+          offset={{ closed: 0, opened: insets.bottom }}
+          style={styles.footer}
+          onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+        >
           <View style={styles.footerActions}>
             <Pressable
               accessibilityRole="button"
@@ -366,8 +375,8 @@ export default function CreatePostScreen() {
               ? "Choose up to four photos"
               : `${selectedImages.length + existingImageUrls.length} ${selectedImages.length + existingImageUrls.length === 1 ? "photo" : "photos"} ready to ${isEditing ? "save" : "share"}`}
           </Text>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardStickyView>
+      </View>
     </SafeAreaView>
   );
 }
