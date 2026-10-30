@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const messages = sqliteTable("messages", {
   localId: text("local_id").primaryKey().notNull(),
@@ -76,3 +76,13 @@ export const messageSyncState = sqliteTable("message_sync_state", {
   targetId: text("target_id").notNull(),
   targetTimestamp: integer("target_timestamp").notNull(),
 });
+
+/** Account-owned local invalidation ledger. Records only confirmed API/socket
+ * deletions, including originals outside the cached history window. */
+export const messageInvalidations = sqliteTable("message_invalidations", {
+  conversationId: text("conversation_id").notNull(),
+  messageId: text("message_id").notNull(),
+  deletedAt: text("deleted_at").notNull(),
+  deletedBy: text("deleted_by"),
+  deletionMode: text("deletion_mode").notNull(),
+}, (table) => [primaryKey({ columns: [table.conversationId, table.messageId] })]);

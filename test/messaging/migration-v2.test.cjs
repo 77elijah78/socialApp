@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { database } = require("./harness.cjs");
 
-test("v1 to v3 is additive: messages, flags, room state and durable receipts survive", async () => {
+test("v1 to v4 is additive: messages, flags, room state and durable receipts survive", async () => {
   database.exec(`CREATE TABLE messages (
     local_id TEXT PRIMARY KEY NOT NULL, id TEXT, content TEXT, media_url TEXT, thumbnail_url TEXT,
     type TEXT NOT NULL DEFAULT 'TEXT', status TEXT NOT NULL DEFAULT 'SENT', sender_id TEXT NOT NULL,
@@ -22,7 +22,7 @@ test("v1 to v3 is additive: messages, flags, room state and durable receipts sur
   PRAGMA user_version=1;`);
   const { runMigrations } = require("../../src/db/migrations.ts");
   await runMigrations();
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
   const message = database.prepare("SELECT * FROM messages").get();
   assert.equal(message.local_id, "stable");
   assert.equal(message.content, "History intact");

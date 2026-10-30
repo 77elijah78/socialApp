@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import { router } from "expo-router";
 import {
   parseMetadata,
+  compactReplyPreview,
   type ReplyPreviewModel,
   type AttachmentInfo,
   type MessageAuthorInfo,
@@ -47,6 +48,7 @@ interface Session {
   rows: MessageRow[];
   loadingMore: boolean;
   hasMore: boolean;
+  historyBefore?: { anchor: string; cursor: { lastId: string; lastTimestamp: number } };
   sync: Promise<void> | null;
   lookup: Map<string, MessageRow>;
   authors: Map<string, string>;
@@ -246,7 +248,6 @@ export function useChat({
       // previews. Do not fetch or publish every reply body for a source change.
       const previews: MessageRow[] = [];
       for (const source of sources) {
-        if (!source.deletedAt && !source.editedAt) continue;
         const refs = new Set([
           ...(session.replyRefs.get(source.localId) ?? []),
           ...(source.id ? (session.replyRefs.get(source.id) ?? []) : []),
@@ -254,7 +255,6 @@ export function useChat({
         if (!refs.size) continue;
         const data = JSON.stringify({
           ...replyPreview(source),
-          content: source.deletedAt ? "" : (source.content || "").slice(0, 180),
         });
         for (const id of refs) {
           const reply = session.lookup.get(id);
@@ -313,24 +313,36 @@ export function useChat({
         session.rows = [];
         session.lookup.clear();
         patch({ messages: [] });
+      } else if (change.type === "invalidate") {
+        const previews: MessageRow[] = [];
+        for (const id of session.replyRefs.get(change.messageId) ?? []) {
+          const reply = session.lookup.get(id);
+          if (!reply) continue;
+          const previous = parseMetadata<ReplyPreviewModel>(reply.replyData);
+          previews.push({ ...reply, replyData: JSON.stringify(compactReplyPreview({
+            id: change.messageId, type: "TEXT", senderId: "", ...previous, content: "", deleted: true,
+          })) });
+        }
+        merge(previews);
       } else {
-        const oldest = session.rows[0];
+        const removed = new Set(change.rows.filter(row => row.deletedAt)
+          .flatMap(row => row.id ? [row.id, row.localId] : [row.localId]));
+        const oldest = removed.size ? session.rows.find(row =>
+          !removed.has(row.localId) && !(row.id && removed.has(row.id))) : session.rows[0];
         const newReplies = change.rows.filter(
           (row) =>
             row.repliedToId &&
             !session.lookup.has(row.localId) &&
             !(row.id && session.lookup.has(row.id)) &&
-            (!oldest || compareMessages(row, oldest) >= 0),
-        );
-        const loaded = new Set(
-          session.rows.flatMap((row) => [row.localId, row.id]),
+            (change.source === "live" || !oldest || compareMessages(row, oldest) >= 0),
         );
         merge(
           change.rows.filter(
             (row) =>
+              change.source === "live" ||
               !oldest ||
-              loaded.has(row.localId) ||
-              loaded.has(row.id) ||
+              session.lookup.has(row.localId) ||
+              Boolean(row.id && session.lookup.has(row.id)) ||
               compareMessages(row, oldest) >= 0,
           ),
           change.rows,
@@ -399,6 +411,9 @@ export function useChat({
       }),
       socketReceiver.on("error", () => {
         if (!session.cancelled) setConnected(false);
+      }),
+      socketReceiver.on("sync:error", (error) => {
+        if (!session.cancelled) patch({ syncError: asError(error) });
       }),
       socketReceiver.on("typing:start", (payload) => {
         if (
@@ -511,24 +526,37 @@ export function useChat({
       )
         return;
       if (!older.length) {
-        // Never send a temporary optimistic ID as a server cursor.
-        const remoteCursor =
-          oldest.id && oldest.status !== "FAILED" && oldest.status !== "SENDING"
+        // A page can contain only persisted tombstones/per-device hides.
+        // Their raw server cursor must advance even though no visible row was
+        // added. Retain progress on failure so Retry never loops on that page.
+        let remoteCursor = session.historyBefore?.anchor === oldest.localId
+          ? session.historyBefore.cursor
+          : oldest.id && oldest.status !== "FAILED" && oldest.status !== "SENDING"
             ? { lastId: oldest.id, lastTimestamp: oldest.timestamp }
             : { lastId: "", lastTimestamp: oldest.timestamp };
-        older = await mediaService.message.syncFromServer(
-          conversationId,
-          currentUser.id,
-          remoteCursor,
-          PAGE_SIZE,
-        );
-        if (
-          session.cancelled ||
-          session.roomVersion !== messageStore.getRoomVersion(conversationId)
-        )
-          return;
-        older = older.filter((row) => compareMessages(row, oldest) < 0);
-        if (!older.length) session.hasMore = false;
+        const visited = new Set<string>();
+        while (!session.cancelled && focusedRef.current) {
+          const page = await mediaService.message.syncFromServer(
+            conversationId, currentUser.id, remoteCursor, PAGE_SIZE,
+          );
+          if (session.cancelled || session.roomVersion !== messageStore.getRoomVersion(conversationId)) return;
+          older = page.filter(row => compareMessages(row, oldest) < 0);
+          if (!page.length) {
+            session.hasMore = false;
+            session.historyBefore = undefined;
+            break;
+          }
+          if (older.some(row => !row.deletedAt)) {
+            session.historyBefore = undefined;
+            break;
+          }
+          const next = mediaService.message.historyCursor(page);
+          if (!next?.lastId || next.lastId === remoteCursor.lastId || visited.has(next.lastId))
+            throw new Error("Server history cursor did not advance. Try again.");
+          visited.add(next.lastId);
+          remoteCursor = next;
+          session.historyBefore = { anchor: oldest.localId, cursor: next };
+        }
       }
       older = await hydrateReplyPreviews(older, conversationId, session);
       if (
@@ -556,7 +584,8 @@ export function useChat({
             ? { ...previous, paginationError: asError(error) }
             : previous,
         );
-      // Do not advance a cursor or disable retries after a failed request.
+      // Keep only confirmed tombstone progress, never skip the failed page or
+      // declare an outage to be the end of history.
     } finally {
       session.loadingMore = false;
       if (!session.cancelled)
@@ -567,6 +596,15 @@ export function useChat({
         );
     }
   }, [conversationId, currentUser.id, key]);
+
+  /** Read-only committed session lookup; queued gesture callbacks must not use
+   * an old rendered row after deletion/identity reconciliation or account clear. */
+  const getLoadedMessage = useCallback((id: string) => {
+    const session = sessionRef.current;
+    return session && !session.cancelled && session.key === key &&
+      session.roomVersion === messageStore.getRoomVersion(conversationId)
+      ? session.lookup.get(id) : undefined;
+  }, [key, conversationId]);
 
   const markVisibleRead = useCallback(
     (ids: string[]) => {
@@ -796,6 +834,7 @@ export function useChat({
     loadMore,
     loadReplyTarget,
     markVisibleRead,
+    getLoadedMessage,
     onTyping,
     refresh,
     releaseHistory,

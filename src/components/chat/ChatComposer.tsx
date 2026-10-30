@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useEffect, useContext } from "react";
+import { memo, useRef, useState, useEffect, useContext, useLayoutEffect } from "react";
 import {
   View,
   TextInput,
@@ -31,6 +31,7 @@ import MediaPickerModal from "../messages/MediaPickerModal";
 
 interface Props {
   replyingTo: MessageRow | null;
+  disabled?: boolean;
   userId: string;
   onCancelReply: () => void;
   onTyping: () => void;
@@ -46,6 +47,7 @@ interface Props {
 }
 function ChatComposer({
   replyingTo,
+  disabled = false,
   userId,
   onCancelReply,
   onTyping,
@@ -55,7 +57,12 @@ function ChatComposer({
 }: Props) {
   const [text, setText] = useState("");
   const draft = useRef("");
+  const disabledRef = useRef(disabled);
+  useLayoutEffect(() => { disabledRef.current = disabled; }, [disabled]);
   const [picker, setPicker] = useState(false);
+  // Adjust derived sheet state before committing a disabled composer. Keeping
+  // the composer itself mounted preserves the draft and avoids a layout jump.
+  if (disabled && picker) setPicker(false);
   const coverReads = useContext(ChatReadVisibility);
   const releasePicker = useRef<(() => void) | null>(null);
   const closePicker = () => {
@@ -90,7 +97,7 @@ function ChatComposer({
     });
   const send = async () => {
     const value = draft.current.trim();
-    if (!value) return;
+    if (!value || disabledRef.current) return;
     // Clear synchronously: a double tap cannot resubmit the same draft, but a
     // different message never waits for the previous network acknowledgement.
     draft.current = "";
@@ -109,7 +116,7 @@ function ChatComposer({
     try {
       const duration = recording.durationMillis / 1000;
       await recorder.stop();
-      if (recorder.uri && alive.current) {
+      if (recorder.uri && alive.current && !disabledRef.current) {
         const replyId = recordingReplyId.current;
         onCancelReply();
         await onSendMedia("audio/mp4", recorder.uri, duration, replyId);
@@ -121,6 +128,7 @@ function ChatComposer({
     }
   };
   const startRecording = async () => {
+    if (disabledRef.current) return;
     recordingHeld.current = true;
     if (preparing.current || recorder.isRecording) return;
     preparing.current = true;
@@ -151,6 +159,7 @@ function ChatComposer({
   };
   const sendFiles = async (files: PickedFile[]) => {
     closePicker();
+    if (disabledRef.current) return;
     const replyId = replyingTo?.id ?? undefined;
     onCancelReply();
     try {
@@ -169,9 +178,20 @@ function ChatComposer({
       failed();
     }
   };
+  useEffect(() => {
+    if (!disabled) return;
+    recordingHeld.current = false;
+    releasePicker.current?.();
+    releasePicker.current = null;
+    if (recorder.isRecording) void recorder.stop().catch(() => {});
+  }, [disabled, recorder]);
+  const replyIdentity = replyingTo?.localId;
+  useEffect(() => {
+    if (replyIdentity && !disabled) input.current?.focus();
+  }, [replyIdentity, disabled]);
   return (
     <>
-      <View style={styles.floatingInputWrapper} testID="chat-composer">
+      <View style={[styles.floatingInputWrapper, disabled && styles.disabled]} testID="chat-composer">
         {replyingTo && (
           <View style={styles.replyPreview}>
             <ReplyPreview
@@ -182,6 +202,7 @@ function ChatComposer({
             />
             <TouchableOpacity
               accessibilityLabel="Cancel reply"
+              disabled={disabled}
               onPress={onCancelReply}
               style={styles.replyPreviewClose}
             >
@@ -193,7 +214,9 @@ function ChatComposer({
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Attach media"
+            disabled={disabled}
             onPress={() => {
+              if (disabledRef.current) return;
               releasePicker.current?.();
               releasePicker.current = coverReads();
               setPicker(true);
@@ -209,8 +232,10 @@ function ChatComposer({
               placeholderTextColor={COLORS.textMuted}
               style={styles.textInput}
               multiline
+              editable={!disabled}
               value={text}
               onChangeText={(value) => {
+                if (disabledRef.current) return;
                 draft.current = value;
                 setText(value);
                 onTyping();
@@ -223,6 +248,7 @@ function ChatComposer({
           {!text.trim() ? (
             <Pressable
               accessibilityLabel="Hold to record a voice message"
+              disabled={disabled}
               style={[
                 styles.sendButton,
                 recording.isRecording && styles.micButtonActive,
@@ -243,6 +269,7 @@ function ChatComposer({
           ) : (
             <TouchableOpacity
               accessibilityLabel="Send message"
+              disabled={disabled}
               style={styles.sendButton}
               onPress={() => {
                 void send();
@@ -265,6 +292,7 @@ function ChatComposer({
 }
 export default memo(ChatComposer);
 const styles = StyleSheet.create({
+  disabled: { opacity: 0.55 },
   floatingInputWrapper: {
     marginHorizontal: SPACING.md,
     marginVertical: SPACING.sm,

@@ -40,6 +40,10 @@ type OverlayContextValue = {
 };
 
 const OverlayContext = React.createContext<OverlayContextValue | null>(null);
+// Separate from action callbacks so opening a sheet does not rerender every
+// memoized message card that merely needs openActionMenu.
+const OverlayVisibility = React.createContext(false);
+export const useOverlayVisible = () => React.useContext(OverlayVisibility);
 
 export function useOverlay(): OverlayContextValue {
   const ctx = React.useContext(OverlayContext);
@@ -144,7 +148,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <OverlayContext.Provider value={value}>
-      {children}
+      <OverlayVisibility.Provider value={actionMenuVisible || alertVisible || shareVisible}>
+        {children}
+      </OverlayVisibility.Provider>
       <ActionMenu
         visible={actionMenuVisible}
         items={actionMenuItems}

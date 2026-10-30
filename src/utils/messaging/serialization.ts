@@ -1,12 +1,15 @@
-import type { MessageAuthorInfo, ReplyPreviewModel } from "./presentation";
+import { compactReplyPreview, type MessageAuthorInfo, type ReplyPreviewModel } from "./presentation";
 import type { NewMessageRow } from "../../db/schema";
 
 export interface RemoteMessage {
   id: string;
   conversationId: string;
   senderId?: string;
-  sender?: MessageAuthorInfo & { id: string };
-  repliedTo?: ReplyPreviewModel | null;
+  sender?: MessageAuthorInfo;
+  // REST uses nested sender; current Kafka delivery uses senderUsername.
+  repliedTo?: Partial<ReplyPreviewModel> & {
+    id: string; senderUsername?: string | null; deletedAt?: string | null;
+  } | null;
   receiverId?: string | null;
   content?: string | null;
   text?: string | null;
@@ -88,20 +91,23 @@ export function normalizeRemoteMessage(
           })
         : null,
     replyData: payload.repliedTo
-      ? JSON.stringify({
+      ? JSON.stringify(compactReplyPreview({
           id: payload.repliedTo.id,
-          content: (payload.repliedTo.content ?? "").slice(0, 180),
-          type: payload.repliedTo.type,
-          senderId: payload.repliedTo.senderId,
+          content: payload.repliedTo.content ?? "",
+          type: payload.repliedTo.type ?? "TEXT",
+          senderId: payload.repliedTo.senderId ?? payload.repliedTo.sender?.id ?? "",
           sender: {
-            ...authors?.get(payload.repliedTo.senderId),
+            ...authors?.get(payload.repliedTo.senderId ?? ""),
+            ...(payload.repliedTo.senderUsername ? { username: payload.repliedTo.senderUsername } : {}),
             ...payload.repliedTo.sender,
           },
           mediaUrl: payload.repliedTo.mediaUrl,
           thumbnailUrl: payload.repliedTo.thumbnailUrl,
           duration: payload.repliedTo.duration,
-          deleted: payload.repliedTo.deleted,
-        })
+          attachment: payload.repliedTo.attachment,
+          shared: payload.repliedTo.shared,
+          deleted: payload.repliedTo.deleted === true || Boolean(payload.repliedTo.deletedAt),
+        }))
       : null,
     attachmentData: null,
     mediaUrl: payload.mediaUrl ?? null,
@@ -120,7 +126,7 @@ export function normalizeRemoteMessage(
     deletedAt: payload.deletedAt ?? null,
     deletedBy: payload.deletedBy ?? null,
     duration: payload.duration ?? null,
-    repliedToId: payload.repliedToId ?? null,
+    repliedToId: payload.repliedToId ?? payload.repliedTo?.id ?? null,
     forwardedFromId: payload.forwardedFromId ?? null,
     deliveredAt: payload.deliveredAt ?? null,
     readAt: payload.readAt ?? null,

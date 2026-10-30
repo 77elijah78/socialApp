@@ -4,11 +4,13 @@ import {
   type MessageRow,
   rooms,
   receiptOutbox,
+  messageInvalidations,
   type RoomRow,
 } from "./schema";
 import { eq, and, lte, or, ne, inArray, sql, isNull } from "drizzle-orm";
-import { synchronizeReplySnapshots } from "./replySnapshots";
+import { synchronizeReplySnapshots, redactReplySnapshots } from "./replySnapshots";
 import { mergePersistedMessage } from "../utils/messaging/timeline";
+import { applyMessageInvalidations, type DeletionScope } from "./deletionState";
 
 type StatusValue = "SENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
@@ -28,40 +30,45 @@ export class MessageUpdateQueries {
   async tombstone(
     id: string,
     currentUserId?: string,
+    scope?: DeletionScope,
   ): Promise<MessageRow | null> {
     return withDatabaseTransaction(async (tx) => {
-      const now = new Date().toISOString();
-      const [row] = await tx
-        .update(messages)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(
-          and(
-            or(eq(messages.localId, id), eq(messages.id, id)),
-            isNull(messages.deletedAt),
-          ),
-        )
-        .returning();
-      if (!row) return null;
-      await synchronizeReplySnapshots(tx, [row]);
-      if (
-        currentUserId &&
-        row.senderId !== currentUserId &&
-        row.status !== "READ" &&
-        !row.isRead
-      ) {
-        await tx
-          .update(rooms)
-          .set({
-            unreadCount: sql`MAX(0, COALESCE(${rooms.unreadCount}, 0) - 1)`,
-            updatedAt: Date.now(),
-          })
-          .where(eq(rooms.conversationId, row.conversationId));
+      const [existing] = await tx.select().from(messages)
+        .where(or(eq(messages.localId, id), eq(messages.id, id))).limit(1);
+      if (existing && scope && existing.conversationId !== scope.conversationId) return null;
+      const conversationId = scope?.conversationId ?? existing?.conversationId;
+      if (!conversationId) return null;
+      const now = scope?.deletedAt || existing?.deletedAt || new Date().toISOString();
+      const messageId = existing?.id ?? id;
+      const invalidation = tx.insert(messageInvalidations).values({
+        conversationId, messageId, deletedAt: now,
+        deletedBy: scope?.deletedBy ?? currentUserId ?? null,
+        deletionMode: scope?.deleteFor ?? "me",
+      });
+      if (scope?.deleteFor === "everyone") {
+        await invalidation.onConflictDoUpdate({
+          target: [messageInvalidations.conversationId, messageInvalidations.messageId],
+          set: { deletionMode: "everyone", deletedAt: now, deletedBy: scope?.deletedBy ?? currentUserId ?? null },
+          where: ne(messageInvalidations.deletionMode, "everyone"),
+        });
+      } else await invalidation.onConflictDoNothing();
+      const [row] = await tx.update(messages).set({
+        deletedAt: now, updatedAt: now, deletedBy: scope?.deletedBy ?? currentUserId ?? null,
+        content: null, mediaUrl: null, thumbnailUrl: null, attachmentData: null,
+        duration: null, replyData: null,
+      }).where(and(eq(messages.conversationId, conversationId),
+        or(eq(messages.localId, id), eq(messages.id, id)), isNull(messages.deletedAt))).returning();
+      await redactReplySnapshots(tx, conversationId, [id, messageId, existing?.localId ?? id]);
+      if (row && currentUserId && row.senderId !== currentUserId && row.status !== "READ" && !row.isRead) {
+        await tx.update(rooms).set({
+          unreadCount: sql`MAX(0, COALESCE(${rooms.unreadCount}, 0) - 1)`, updatedAt: Date.now(),
+        }).where(eq(rooms.conversationId, conversationId));
       }
-      if (row.id)
-        await tx
-          .delete(receiptOutbox)
-          .where(eq(receiptOutbox.messageId, row.id));
-      return row;
+      await tx.delete(receiptOutbox).where(and(
+        eq(receiptOutbox.conversationId, conversationId),
+        inArray(receiptOutbox.messageId, [id, messageId]),
+      ));
+      return row ?? null;
     });
   }
 
@@ -80,14 +87,14 @@ export class MessageUpdateQueries {
       const echo = rows.find(
         (row) => row.localId !== localId && row.id === serverId,
       );
-      const next = mergePersistedMessage(optimistic, {
+      const next = (await applyMessageInvalidations(tx, [mergePersistedMessage(optimistic, {
         ...optimistic,
         ...echo,
         localId,
         id: serverId,
         status: echo?.status ?? "SENT",
         failedAt: null,
-      });
+      })]))[0];
       if (echo)
         await tx.delete(messages).where(eq(messages.localId, echo.localId));
       const { localId: _key, ...patch } = next;
@@ -96,7 +103,7 @@ export class MessageUpdateQueries {
         .set(patch)
         .where(eq(messages.localId, localId))
         .returning();
-      return row ?? null;
+      return row ? (await synchronizeReplySnapshots(tx, [row]))[0] : null;
     });
   }
 
@@ -269,11 +276,13 @@ export class MessageUpdateQueries {
       .returning();
   }
 
-  editText(id: string, content: string) {
+  editText(id: string, content: string, conversationId?: string) {
     const now = new Date().toISOString();
     return withDatabaseTransaction(async (tx) => {
       const [row] = await tx.update(messages).set({ content, editedAt: now, updatedAt: now })
-        .where(or(eq(messages.localId, id), eq(messages.id, id))).returning();
+        .where(and(or(eq(messages.localId, id), eq(messages.id, id)),
+          conversationId ? eq(messages.conversationId, conversationId) : undefined,
+          isNull(messages.deletedAt))).returning();
       if (row) await synchronizeReplySnapshots(tx, [row]);
       return row ?? null;
     });

@@ -5,6 +5,7 @@ import { messageGetQueries } from "./getQueries";
 import { messageUpdateQueries } from "./updateQueries";
 import { messageDeleteQueries } from "./deleteQueries";
 import type { MessageRow, NewMessageRow } from "./schema";
+import type { DeletionScope } from "./deletionState";
 import type { MessageCursor } from "../utils/messaging/timeline";
 import {
   invalidateRecentMessageCache,
@@ -13,7 +14,8 @@ import {
 
 export type Message = MessageRow;
 export type MessageChange =
-  | { type: "upsert"; conversationId: string; rows: MessageRow[] }
+  | { type: "upsert"; conversationId: string; rows: MessageRow[]; source?: "live" | "history" | "mutation" }
+  | { type: "invalidate"; conversationId: string; messageId: string }
   | { type: "clear"; conversationId?: string };
 type Subscriber = (change: MessageChange) => void;
 
@@ -51,7 +53,7 @@ export class MessageStore {
     }
   }
 
-  private publishRows(rows: MessageRow[]) {
+  private publishRows(rows: MessageRow[], source: "live" | "history" | "mutation" = "mutation") {
     const byRoom = new Map<string, MessageRow[]>();
     for (const row of rows) {
       const group = byRoom.get(row.conversationId) ?? [];
@@ -59,7 +61,7 @@ export class MessageStore {
       byRoom.set(row.conversationId, group);
     }
     for (const [conversationId, group] of byRoom)
-      this.publish({ type: "upsert", conversationId, rows: group });
+      this.publish({ type: "upsert", conversationId, rows: group, source });
     return rows;
   }
 
@@ -102,6 +104,9 @@ export class MessageStore {
     await this.outgoing.get(senderId)?.settled;
   }
 
+  getInvalidations(ids: string[]) {
+    return messageGetQueries.getInvalidations(ids);
+  }
   getByRoom(roomId: string) {
     return messageGetQueries.getByRoom(roomId);
   }
@@ -159,16 +164,19 @@ export class MessageStore {
 
   async save(message: NewMessageRow) {
     const row = await messageInsertQueries.insert(message);
-    this.publishRows([row]);
+    this.publishRows([row], "live");
     return row;
   }
   async saveReceived(
     message: NewMessageRow,
     isCurrent: () => boolean = () => true,
     currentUserId?: string,
+    options?: { serverCreated?: boolean },
   ) {
     const roomVersion = this.getRoomVersion(message.conversationId);
-    await this.waitForOutgoing(message.senderId);
+    // A REST-created forward has its own confirmed identity and no optimistic
+    // counterpart. It must not wait behind an unrelated upload's own echo.
+    if (!options?.serverCreated) await this.waitForOutgoing(message.senderId);
     if (
       !isCurrent() ||
       roomVersion !== this.getRoomVersion(message.conversationId)
@@ -177,11 +185,11 @@ export class MessageStore {
     const row = currentUserId
       ? await messageInsertQueries.upsertReceived(message, currentUserId)
       : await messageInsertQueries.upsert(message);
-    this.publishRows([row]);
+    this.publishRows([row], "live");
     return row;
   }
   async saveMany(batch: NewMessageRow[], requestStartedAt?: number) {
-    return this.publishRows(await messageInsertQueries.upsertMany(batch, requestStartedAt));
+    return this.publishRows(await messageInsertQueries.upsertMany(batch, requestStartedAt), "history");
   }
   confirm(localId: string, serverId: string, timestamp?: number) {
     return this.changed(
@@ -224,8 +232,8 @@ export class MessageStore {
       await messageUpdateQueries.markSentMessagesAsRead(roomId, senderId),
     );
   }
-  editText(id: string, text: string) {
-    return this.changed(messageUpdateQueries.editText(id, text));
+  editText(id: string, text: string, conversationId?: string) {
+    return this.changed(messageUpdateQueries.editText(id, text, conversationId));
   }
   resetForRetry(localId: string) {
     return this.changed(messageUpdateQueries.resetForRetry(localId));
@@ -234,11 +242,13 @@ export class MessageStore {
     return this.changed(messageUpdateQueries.patch(id, patch));
   }
 
-  /** Keep a local tombstone: an in-flight history response must not resurrect a deletion. */
-  async deleteOne(id: string, currentUserId?: string) {
-    return Boolean(
-      await this.changed(messageUpdateQueries.tombstone(id, currentUserId)),
-    );
+  /** Server-confirmed scoped invalidation survives missing originals/stale pages. */
+  async deleteOne(id: string, currentUserId?: string, scope?: DeletionScope) {
+    const row = await messageUpdateQueries.tombstone(id, currentUserId, scope);
+    const room = scope?.conversationId ?? row?.conversationId;
+    if (row) this.publishRows([row]);
+    else if (room) this.publish({ type: "invalidate", conversationId: room, messageId: id });
+    return Boolean(row);
   }
   async deleteMany(ids: string[]) {
     return (await Promise.all(ids.map((id) => this.deleteOne(id)))).filter(

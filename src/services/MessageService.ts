@@ -47,6 +47,8 @@ export class MessageService extends BaseUploader {
   private readonly pageCursors = new WeakMap<MessageRow[], ServerCursor>();
   private readonly pageSizes = new WeakMap<MessageRow[], number>();
 
+  get sessionVersion() { return this.session; }
+
   resetSession() {
     this.session += 1;
     messageStore.resetOutgoing();
@@ -109,9 +111,6 @@ export class MessageService extends BaseUploader {
             ...patch,
             replyData: JSON.stringify({
               ...replyPreview(parent),
-              content: parent.deletedAt
-                ? ""
-                : (parent.content || "").slice(0, 180),
             }),
           };
       }
@@ -325,6 +324,10 @@ export class MessageService extends BaseUploader {
     return { ...data, url: data.url };
   }
 
+  historyCursor(rows: MessageRow[]): ServerCursor | undefined {
+    return this.pageCursors.get(rows);
+  }
+
   syncFromServer(
     conversationId: string,
     userId: string,
@@ -393,17 +396,11 @@ export class MessageService extends BaseUploader {
       compareMessages,
     );
     this.pageSizes.set(rows, remote.length);
-    // This backend echoes reads only to the sender. A fresh DM history response
-    // with this recipient's committed READ is also authoritative confirmation.
-    // Group-wide READ cannot confirm an individual member; never infer that.
+    // A fresh recipient-specific history read is also confirmation after a
+    // missed ACK/echo. Normalization permits group isRead only for readByMe,
+    // never because the aggregate outgoing status is READ.
     for (const row of incoming) {
-      if (
-        !isGroup &&
-        row.receiverId === userId &&
-        row.senderId !== userId &&
-        row.isRead &&
-        row.id
-      )
+      if (row.senderId !== userId && row.isRead && row.id)
         await receiptQueue.acknowledge("READ", row.id);
     }
     const oldest = incoming.reduce<NewMessageRow | undefined>(
@@ -471,8 +468,17 @@ export class MessageService extends BaseUploader {
     let page = await this.syncFromServer(conversationId, userId);
     const seen = new Set<string>();
     let canResume = Boolean(checkpoint?.beforeId);
-    while (target && page.length && isCurrent()) {
-      if (canResume && known && page.some((row) => row.id === known.id)) {
+    let reachedTarget = !target;
+    while (page.length && isCurrent()) {
+      if (target && page.some(row => row.id === target.targetId)) reachedTarget = true;
+      if (reachedTarget) {
+        if (page.some(row => !row.deletedAt)) break;
+        // The cached boundary itself may have been deleted. If no visible
+        // cached server body remains, continue to the nearest live older page.
+        if (target && (await messageStore.getRecent(conversationId, 1)).some(row =>
+          row.id && row.status !== "SENDING" && row.status !== "FAILED")) break;
+      }
+      if (!reachedTarget && canResume && known && page.some((row) => row.id === known.id)) {
         canResume = false;
         try {
           const resumed = await this.syncFromServer(conversationId, userId, {
@@ -495,13 +501,13 @@ export class MessageService extends BaseUploader {
         lastTimestamp: page[0].timestamp,
       };
       // Timestamp equality cannot establish a boundary (several pages may have
-      // the same timestamp); an outgoing local clock can differ too. Stop at
-      // the actual target ID, or exhaustion if that target was remotely deleted.
-      if (page.some((row) => row.id === target.targetId)) break;
+      // the same timestamp); an outgoing local clock can differ too. Catch up
+      // to the actual target ID, not a guessed timestamp boundary. A deleted-
+      // only head/target page is not the end of visible history.
       if (!oldest.lastId || seen.has(oldest.lastId))
         throw new Error("Server history cursor did not advance.");
       seen.add(oldest.lastId);
-      await syncStateStore.set({
+      if (target) await syncStateStore.set({
         ...target,
         beforeId: oldest.lastId,
         beforeTimestamp: oldest.lastTimestamp,
@@ -619,29 +625,74 @@ export class MessageService extends BaseUploader {
     }
   }
 
+  async forward(id: string, targetConversationId: string, userId: string) {
+    const epoch = this.session;
+    const token = this.authToken;
+    const original = await messageStore.getById(id);
+    if (epoch !== this.session) throw new Error("Messaging session changed.");
+    if (!original?.id || original.deletedAt || original.status === "SENDING" || original.status === "FAILED")
+      throw new Error("Only sent, available messages can be forwarded.");
+    const targetVersion = messageStore.getRoomVersion(targetConversationId);
+    const current = () => epoch === this.session && targetVersion === messageStore.getRoomVersion(targetConversationId);
+    const response = await api.post<{ success: boolean; data: RemoteMessage }>(
+      "/messages/messages/forward", { messageId: original.id, targetConversationId }, token ?? undefined,
+    );
+    if (!current()) return;
+    if (response.success !== true || !response.data?.id || response.data.conversationId !== targetConversationId || response.data.senderId !== userId)
+      throw new Error("The server did not confirm this forward.");
+    const row = normalizeRemoteMessage(response.data, userId);
+    if (!row.attachmentData && row.type === original.type && row.mediaUrl === original.mediaUrl)
+      row.attachmentData = original.attachmentData;
+    await messageStore.saveReceived(row, current, userId, { serverCreated: true });
+  }
+
   async delete(id: string, deleteFor: "me" | "everyone" = "me") {
     const epoch = this.session;
+    const token = this.authToken;
     const message = await messageStore.getById(id);
-    if (!message) return;
+    if (epoch !== this.session) throw new Error("Messaging session changed.");
+    if (!message) throw new Error("This message is no longer available.");
+    const roomVersion = messageStore.getRoomVersion(message.conversationId);
+    const current = () => epoch === this.session && roomVersion === messageStore.getRoomVersion(message.conversationId);
+    const confirmedByNotification = async () => {
+      if (!current()) return false;
+      const rows = await messageStore.getInvalidations([message.id ?? id]);
+      return current() && rows.some(row => row.conversationId === message.conversationId && (deleteFor === "me" || row.deletionMode === "everyone"));
+    };
+    if (message.deletedAt && await confirmedByNotification()) return;
     if (message.status === "SENDING")
-      throw new Error(
-        "Wait for sending to finish before deleting this message.",
-      );
-    // Unsynced drafts have no server resource to delete.
-    if (message.status !== "FAILED" && message.status !== "SENDING") {
-      await api.delete(
-        `/messages/${encodeURIComponent(message.id ?? id)}?deleteFor=${deleteFor}`,
-        this.authToken ?? undefined,
-      );
+      throw new Error("Wait for sending to finish before deleting this message.");
+    if (message.status === "FAILED") {
+      if (deleteFor !== "me") throw new Error("An unsent message can only be removed for you.");
+    } else {
+      const messageId = message.id ?? id;
+      try {
+        const result = await api.delete<{
+          success?: boolean; data?: { messageId?: string; deleteFor?: string };
+        }>(`/messages/messages/${encodeURIComponent(messageId)}`,
+          token ?? undefined, { body: JSON.stringify({ deleteFor }) });
+        if (result.success !== true || result.data?.messageId !== messageId || result.data?.deleteFor !== deleteFor)
+          throw new Error("The server did not confirm this deletion. The message has been kept.");
+      } catch (error) {
+        // A persisted backend deletion notification can beat a lost HTTP
+        // response. Consult the actual scoped ledger, never our own emit().
+        if (await confirmedByNotification()) return;
+        throw error;
+      }
     }
-    if (epoch === this.session) await messageStore.deleteOne(id);
+    // Pessimistic by design: a rejected request never removes the row. Socket
+    // events can win the race safely; the scoped ledger is idempotent.
+    if (current())
+      await messageStore.deleteOne(message.localId, undefined, {
+        conversationId: message.conversationId, deleteFor,
+      });
   }
   async edit(id: string, text: string) {
     const epoch = this.session;
     this.validate(text);
     const row = await messageStore.getById(id);
     await api.post(
-      `/messages/${encodeURIComponent(row?.id ?? id)}/edit`,
+      `/messages/messages/${encodeURIComponent(row?.id ?? id)}/edit`,
       { content: text.trim() },
       this.authToken ?? undefined,
     );

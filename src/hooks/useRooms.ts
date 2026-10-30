@@ -32,6 +32,7 @@ interface BackendConversation {
     senderId: string;
     status: string;
     isRead: boolean;
+    deletedAt?: string | null;
   }[];
 }
 
@@ -45,6 +46,7 @@ interface RoomWithReceiver
 function toRoomRow(
   conversation: BackendConversation,
   currentUserId?: string,
+  locallyDeleted = false,
 ): RoomWithReceiver {
   const otherParticipant = conversation.participants.find(
     (p) => p.user.id !== currentUserId,
@@ -65,9 +67,10 @@ function toRoomRow(
 
   const receiverId = otherParticipant?.user.id;
 
-  const lastMessageContent = lastMessage?.content || "";
+  const deleted = locallyDeleted || Boolean(lastMessage?.deletedAt);
+  const lastMessageContent = deleted ? "Deleted message" : lastMessage?.content || "";
   const type = lastMessage?.type;
-  const lastMessageType = lastMessage?.mediaUrl
+  const lastMessageType = deleted ? "text" : lastMessage?.mediaUrl
     ? "media"
     : type === "SHARED_POST" || type === "SHARED_STORY"
       ? type
@@ -164,6 +167,9 @@ export function useRooms() {
             token,
           );
           if (session.cancelled) return;
+          const invalidations = await messageStore.getInvalidations(response.data.flatMap(room => room.messages?.[0]?.id ? [room.messages[0].id] : []));
+          const hidden = new Set(invalidations.map(row => `${row.conversationId}:${row.messageId}`));
+          if (session.cancelled) return;
           for (const remote of response.data) {
             if (session.cancelled) return;
             const persisted = (await roomStore.findRoom(remote.id))[0];
@@ -173,7 +179,7 @@ export function useRooms() {
               persisted && (!visible || persisted.updatedAt > visible.updatedAt)
                 ? persisted
                 : visible;
-            const mapped = toRoomRow(remote, userId);
+            const mapped = toRoomRow(remote, userId, hidden.has(`${remote.id}:${remote.messages?.[0]?.id}`));
             const next = {
               ...mapped,
               muted: previous?.muted ?? mapped.muted,
@@ -284,6 +290,10 @@ export function useRooms() {
         if (change.conversationId) summaries.delete(change.conversationId);
         else summaries.clear();
         paint();
+      } else if (change.type === "invalidate") {
+        // The original is outside the body cache, so its old unread/summary
+        // contribution is unknowable. Reuse authoritative rooms, never guess.
+        void fetchRooms();
       } else
         refreshSafely(
           change.conversationId,

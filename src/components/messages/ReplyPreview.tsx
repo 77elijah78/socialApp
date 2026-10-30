@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,6 +12,7 @@ import {
 import {
   authorName,
   previewText,
+  previewThumbnail,
   fileIcon,
   type ReplyPreviewModel,
 } from "@/utils/messaging/presentation";
@@ -25,14 +26,10 @@ interface Props {
 function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
   const name = message.senderId === userId ? "You" : authorName(message.sender);
   const text = previewText(message);
-  const thumbnail =
-    !message.deleted &&
-    (message.type === "IMAGE"
-      ? message.thumbnailUrl || message.mediaUrl
-      : message.type === "VIDEO"
-        ? message.thumbnailUrl
-        : null);
-  const icon =
+  const thumbnail = previewThumbnail(message);
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+  const showThumbnail = thumbnail && failedThumbnail !== thumbnail;
+  const icon = message.deleted ? "trash-outline" :
     message.type === "AUDIO"
       ? "mic-outline"
       : message.type === "VIDEO"
@@ -41,7 +38,9 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
           ? "image-outline"
           : message.type === "DOCUMENT"
             ? fileIcon(message.content || message.mediaUrl || "")
-            : "arrow-undo-outline";
+            : message.type === "SHARED_POST" ? "newspaper-outline"
+              : message.type === "SHARED_STORY" ? "albums-outline"
+              : "arrow-undo-outline";
   return (
     <TouchableOpacity
       onPress={() => onPress?.(message.id)}
@@ -51,13 +50,14 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
       activeOpacity={OPACITY.subtle}
       style={[styles.quote, compact && styles.compact]}
     >
-      {thumbnail ? (
+      {showThumbnail ? (
         <Image
           source={{ uri: thumbnail }}
           style={styles.thumbnail}
           contentFit="contain"
           cachePolicy="memory-disk"
           recyclingKey={thumbnail}
+          onError={() => setFailedThumbnail(thumbnail)}
         />
       ) : (
         <View style={styles.type}>
@@ -72,6 +72,9 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
           {text}
         </Text>
       </View>
+      {message.type === "VIDEO" && showThumbnail && (
+        <Ionicons name="videocam-outline" size={16} color={COLORS.primaryDark} />
+      )}
       {onPress && (
         <Ionicons
           name="arrow-up-outline"

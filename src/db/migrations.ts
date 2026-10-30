@@ -196,12 +196,44 @@ async function migrateV2(): Promise<void> {
 
 // v3 changes no message data: bound exact-ID recovery by the existing sender /
 // status / local-ID cursor, including receipts for old cached messages.
-async function migrate(): Promise<void> {
+async function migrateV3(): Promise<void> {
   await migrateV2();
   const version = await db.values<[number]>(sql`PRAGMA user_version`);
   if (Number(version[0]?.[0] ?? 0) >= 3) return;
   await withDatabaseTransaction(async (tx) => {
     await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_receipt_recovery ON messages(sender_id, status, local_id)`);
     await tx.run(sql`PRAGMA user_version = 3`);
+  });
+}
+
+/** Additive v4; retain existing data/ownership and preserve legacy tombstones. */
+async function migrate(): Promise<void> {
+  await migrateV3();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 4) return;
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE TABLE IF NOT EXISTS message_invalidations (
+      conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL, deleted_by TEXT, deletion_mode TEXT NOT NULL,
+      PRIMARY KEY (conversation_id, message_id)
+    )`);
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_message_invalidations_id
+      ON message_invalidations(message_id)`);
+    await tx.run(sql`INSERT INTO message_invalidations
+      (conversation_id, message_id, deleted_at, deleted_by, deletion_mode)
+      SELECT conversation_id, COALESCE(id, local_id), deleted_at, deleted_by, 'legacy'
+      FROM messages WHERE deleted_at IS NOT NULL
+      ON CONFLICT(conversation_id, message_id) DO NOTHING`);
+    await tx.run(sql`UPDATE messages SET content = NULL, media_url = NULL, thumbnail_url = NULL,
+      duration = NULL, attachment_data = NULL, reply_data = NULL WHERE deleted_at IS NOT NULL`);
+    await tx.run(sql`UPDATE messages SET reply_data = json_set(
+      CASE WHEN json_valid(reply_data) THEN reply_data ELSE json_object('id', replied_to_id, 'senderId', '', 'type', 'TEXT') END,
+      '$.deleted', json('true'), '$.content', '', '$.mediaUrl', NULL,
+      '$.thumbnailUrl', NULL, '$.attachment', NULL, '$.shared', NULL)
+      WHERE deleted_at IS NULL AND EXISTS (
+        SELECT 1 FROM message_invalidations AS d WHERE d.conversation_id = messages.conversation_id
+        AND d.message_id = messages.replied_to_id
+      )`);
+    await tx.run(sql`PRAGMA user_version = 4`);
   });
 }

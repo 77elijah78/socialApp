@@ -1,4 +1,5 @@
 import { parseMetadata } from "./presentation";
+import { clearedDeletedContent } from "../../db/deletionState";
 import type { MessageRow, NewMessageRow } from "../../db/schema";
 
 export interface MessageCursor {
@@ -51,8 +52,8 @@ function mergePresentation(existing?: string | null, incoming?: string | null) {
   return JSON.stringify({
     ...previous,
     ...next,
-    ...(previous.deleted === true
-      ? { deleted: true, content: "", mediaUrl: null, thumbnailUrl: null }
+    ...(previous.deleted === true || next.deleted === true
+      ? { deleted: true, content: "", mediaUrl: null, thumbnailUrl: null, attachment: null, shared: null }
       : {}),
     ...(previous.sender && next.sender
       ? {
@@ -71,7 +72,9 @@ export function mergePersistedMessage(
   incoming: NewMessageRow,
   requestStartedAt?: number,
 ): NewMessageRow {
-  if (!existing) return incoming;
+  if (!existing) return clearedDeletedContent(incoming);
+  if (existing.conversationId !== incoming.conversationId)
+    throw new Error("Conflicting message identity across conversations.");
   const staleContent = Boolean(
     (requestStartedAt !== undefined &&
       Date.parse(existing.updatedAt ?? "") >= requestStartedAt) ||
@@ -79,9 +82,15 @@ export function mergePersistedMessage(
         Date.parse(existing.editedAt) > Date.parse(incoming.editedAt ?? "")) ||
       (existing.editedAt && !incoming.editedAt),
   );
-  return {
+  return clearedDeletedContent({
     ...existing,
     ...incoming,
+    content: incoming.content ?? existing.content,
+    mediaUrl: incoming.mediaUrl ?? existing.mediaUrl,
+    thumbnailUrl: incoming.thumbnailUrl ?? existing.thumbnailUrl,
+    duration: incoming.duration ?? existing.duration,
+    repliedToId: incoming.repliedToId ?? existing.repliedToId,
+    forwardedFromId: incoming.forwardedFromId ?? existing.forwardedFromId,
     localId: existing.localId,
     // An outgoing row's insertion key must not change when the server clock differs.
     // Remote rows also keep their first observed server timestamp across duplicate events.
@@ -110,7 +119,7 @@ export function mergePersistedMessage(
     readAt: incoming.readAt ?? existing.readAt,
     deletedAt: existing.deletedAt ?? incoming.deletedAt,
     deletedBy: existing.deletedBy ?? incoming.deletedBy,
-  };
+  });
 }
 
 /**

@@ -56,6 +56,10 @@ function sameReply(a: Reply, b: Reply) {
         a.mediaUrl === b.mediaUrl &&
         a.thumbnailUrl === b.thumbnailUrl &&
         a.duration === b.duration &&
+        a.attachment?.name === b.attachment?.name &&
+        a.attachment?.size === b.attachment?.size &&
+        a.shared?.thumbnailUrl === b.shared?.thumbnailUrl &&
+        a.shared?.authorName === b.shared?.authorName &&
         a.deleted === b.deleted &&
         a.unavailable === b.unavailable,
     )
@@ -80,9 +84,10 @@ export function createListItemBuilder() {
     let reply: Reply;
     if (message.repliedToId) {
       const original = byId.get(message.repliedToId);
+      const snapshot = messageMetadata(message).reply;
       reply = original
-        ? replyPreview(original)
-        : (messageMetadata(message).reply ?? {
+        ? { ...replyPreview(original), sender: { ...snapshot?.sender, ...messageMetadata(original).author } }
+        : (snapshot ?? {
             id: message.repliedToId,
             content: "",
             senderId: "",
@@ -176,7 +181,8 @@ export function createListItemBuilder() {
             row.replyData !== previous.replyData ||
             row.mediaUrl !== previous.mediaUrl ||
             row.thumbnailUrl !== previous.thumbnailUrl ||
-            row.duration !== previous.duration
+            row.duration !== previous.duration ||
+            row.attachmentData !== previous.attachmentData
           ) {
             for (const key of [row.localId, row.id, previous.id])
               if (key)

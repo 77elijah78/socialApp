@@ -2,6 +2,7 @@ import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import {
   View,
   AppState,
+  BackHandler,
   Text,
   StyleSheet,
   TouchableOpacity,
@@ -35,6 +36,11 @@ import { Ionicons } from "@expo/vector-icons";
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatComposer from "@/components/chat/ChatComposer";
 import ChatMessageRow from "@/components/chat/ChatMessageRow";
+import MessageSelectionBar from "@/components/chat/MessageSelectionBar";
+import ForwardMessagePicker from "@/components/chat/ForwardMessagePicker";
+import { useMessageSelection } from "@/hooks/useMessageSelection";
+import { canReplyToMessage } from "@/utils/messaging/actions";
+import { messageStore } from "@/db/MessageStore";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
 import type { MessageRow } from "@/db/schema";
@@ -68,7 +74,7 @@ import {
   TYPOGRAPHY,
 } from "@/constants/theme";
 import { mediaService } from "@/services/MediaService";
-import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
+import { useOverlay, useOverlayVisible } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
 
@@ -139,10 +145,18 @@ function Conversation({
     receiverUsername,
     receiverAvatar,
   } = params;
+  const blockingOverlay = useOverlayVisible();
+  const overlayBlocksReads = useRef(blockingOverlay);
+  useLayoutEffect(() => { overlayBlocksReads.current = blockingOverlay; }, [blockingOverlay]);
   const [isFocused, setFocused] = useState(false);
   const [replyingTo, setReplyingTo] = useState<MessageRow | null>(null);
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
+  // RN 0.85's MVCP increments pendingScrollUpdateCount when index 0 changes.
+  // At stationary offset 0 there may be no native scroll event to release that
+  // gate, so viewability waits until a touch. Native MVCP owns HISTORY only;
+  // measured latest-edge sticking owns offset 0, never both simultaneously.
+  const [anchorHistory, setAnchorHistory] = useState(false);
   const unreadSnapshotTaken = useRef(false);
   const list = useRef<FlatList<ChatListItem>>(null);
   const [mediaOwner] = useState(() => Symbol("chat-media"));
@@ -155,7 +169,7 @@ function Conversation({
   const manualDrag = useRef(false);
   const listHeight = useRef(0);
   const covered = useRef(0);
-  const canRead = useCallback(() => covered.current === 0, []);
+  const canRead = useCallback(() => covered.current === 0 && !overlayBlocksReads.current, []);
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<{
     id: string;
@@ -177,6 +191,7 @@ function Conversation({
     sendMedia,
     onTyping,
     markVisibleRead,
+    getLoadedMessage,
     isTyping,
     isSyncing,
     isLoadingMore,
@@ -198,6 +213,18 @@ function Conversation({
     isFocused,
     canRead,
   });
+  const selection = useMessageSelection(messages, userId);
+  const { ids: selectedIds, idsRef: selectedIdsRef, busyRef: selectionBusy,
+    toggle: onAction, cancel: cancelSelection, handleBack: selectionBack } = selection;
+  const selectionMode = selection.active || selection.busy;
+  const canReleaseHistory = useCallback(() => !selectedIdsRef.current.size && !selectionBusy.current,
+    [selectedIdsRef, selectionBusy]);
+  useEffect(() => {
+    if (!blockingOverlay && focusedRef.current) {
+      markVisibleRead(visibleIds.current);
+      list.current?.recordInteraction?.();
+    }
+  }, [blockingOverlay, markVisibleRead]);
 
   const coverReads = useCallback(() => {
     covered.current++;
@@ -313,6 +340,11 @@ function Conversation({
     [buildItems, messages, userId, firstUnreadId, replyContext],
   );
 
+  useEffect(() => {
+    if (isFocused && AppState.currentState === "active")
+      list.current?.recordInteraction?.();
+  }, [data, isFocused]);
+
   useLayoutEffect(() => {
     rowsRef.current = messages;
     contextActive.current = replyContext !== null;
@@ -325,6 +357,7 @@ function Conversation({
         request === navigationRequest.current && focusedRef.current;
       manualDrag.current = false;
       viewport.leaveLatest();
+      setAnchorHistory(true);
       setShowJump(true);
       setNavigationError(null);
       setReplyContext(
@@ -387,6 +420,7 @@ function Conversation({
     (animated = false) => {
       closeContext();
       manualDrag.current = false;
+      setAnchorHistory(false);
       if (viewport.requestLatest())
         list.current?.scrollToOffset({ offset: 0, animated });
       setShowJump(false);
@@ -429,93 +463,49 @@ function Conversation({
     },
     [receiverId, retry],
   );
-  const onAction = useCallback(
-    (message: MessageRow) => {
-      const own = message.senderId === userId;
-      const remove = async (deleteFor: "me" | "everyone") => {
-        try {
-          await mediaService.message.delete(
-            message.id ?? message.localId,
-            deleteFor,
-          );
-        } catch {
-          showAppDialog({
-            title: "Couldn’t delete message",
-            message: "Your message has not been removed. Please try again.",
-            tone: "error",
-          });
-        }
-      };
-      const actions: ActionMenuItem[] = [
-        {
-          key: "reply",
-          icon: "arrow-undo-outline",
-          label: "Reply",
-          onPress: () => {
-            if (
-              message.status === "SENDING" ||
-              message.status === "FAILED" ||
-              !message.id
-            ) {
-              showAppDialog({
-                title: "Send this message first",
-                message:
-                  "A message needs a server identity before others can reply to it.",
-                tone: "info",
-              });
-              return;
-            }
-            setReplyingTo(message);
-          },
-        },
-        ...(own && message.status === "FAILED"
-          ? [
-              {
-                key: "retry",
-                icon: "refresh-outline" as const,
-                label: "Retry send",
-                onPress: () => onRetry(message),
-              },
-            ]
-          : []),
-        ...(own
-          ? [
-              {
-                key: "delete",
-                icon: "trash-outline" as const,
-                label: "Delete",
-                destructive: true,
-                onPress: () =>
-                  openActionMenu([
-                    {
-                      key: "me",
-                      icon: "close-circle-outline",
-                      label: "Delete for me",
-                      onPress: () => remove("me"),
-                    },
-                    {
-                      key: "everyone",
-                      icon: "people-outline",
-                      label: "Delete for everyone",
-                      destructive: true,
-                      onPress: () => remove("everyone"),
-                    },
-                  ]),
-              },
-            ]
-          : [
-              {
-                key: "cannot",
-                icon: "lock-closed-outline" as const,
-                label: "Cannot delete others messages",
-                onPress: () => {},
-              },
-            ]),
-      ];
-      openActionMenu(actions);
-    },
-    [openActionMenu, onRetry, userId],
-  );
+  const onReply = useCallback((message: MessageRow) => {
+    if (selectedIdsRef.current.size || selectionBusy.current) return;
+    const current = getLoadedMessage ? getLoadedMessage(message.localId)
+      : rowsRef.current.find(row => row.localId === message.localId);
+    if (!current || !canReplyToMessage(current)) return;
+    setReplyingTo(current);
+  }, [selectedIdsRef, selectionBusy, getLoadedMessage]);
+  const selectedReply = selection.replyTarget;
+  const replySelected = useCallback(() => {
+    if (selectedReply && cancelSelection()) onReply(selectedReply);
+  }, [selectedReply, cancelSelection, onReply]);
+  const selectedRetry = selection.retryTarget;
+  const retrySelected = useCallback(() => {
+    if (selectedRetry && cancelSelection()) onRetry(selectedRetry);
+  }, [selectedRetry, cancelSelection, onRetry]);
+  const replyLocalId = replyingTo?.localId;
+  const replyServerId = replyingTo?.id;
+  useEffect(() => {
+    if (!replyLocalId) return;
+    let active = true;
+    const clearRemovedReply = () => {
+      if (!active) return;
+      setReplyingTo(previous => previous?.localId === replyLocalId ? null : previous);
+      setNavigationError("The message you were replying to was removed. Your draft has been kept.");
+    };
+    const stop = messageStore.subscribe(change => {
+      if (change.conversationId && change.conversationId !== conversationId) return;
+      const changed = change.type === "upsert" ? change.rows.find(row =>
+        row.localId === replyLocalId || (replyServerId && row.id === replyServerId)) : undefined;
+      if (change.type === "clear" || changed?.deletedAt ||
+        (change.type === "invalidate" && (change.messageId === replyLocalId || change.messageId === replyServerId))) {
+        clearRemovedReply();
+      } else if (changed) setReplyingTo(previous => previous && previous.localId === replyLocalId && (
+        previous.content !== changed.content || previous.senderData !== changed.senderData ||
+        previous.mediaUrl !== changed.mediaUrl || previous.thumbnailUrl !== changed.thumbnailUrl ||
+        previous.duration !== changed.duration || previous.attachmentData !== changed.attachmentData
+      ) ? changed : previous);
+    });
+    void messageStore.getByLocalId(replyLocalId).then(row => {
+      if (active && (!row || row.deletedAt)) clearRemovedReply();
+    }).catch(() => {});
+    return () => { active = false; stop(); };
+  }, [conversationId, replyLocalId, replyServerId]);
   const onMenu = useCallback(
     (anchor?: { x: number; y: number; width: number; height: number }) => {
       openActionMenu(
@@ -561,7 +551,12 @@ function Conversation({
     if (keyboardVisible) Keyboard.dismiss();
     else if (receiverUsername) router.push(`/user/${receiverUsername}`);
   }, [keyboardVisible, receiverUsername]);
-  const onBack = useCallback(() => router.back(), []);
+  const onBack = useCallback(() => { if (!selectionBack()) router.back(); }, [selectionBack]);
+  useEffect(() => {
+    if (!isFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", selectionBack);
+    return () => subscription.remove();
+  }, [isFocused, selectionBack]);
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<ChatListItem>) => (
@@ -570,6 +565,10 @@ function Conversation({
         userId={userId}
         receiverName={receiverName}
         onAction={onAction}
+        onReply={onReply}
+        selectionMode={selectionMode}
+        selected={item.kind === "message" && selectedIds.has(item.message.localId)}
+        interactionDisabled={selection.busy}
         onRetry={onRetry}
         isGroup={params.isGroup === "true"}
         onNavigate={goToMessage}
@@ -587,6 +586,10 @@ function Conversation({
       userId,
       receiverName,
       onAction,
+      onReply,
+      selectionMode,
+      selectedIds,
+      selection.busy,
       onRetry,
       params.isGroup,
       goToMessage,
@@ -620,6 +623,7 @@ function Conversation({
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       viewport.userScroll(event.nativeEvent.contentOffset.y);
       const show = !viewport.atLatest;
+      if (show) setAnchorHistory(true);
       setShowJump((previous) => (previous === show ? previous : show));
     },
     [viewport],
@@ -628,16 +632,18 @@ function Conversation({
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       viewport.endInteraction(event.nativeEvent.contentOffset.y);
       navigator.settled();
+      setAnchorHistory(!viewport.atLatest || navigator.pending || contextActive.current);
       if (!manualDrag.current && (navigator.pending || contextActive.current))
         viewport.leaveLatest();
       if (
         event.nativeEvent.contentOffset.y <= 1 &&
         !navigator.pending &&
-        !contextActive.current
+        !contextActive.current &&
+        canReleaseHistory()
       )
         releaseHistory();
     },
-    [viewport, releaseHistory, navigator],
+    [viewport, releaseHistory, navigator, canReleaseHistory],
   );
   const onOlder = useCallback(() => {
     if (
@@ -665,6 +671,7 @@ function Conversation({
     );
     if (index < 0) return;
     viewport.leaveLatest();
+    setAnchorHistory(true);
     pendingJump.current = index;
     jumpAttempts.current = 0;
     list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
@@ -735,14 +742,20 @@ function Conversation({
       />
       <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
         <View style={styles.headerWrapper}>
-          <ChatHeader
+          {selectionMode ? <MessageSelectionBar
+            count={selectedIds.size} busy={selection.busy}
+            canCopy={selection.canCopy} canDelete={selection.canDelete} canForward={selection.canForward}
+            canReply={Boolean(selectedReply)} canRetry={Boolean(selectedRetry)}
+            onCancel={cancelSelection} onCopy={selection.copy} onDelete={selection.requestDelete}
+            onForward={selection.openForward} onReply={replySelected} onRetry={retrySelected}
+          /> : <ChatHeader
             receiverName={receiverName}
             avatarUri={receiverAvatar ?? ""}
             onBack={onBack}
             onProfilePress={onProfile}
             onMenuPress={onMenu}
             isTyping={isTyping}
-          />
+          />}
         </View>
       </SafeAreaView>
       {/* KeyboardProvider suppresses native Android IME resizing while active.
@@ -766,10 +779,11 @@ function Conversation({
                   testID="chat-message-list"
                   style={styles.messageList}
                   data={data}
+                  extraData={selectedIds}
                   inverted
                   keyExtractor={keyExtractor}
                   renderItem={renderItem}
-                  maintainVisibleContentPosition={maintainPosition}
+                  maintainVisibleContentPosition={anchorHistory ? maintainPosition : undefined}
                   automaticallyAdjustKeyboardInsets={false}
                   contentInsetAdjustmentBehavior="never"
                   keyboardShouldPersistTaps="handled"
@@ -805,17 +819,20 @@ function Conversation({
                       viewport.atLatest &&
                       !viewport.interacting &&
                       !navigator.pending &&
-                      !contextActive.current
+                      !contextActive.current &&
+                      canReleaseHistory()
                     )
                       releaseHistory();
                   }}
                   onScrollBeginDrag={() => {
                     manualDrag.current = true;
+                    setAnchorHistory(true);
                     navigator.cancel();
                     viewport.beginInteraction();
                   }}
                   onMomentumScrollBegin={() => {
                     navigator.started();
+                    setAnchorHistory(true);
                     viewport.beginInteraction();
                   }}
                   onScrollEndDrag={onScrollEnd}
@@ -874,7 +891,13 @@ function Conversation({
                     </TouchableOpacity>
                   </View>
                 )}
-              {navigationError && (
+              {selection.notice && (
+                <TouchableOpacity style={styles.navigationNotice} onPress={selection.dismissNotice}
+                  testID="message-selection-notice" accessibilityLabel="Dismiss message action result">
+                  <Text style={styles.loadingMoreText} accessibilityRole="alert">{selection.notice}</Text>
+                </TouchableOpacity>
+              )}
+              {navigationError && !selection.notice && (
                 <TouchableOpacity
                   style={styles.navigationNotice}
                   accessibilityLabel="Dismiss reply navigation notice"
@@ -945,6 +968,7 @@ function Conversation({
             >
               <ChatComposer
                 replyingTo={replyingTo}
+                disabled={selectionMode}
                 userId={userId}
                 onCancelReply={cancelReply}
                 onTyping={onTyping}
@@ -954,6 +978,10 @@ function Conversation({
               />
             </View>
           </KeyboardAvoidingView>
+          {selection.forwardOpen && <ForwardMessagePicker
+            count={selectedIds.size} busy={selection.busy} error={selection.forwardError}
+            onClose={selection.closeForward} onForward={selection.forward}
+          />}
         </ChatMediaInteraction.Provider>
       </ChatReadVisibility.Provider>
     </View>

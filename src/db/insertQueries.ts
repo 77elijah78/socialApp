@@ -9,12 +9,17 @@ import {
 } from "./schema";
 import { inArray, or, eq, and, lte, sql } from "drizzle-orm";
 import { synchronizeReplySnapshots } from "./replySnapshots";
+import { applyMessageInvalidations, recordMessageTombstones } from "./deletionState";
 import { mergePersistedMessage } from "../utils/messaging/timeline";
 
 export class MessageInsertQueries {
   async insert(message: NewMessageRow): Promise<MessageRow> {
-    const [row] = await db.insert(messages).values(message).returning();
-    return row;
+    return withDatabaseTransaction(async tx => {
+      await recordMessageTombstones(tx, [message]);
+      [message] = await applyMessageInvalidations(tx, [message]);
+      const [row] = await tx.insert(messages).values(message).returning();
+      return (await synchronizeReplySnapshots(tx, [row]))[0];
+    });
   }
 
   async upsert(message: NewMessageRow): Promise<MessageRow> {
@@ -28,6 +33,8 @@ export class MessageInsertQueries {
     userId: string,
   ): Promise<MessageRow> {
     return withDatabaseTransaction(async (tx) => {
+      await recordMessageTombstones(tx, [message]);
+      [message] = await applyMessageInvalidations(tx, [message]);
       const [existing] = await tx
         .select()
         .from(messages)
@@ -75,6 +82,8 @@ export class MessageInsertQueries {
   ): Promise<MessageRow[]> {
     if (!batch.length) return [];
     return withDatabaseTransaction(async (tx) => {
+      await recordMessageTombstones(tx, batch);
+      batch = await applyMessageInvalidations(tx, batch);
       const ids = batch.flatMap((row) =>
         row.id ? [row.id, row.localId] : [row.localId],
       );

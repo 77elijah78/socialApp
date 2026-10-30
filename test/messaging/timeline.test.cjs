@@ -100,9 +100,9 @@ test("stale sync cannot downgrade read state, edits or local deletion", () => {
     Date.parse("2026-10-29T09:00:00.000Z"),
   );
   assert.equal(next.status, "READ");
-  assert.equal(next.content, "new edit");
+  assert.equal(next.content, null, "deleted payloads are scrubbed even on a stale sync");
   assert.equal(next.deletedAt, existing.deletedAt);
-  assert.deepEqual(mergeMessageRows([existing], [{ ...existing }]), [existing]);
+  assert.deepEqual(mergeMessageRows([existing], [{ ...existing }]), []);
 });
 test("ordering ties are deterministic, pagination additions do not reorder existing rows", () => {
   const rows = [

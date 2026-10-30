@@ -37,8 +37,8 @@ class FakeSocket {
     this.handlers.set(event, group);
     return this;
   }
-  emit(event, data) {
-    this.emitted.push({ event, data });
+  emit(event, data, acknowledge) {
+    this.emitted.push({ event, data, ...(acknowledge ? { acknowledge } : {}) });
     return this;
   }
   receive(event, payload) {
@@ -68,6 +68,12 @@ class AnimatedValue {
 const animation = { start() {}, stop() {} };
 const native = {
   AppState: appState,
+  BackHandler: {
+    listeners: new Set(),
+    addEventListener(_event, callback) { this.listeners.add(callback); return { remove: () => this.listeners.delete(callback) }; },
+    press() { for (const callback of [...this.listeners].reverse()) if (callback()) return true; return false; },
+  },
+  Clipboard: { setString() {} },
   Platform: { OS: "ios", select: (options) => options.ios ?? options.default },
   StyleSheet: {
     create: (styles) => styles,
@@ -252,6 +258,25 @@ mock("react-native-keyboard-controller", {
   KeyboardAvoidingView: "KeyboardAvoidingView",
   useKeyboardState: (select) => select({ isVisible: false }),
 });
+class GestureBuilder {
+  handlers = {};
+  config = {};
+  enabled(v) { this.config.enabled = v; return this; }
+  maxPointers(v) { this.config.maxPointers = v; return this; }
+  activeOffsetX(v) { this.config.activeOffsetX = v; return this; }
+  failOffsetX(v) { this.config.failOffsetX = v; return this; }
+  failOffsetY(v) { this.config.failOffsetY = v; return this; }
+  onUpdate(v) { this.handlers.update = v; return this; }
+  onEnd(v) { this.handlers.end = v; return this; }
+  onFinalize(v) { this.handlers.finalize = v; return this; }
+}
+mock("react-native-gesture-handler", { Gesture: { Pan: () => new GestureBuilder() }, GestureDetector: "GestureDetector" });
+mock("react-native-reanimated", {
+  __esModule: true, default: { View: "ReanimatedView" },
+  useSharedValue: value => React.useRef({ value, set(next) { this.value = next; }, get() { return this.value; } }).current,
+  useAnimatedStyle: callback => callback(), runOnJS: callback => callback,
+  withSpring: value => value,
+});
 mock("expo-linear-gradient", { LinearGradient: "LinearGradient" });
 mock("@expo/vector-icons", { Ionicons: "Ionicons" });
 mock("expo-image", { Image: "ExpoImage" });
@@ -277,7 +302,7 @@ mock("@/components/ui", {
   ChatBubbleSkeleton: "ChatBubbleSkeleton",
 });
 mock("@/components/messages/MediaPickerModal", "MediaPickerModal");
-mock("@/providers/OverlayProvider", { useOverlay: () => overlay });
+mock("@/providers/OverlayProvider", { useOverlay: () => overlay, useOverlayVisible: () => false });
 mock("@/store/hooks", {
   useAppSelector: (select) =>
     select({ auth: { user: { id: "me" }, token: "token" } }),
@@ -389,6 +414,8 @@ function installServer(messages = []) {
     else if (parsed.pathname.endsWith("/delivered")) result = { success: true };
     else if (parsed.pathname.endsWith("/receipts/sync"))
       result = { data: server.receiptStates };
+    else if (options.method === "DELETE" && parsed.pathname.includes("/messages/messages/"))
+      result = { success: true, data: { messageId: decodeURIComponent(parsed.pathname.split("/").at(-1)), deleteFor: JSON.parse(options.body).deleteFor } };
     else if ((options.method ?? "GET") === "POST") {
       if (server.pendingPost) return server.pendingPost.promise;
       result = {

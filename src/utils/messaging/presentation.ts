@@ -16,6 +16,12 @@ export interface AttachmentInfo {
   height?: number;
   waveform?: number[];
 }
+export interface SharedReplyInfo {
+  kind: "post" | "story";
+  authorName?: string;
+  thumbnailUrl?: string | null;
+  mediaType?: string;
+}
 export interface ReplyPreviewModel {
   id: string;
   content: string;
@@ -25,6 +31,8 @@ export interface ReplyPreviewModel {
   mediaUrl?: string | null;
   thumbnailUrl?: string | null;
   duration?: number | null;
+  attachment?: AttachmentInfo;
+  shared?: SharedReplyInfo;
   deleted?: boolean;
   unavailable?: boolean;
 }
@@ -94,31 +102,73 @@ export function fileIcon(
   if (["MP4", "MOV", "WEBM", "MKV"].includes(ext)) return "videocam-outline";
   return "document-outline";
 }
-export function previewText(
-  message: Pick<
-    ReplyPreviewModel,
-    "type" | "content" | "duration" | "mediaUrl" | "deleted" | "unavailable"
-  >,
-) {
+/** Compact presentation snapshots, not truncated serialized shared-message JSON. */
+export function compactReplyPreview(input: ReplyPreviewModel): ReplyPreviewModel {
+  const type = input.type.toUpperCase();
+  let content = input.content || "";
+  let shared = input.shared;
+  if (type === "SHARED_POST" || type === "SHARED_STORY") {
+    const original = parseMetadata<Record<string, unknown>>(content);
+    if (original) {
+      const text = type === "SHARED_POST" ? original.content : original.caption;
+      const image = type === "SHARED_POST" ? original.imageUrl
+        : original.mediaType === "image" ? original.mediaUrl : original.thumbnailUrl;
+      content = typeof text === "string" ? text : "";
+      shared = {
+        kind: type === "SHARED_POST" ? "post" : "story",
+        authorName: typeof original.authorName === "string" ? original.authorName : undefined,
+        thumbnailUrl: typeof image === "string" ? image : undefined,
+        mediaType: typeof original.mediaType === "string" ? original.mediaType : undefined,
+      };
+    } else if (content.trim().startsWith("{")) {
+      // Old clients stored a truncated JSON prefix. Never display that as text.
+      content = "";
+    }
+  }
+  return {
+    ...input, type,
+    content: input.deleted ? "" : content.slice(0, 180),
+    ...(input.deleted
+      ? { mediaUrl: null, thumbnailUrl: null, attachment: undefined, shared: undefined }
+      : {
+          shared,
+          attachment: input.attachment ? {
+            name: input.attachment.name,
+            size: input.attachment.size,
+            mimeType: input.attachment.mimeType,
+          } : undefined,
+        }),
+  };
+}
+
+export function previewThumbnail(message: ReplyPreviewModel) {
+  if (message.deleted) return null;
+  return message.shared?.thumbnailUrl ||
+    (message.type === "IMAGE" ? message.thumbnailUrl || message.mediaUrl
+      : message.type === "VIDEO" ? message.thumbnailUrl : null);
+}
+
+export function previewText(message: Pick<ReplyPreviewModel,
+  "type" | "content" | "duration" | "mediaUrl" | "deleted" | "unavailable" | "attachment" | "shared"
+>) {
   if (message.deleted) return "Deleted message";
-  if (message.unavailable && !message.content)
-    return "Original message not loaded";
+  if (message.unavailable && !message.content) return "Original message not loaded";
   const content = message.content?.trim();
+  const duration = formatDuration(message.duration);
   switch (message.type.toUpperCase()) {
-    case "IMAGE":
-      return content ? `Photo · ${content}` : "Photo";
-    case "VIDEO":
-      return `Video${formatDuration(message.duration) ? ` · ${formatDuration(message.duration)}` : ""}`;
-    case "AUDIO":
-      return `${content || "Voice message"}${formatDuration(message.duration) ? ` · ${formatDuration(message.duration)}` : ""}`;
-    case "DOCUMENT":
-      return content || fileNameFromUri(message.mediaUrl || "");
+    case "IMAGE": return content ? `Photo · ${content}` : "Photo";
+    case "VIDEO": return ["Video", duration, content].filter(Boolean).join(" · ");
+    case "AUDIO": return [content || "Voice message", duration].filter(Boolean).join(" · ");
+    case "DOCUMENT": return [
+      message.attachment?.name || content || fileNameFromUri(message.mediaUrl || ""),
+      typeof message.attachment?.size === "number" ? formatBytes(message.attachment.size) : "",
+    ].filter(Boolean).join(" · ");
     case "SHARED_POST":
-      return "Shared post";
-    case "SHARED_STORY":
-      return "Shared story";
-    default:
-      return (content || "Message").replace(/\s+/g, " ").slice(0, 180);
+    case "SHARED_STORY": return [
+      message.type === "SHARED_POST" ? "Shared post" : "Shared story",
+      message.shared?.authorName, content,
+    ].filter(Boolean).join(" · ");
+    default: return (content || "Message").replace(/\s+/g, " ").slice(0, 180);
   }
 }
 
@@ -143,7 +193,7 @@ export function messageMetadata(row: MessageRow) {
   return cached;
 }
 export function replyPreview(row: MessageRow): ReplyPreviewModel {
-  return {
+  return compactReplyPreview({
     id: row.id || row.localId,
     content: row.deletedAt ? "" : row.content || "",
     type: row.type,
@@ -152,8 +202,9 @@ export function replyPreview(row: MessageRow): ReplyPreviewModel {
     mediaUrl: row.deletedAt ? null : row.mediaUrl,
     thumbnailUrl: row.deletedAt ? null : row.thumbnailUrl,
     duration: row.duration,
+    attachment: messageMetadata(row).attachment,
     deleted: Boolean(row.deletedAt),
-  };
+  });
 }
 
 /** Fit real dimensions; no stretching/cropping or hard-coded landscape ratio

@@ -53,6 +53,7 @@ interface TrackProps {
   elapsed: number;
   total: number;
   onSeek?: (ratio: number) => void;
+  onLongPress?: () => void;
 }
 const VoiceTrack = memo(function VoiceTrack({
   peaks,
@@ -60,12 +61,14 @@ const VoiceTrack = memo(function VoiceTrack({
   elapsed,
   total,
   onSeek,
+  onLongPress,
 }: TrackProps) {
   const width = useRef(1);
   return (
     <View style={styles.trackColumn}>
       <TouchableOpacity
         style={styles.waveform}
+        onLongPress={onLongPress}
         activeOpacity={OPACITY.subtle}
         accessibilityRole={onSeek ? "adjustable" : "text"}
         accessibilityLabel={
@@ -262,6 +265,7 @@ function ActiveVoice({
           elapsed={elapsed}
           total={total}
           onSeek={seek}
+          onLongPress={onLongPress}
         />
       </View>
       {error && (
@@ -300,6 +304,7 @@ function VoiceMessage(props: Props) {
           progress={0}
           elapsed={0}
           total={props.duration}
+          onLongPress={props.onLongPress}
         />
       </View>
       {!props.audioUri && <Text style={styles.error}>Audio unavailable</Text>}

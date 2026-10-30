@@ -178,7 +178,7 @@ test("a server recovery signal replays unconfirmed reads without another touch o
   assert.equal((await receiptQueue.getBatch("READ")).length, 0);
 });
 
-test("v2 to v3 preserves messages and durable read claims while adding only the recovery index", async () => {
+test("v2 to v4 preserves messages and durable read claims with additive recovery/deletion metadata", async () => {
   await messageStore.save(row(1));
   await messageStore.markVisibleReadIds([row(1).id], "room", "me");
   await receiptQueue.claimReads("existing-connection");
@@ -188,7 +188,7 @@ test("v2 to v3 preserves messages and durable read claims while adding only the 
   const file = require.resolve("../../src/db/migrations.ts");
   delete require.cache[file];
   await require(file).runMigrations();
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
   assert.equal((await messageStore.getById(row(1).id)).status, "READ");
   assert.equal(
     (await receiptQueue.getBatch("READ"))[0].attemptToken,

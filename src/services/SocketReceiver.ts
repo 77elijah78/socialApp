@@ -110,7 +110,7 @@ export class SocketReceiver {
         stillCurrent,
         userId,
       );
-      if (!row || !stillCurrent()) return;
+      if (!row || row.deletedAt || !stillCurrent()) return;
       if (row.senderId !== userId) {
         await receiptQueue.enqueue("DELIVERED", row.conversationId, [row.id!]);
         safe(() => this.flushReceipts());
@@ -171,6 +171,10 @@ export class SocketReceiver {
             this.pendingReceipts.delete(key);
         return;
       }
+      if (change.type === "invalidate") {
+        this.pendingReceipts.delete(`${change.conversationId}:${change.messageId}`);
+        return;
+      }
       for (const row of change.rows) {
         const receipt = this.pendingReceipts.get(
           `${row.conversationId}:${row.id}`,
@@ -196,20 +200,20 @@ export class SocketReceiver {
     ] as const) {
       socket.on(event, (payload) =>
         safe(async () => {
-          if (!current()) return;
-          await messageStore.waitForOutgoing(userId);
-          if (!current()) return;
-          await messageStore.deleteOne(payload.messageId, userId);
+          if (!current() || !payload.messageId || !payload.conversationId) return;
+          await messageStore.deleteOne(payload.messageId, userId, {
+            conversationId: payload.conversationId,
+            deleteFor: event === "message:deleted" ? "everyone" : "me",
+            deletedAt: payload.deletedAt, deletedBy: payload.deletedBy,
+          });
           if (current()) this.emit(event, payload);
         }),
       );
     }
     socket.on("message:edited", (payload) =>
       safe(async () => {
-        if (!current()) return;
-        await messageStore.waitForOutgoing(userId);
-        if (!current()) return;
-        await messageStore.editText(payload.messageId, payload.content);
+        if (!current() || !payload.messageId || !payload.conversationId) return;
+        await messageStore.editText(payload.messageId, payload.content, payload.conversationId);
         if (current()) this.emit("message:edited", payload);
       }),
     );
@@ -395,10 +399,22 @@ export class SocketReceiver {
             socket!.emit("message:read", {
               conversationId: receipt.conversationId,
               messageId: receipt.messageId,
+            }, (ack: { success?: boolean; error?: string } | undefined) => {
+              // The current backend ACK is {success:true}, AFTER durable commit.
+              // IDs are bound to this emission; neither emit() nor a stale
+              // socket/account callback is a persistence acknowledgement.
+              if (!current()) return;
+              if (ack?.success === true) {
+                void receiptQueue.acknowledge("READ", receipt.messageId)
+                  .catch(error => { if (current()) this.emit("sync:error", error); });
+              } else if (ack?.success === false) {
+                this.emit("sync:error", new Error(ack.error || "The server could not save this read receipt. Reconnect or retry."));
+              }
             });
           }
-          // emit() is not an ACK. Legacy confirmations come from the sender-only
-          // event's own echo (if supported) or a fresh DM history READ.
+          // Unacknowledged reads remain durable. A self-echo or fresh exact-ID
+          // recovery may also confirm them; no timeout or blanket room read.
+
         }
       } while (this.readAgain && current());
     })();

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { messages, MessageRow, rooms, RoomRow } from "./schema";
+import { messages, MessageRow, rooms, RoomRow, messageInvalidations } from "./schema";
 import type { MessageCursor } from "../utils/messaging/timeline";
 import {
   eq,
@@ -18,6 +18,14 @@ import {
 } from "drizzle-orm";
 
 export class MessageGetQueries {
+  async getInvalidations(ids: string[]) {
+    const result: (typeof messageInvalidations.$inferSelect)[] = [];
+    const unique = [...new Set(ids)];
+    for (let start = 0; start < unique.length; start += 200)
+      result.push(...await db.select().from(messageInvalidations)
+        .where(inArray(messageInvalidations.messageId, unique.slice(start, start + 200))));
+    return result;
+  }
   async getByRoom(roomId: string): Promise<MessageRow[]> {
     return db
       .select()

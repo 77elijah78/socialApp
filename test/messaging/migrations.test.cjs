@@ -25,7 +25,7 @@ test("legacy duplicate repair preserves optimistic key and strongest receipt; in
   assert.equal(rows[0].local_id, "original-local");
   assert.equal(rows[0].status, "READ");
   assert.equal(rows[0].is_read, 1);
-  assert.equal(rows[0].content, "Edited hello");
+  assert.equal(rows[0].content, null, "legacy tombstone payload is scrubbed without losing identity/receipts");
   assert.equal(rows[0].edited_at, "2026-10-28T12:00:00.000Z");
   assert.equal(rows[0].deleted_at, "2026-10-29T12:00:00.000Z");
   assert.equal(rows[0].deleted_by, "me");
