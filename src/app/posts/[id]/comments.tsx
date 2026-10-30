@@ -8,10 +8,12 @@ import {
   StyleSheet,
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
+import { useKeyboardState } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAppSelector } from "@/store/hooks";
@@ -148,13 +150,13 @@ export default function CommentsScreen() {
   );
 
   // The native stack owns the top/header inset; this screen owns the bottom
-  // and horizontal safe areas. The controller measures the real header offset.
+  // and horizontal safe areas. Keep the previous platform avoidance behavior.
   return (
     <SafeAreaView style={styles.container} edges={["left", "right", "bottom"]}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior="padding"
-        automaticOffset
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>

@@ -28,10 +28,18 @@ async function changeEnvironment(update) {
 
 let keyboardSubscriptions = 0;
 let keyboardDismissals = 0;
-native.Keyboard.addListener = () => {
+const keyboardListeners = new Map();
+native.KeyboardAvoidingView = "NativeKeyboardAvoidingView";
+native.Keyboard.addListener = (event, callback) => {
   keyboardSubscriptions++;
-  return { remove() {} };
+  keyboardListeners.set(callback, event);
+  return { remove() { keyboardListeners.delete(callback); } };
 };
+const BaseAnimatedValue = native.Animated.Value;
+native.Animated.Value = class extends BaseAnimatedValue {
+  interpolate(config) { return { ...config, source: this }; }
+};
+native.Animated.timing = (value, config) => ({ start() { value.setValue(config.toValue); } });
 native.Keyboard.dismiss = () => keyboardDismissals++;
 native.useWindowDimensions = function useWindowDimensions() {
   return useEnvironment().window;
@@ -161,7 +169,6 @@ const caption = () => renderer.root.findByProps({ accessibilityLabel: "Post capt
 const sheetInput = () => byType("BottomSheetTextInput");
 const postButton = () => renderer.root.findByProps({ accessibilityLabel: "Post comment" });
 const contentSize = (height) => ({ nativeEvent: { contentSize: { width: 250, height } } });
-const layout = (height) => ({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height } } });
 
 beforeEach(() => {
   environment = defaults();
@@ -182,6 +189,7 @@ afterEach(async () => {
   renderer = null;
   sheetRef = null;
   assert.equal(subscribers.size, 0, "environment subscriptions are cleaned up on navigation/unmount");
+  assert.equal(keyboardListeners.size, 0, "restored legacy subscriptions are cleaned up on unmount");
 });
 async function mount(Component) {
   await act(async () => {
@@ -197,77 +205,60 @@ async function mountSheet() {
 }
 
 for (const platform of ["android", "ios"]) {
-  test(`${platform}: creation has one controller strategy, measured footer clearance and no nested/native avoider`, async () => {
+  test(`${platform}: creation restores the former RN avoider/scroll/footer positioning without a sticky transform`, async () => {
     native.Platform.OS = platform;
     await mount(CreatePost);
-    const safe = byType("SafeAreaView");
-    assert.deepEqual(safe.props.edges, ["top", "left", "right", "bottom"]);
+    assert.deepEqual(byType("SafeAreaView").props.edges, ["top", "left", "right", "bottom"]);
+    const avoider = byType("NativeKeyboardAvoidingView");
+    assert.equal(avoider.props.behavior, platform === "ios" ? "padding" : undefined);
+    assert.equal(avoider.props.keyboardVerticalOffset, 0);
     assert.equal(renderer.root.findAllByType("ControllerKeyboardAvoidingView").length, 0);
-    assert.equal(renderer.root.findAllByType("KeyboardAvoidingView").length, 0);
-    const scroll = byType("KeyboardAwareScrollView");
-    const sticky = byType("KeyboardStickyView");
-    assert.equal(scroll.props.automaticallyAdjustKeyboardInsets, false);
-    assert.equal(scroll.props.contentInsetAdjustmentBehavior, "never");
-    assert.equal(scroll.props.keyboardDismissMode, "on-drag");
-    assert.equal(scroll.props.keyboardShouldPersistTaps, "handled");
-    assert.equal(scroll.props.extraKeyboardSpace, -34);
-    assert.deepEqual(sticky.props.offset, { closed: 0, opened: 34 });
-    await act(async () => sticky.props.onLayout(layout(113)));
-    assert.equal(scroll.props.bottomOffset, 113);
+    assert.equal(renderer.root.findAllByType("KeyboardStickyView").length, 0);
+    assert.equal(renderer.root.findAllByType("KeyboardAwareScrollView").length, 0);
+    assert.equal(byType("ScrollView").props.automaticallyAdjustKeyboardInsets, false);
+    assert.equal(byType("ScrollView").props.keyboardDismissMode, "on-drag");
     assert.equal(keyboardSubscriptions, 0);
   });
 }
 
-test("creation: simulated keyboard open, multiline draft, dismiss/reopen preserve the input and measured footer", async () => {
+test("creation: simulated keyboard cycles and multiline drafts preserve the input without independent footer movement", async () => {
   await mount(CreatePost);
   const input = caption();
-  await act(async () => byType("KeyboardStickyView").props.onLayout(layout(104)));
-  await changeEnvironment({ keyboard: { isVisible: true } });
   const draft = Array.from({ length: 30 }, (_, index) => `Caption line ${index}`).join("\n");
   await act(async () => input.props.onChangeText(draft));
-  assert.equal(caption(), input);
-  assert.equal(input.props.value, draft);
-  assert.equal(input.props.multiline, true);
-  assert.equal(input.props.maxLength, 2000);
-  for (const isVisible of [false, true, false]) {
+  for (const isVisible of [true, false, true, false]) {
     await changeEnvironment({ keyboard: { isVisible } });
     assert.equal(caption(), input);
     assert.equal(input.props.value, draft);
-    assert.equal(byType("KeyboardAwareScrollView").props.bottomOffset, 104);
+    assert.equal(renderer.root.findAllByType("KeyboardStickyView").length, 0);
   }
+  assert.equal(input.props.multiline, true);
+  assert.equal(input.props.maxLength, 2000);
   assert.equal(keyboardSubscriptions, 0);
 });
 
 for (const device of [
-  { width: 320, height: 568, bottom: 0, top: 24, left: 0, right: 0, footer: 130 },
-  { width: 393, height: 873, bottom: 24, top: 28, left: 0, right: 0, footer: 104 },
-  { width: 430, height: 932, bottom: 34, top: 59, left: 0, right: 0, footer: 104 },
-  { width: 1024, height: 1366, bottom: 20, top: 24, left: 0, right: 0, footer: 104 },
-  { width: 844, height: 390, bottom: 21, top: 0, left: 44, right: 44, footer: 104 },
+  { width: 320, height: 568, bottom: 0, top: 24, left: 0, right: 0 },
+  { width: 393, height: 873, bottom: 24, top: 28, left: 0, right: 0 },
+  { width: 430, height: 932, bottom: 34, top: 59, left: 0, right: 0 },
+  { width: 1024, height: 1366, bottom: 20, top: 24, left: 0, right: 0 },
+  { width: 844, height: 390, bottom: 21, top: 0, left: 44, right: 44 },
 ]) {
-  test(`creation: inset/measurement contract at ${device.width}x${device.height}, bottom ${device.bottom}`, async () => {
+  test(`creation: restored flow does not add device-specific offsets at ${device.width}x${device.height}`, async () => {
     environment = {
       ...defaults(),
       window: { width: device.width, height: device.height },
       insets: { top: device.top, bottom: device.bottom, left: device.left, right: device.right },
     };
     await mount(CreatePost);
-    await act(async () => byType("KeyboardStickyView").props.onLayout(layout(device.footer)));
-    const scroll = byType("KeyboardAwareScrollView");
-    const sticky = byType("KeyboardStickyView");
-    assert.equal(scroll.props.bottomOffset, device.footer);
-    assert.equal(scroll.props.extraKeyboardSpace, -device.bottom);
-    assert.equal(sticky.props.offset.opened, device.bottom);
-    // Algebra of the configured translation, not an observed native frame:
-    // closed footer bottom H - safeBottom; open translation -IME + safeBottom.
-    for (const ime of [220, 300, 420]) {
-      const openFooterBottom = device.height - device.bottom - ime + sticky.props.offset.opened;
-      assert.equal(openFooterBottom, device.height - ime);
-    }
+    assert.equal(byType("NativeKeyboardAvoidingView").props.keyboardVerticalOffset, 0);
+    assert.equal(flatten(byType("SafeAreaView").props.style).flex, 1);
+    assert.equal(byType("ScrollView").props.bottomOffset, undefined);
+    assert.equal(renderer.root.findAllByType("KeyboardStickyView").length, 0);
   });
 }
 
-test("creation: rotation/inset changes and footer wrapping remeasure clearance without replacing the draft", async () => {
+test("creation: resize/inset changes keep the existing draft and normal-flow footer", async () => {
   await mount(CreatePost);
   const input = caption();
   await act(async () => input.props.onChangeText("Keep this draft"));
@@ -276,12 +267,10 @@ test("creation: rotation/inset changes and footer wrapping remeasure clearance w
     insets: { top: 0, bottom: 21, left: 44, right: 44 },
     keyboard: { isVisible: true },
   });
-  await act(async () => byType("KeyboardStickyView").props.onLayout(layout(128)));
   assert.equal(caption(), input);
   assert.equal(input.props.value, "Keep this draft");
-  assert.equal(byType("KeyboardAwareScrollView").props.bottomOffset, 128);
-  assert.equal(byType("KeyboardAwareScrollView").props.extraKeyboardSpace, -21);
-  assert.deepEqual(byType("KeyboardStickyView").props.offset, { closed: 0, opened: 21 });
+  assert.equal(byType("ScrollView").props.extraKeyboardSpace, undefined);
+  assert.equal(renderer.root.findAllByType("KeyboardStickyView").length, 0);
 });
 
 test("creation: posting, image picking/upload, and editing keep their existing API payloads", async () => {
@@ -316,40 +305,61 @@ test("creation: posting, image picking/upload, and editing keep their existing A
 });
 
 for (const platform of ["android", "ios"]) {
-  test(`${platform}: sheet registers one measured footer and keeps both snap points stable through keyboard cycles`, async () => {
+  test(`${platform}: sheet restores the lower-detent guard and in-flow composer, not the regressing registered footer`, async () => {
     native.Platform.OS = platform;
     await mountSheet();
     const modal = byType("BottomSheetModal");
-    const points = modal.props.snapPoints;
-    const footerType = modal.props.footerComponent;
     const input = sheetInput();
-    assert.deepEqual(points, ["66%", "92%"]);
-    assert.equal(modal.props.enableDynamicSizing, false);
+    assert.deepEqual(modal.props.snapPoints, ["66%", "92%"]);
     assert.equal(modal.props.keyboardBehavior, "extend");
     assert.equal(modal.props.keyboardBlurBehavior, "restore");
-    assert.equal(modal.props.android_keyboardInputMode, "adjustPan");
-    assert.equal(modal.props.topInset, 44);
-    assert.equal(modal.props.bottomInset, 34);
-    assert.equal(byType("BottomSheetFooter").props.animatedFooterPosition, footerPosition);
-    assert.equal(byType("BottomSheetFlatList").props.enableFooterMarginAdjustment, true);
-    assert.equal(byType("BottomSheetFlatList").props.automaticallyAdjustKeyboardInsets, false);
-    assert.equal(renderer.root.findAllByType("ControllerKeyboardAvoidingView").length, 0);
-    assert.equal(renderer.root.findAllByType("KeyboardStickyView").length, 0);
-    assert.equal(renderer.root.findAllByType("AnimatedView").length, 0);
+    assert.equal(modal.props.android_keyboardInputMode, "adjustResize");
+    assert.equal(modal.props.topInset, undefined);
+    assert.equal(modal.props.bottomInset, 0);
+    assert.equal(modal.props.footerComponent, undefined);
+    assert.equal(byType("BottomSheetFlatList").props.enableFooterMarginAdjustment, undefined);
+    assert.equal(renderer.root.findAllByType("BottomSheetFooter").length, 0);
+    assert.equal(renderer.root.findAllByType("AnimatedView").length, 1);
     for (const isVisible of [true, false, true, false]) {
       await changeEnvironment({ keyboard: { isVisible } });
-      assert.equal(modal.props.snapPoints, points);
-      assert.equal(modal.props.footerComponent, footerType);
+      assert.deepEqual(modal.props.snapPoints, isVisible ? ["66%"] : ["66%", "92%"]);
       assert.equal(sheetInput(), input);
     }
-    assert.equal(keyboardSubscriptions, 0, "no application-owned show/hide listeners alongside Gorhom");
+    assert.equal(keyboardSubscriptions, 2, "exactly the former show/hide listener pair");
+    const transform = byType("AnimatedView").props.style.transform[0].translateY;
+    assert.deepEqual(transform.inputRange, [0, 400]);
+    assert.deepEqual(transform.outputRange, [0, -420]);
+    assert.equal(transform.extrapolate, "clamp");
+    const show = platform === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hide = platform === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    await act(async () => {
+      for (const [callback, event] of keyboardListeners) if (event === show) callback({ endCoordinates: { height: 300 }, duration: 250 });
+    });
+    assert.equal(transform.source.value, 300);
+    await act(async () => {
+      for (const [callback, event] of keyboardListeners) if (event === hide) callback({ endCoordinates: { height: 0 }, duration: 250 });
+    });
+    assert.equal(transform.source.value, 0);
   });
 }
+
+test("sheet: an already expanded detent stays available, while keyboard changes cannot overwrite the resting index", async () => {
+  await mountSheet();
+  const modal = byType("BottomSheetModal");
+  await act(async () => modal.props.onChange(1));
+  await changeEnvironment({ keyboard: { isVisible: true } });
+  assert.deepEqual(modal.props.snapPoints, ["66%", "92%"]);
+  await act(async () => modal.props.onChange(0));
+  assert.deepEqual(modal.props.snapPoints, ["66%", "92%"]);
+  await changeEnvironment({ keyboard: { isVisible: false } });
+  await act(async () => modal.props.onChange(0));
+  await changeEnvironment({ keyboard: { isVisible: true } });
+  assert.deepEqual(modal.props.snapPoints, ["66%"]);
+});
 
 test("sheet: multiline growth is bounded, footer/input identity stay stable, typing does not render the list", async () => {
   await mountSheet();
   const input = sheetInput();
-  const footerType = byType("BottomSheetModal").props.footerComponent;
   const initialListRenders = sheetListRenders;
   for (let index = 1; index <= 8; index++) {
     await act(async () => input.props.onChangeText("Line\n".repeat(index)));
@@ -362,14 +372,13 @@ test("sheet: multiline growth is bounded, footer/input identity stay stable, typ
   assert.equal(input.props.multiline, true);
   assert.equal(input.props.blurOnSubmit, false);
   assert.equal(input.props.maxLength, 1000);
-  assert.equal(byType("BottomSheetModal").props.footerComponent, footerType);
+  assert.equal(byType("BottomSheetModal").props.footerComponent, undefined);
   assert.equal(sheetListRenders, initialListRenders);
 });
 
 test("sheet: reply/cancel and pending send keep the same input mounted and preserve optimistic/API reply semantics", async () => {
   await mountSheet();
   const input = sheetInput();
-  const footerType = byType("BottomSheetModal").props.footerComponent;
   await act(async () => renderer.root.findByType(CommentThread).props.onReply(comment));
   assert.equal(input.props.placeholder, "Write a reply...");
   assert.equal(sheetInput(), input);
@@ -382,7 +391,7 @@ test("sheet: reply/cancel and pending send keep the same input mounted and prese
   assert.equal(sheetInput(), input);
   assert.equal(input.props.value, "");
   assert.equal(input.props.editable, false);
-  assert.equal(byType("BottomSheetModal").props.footerComponent, footerType);
+  assert.equal(byType("BottomSheetModal").props.footerComponent, undefined);
   assert.equal(postButton().props.disabled, true);
   assert.deepEqual(apiCalls.find((call) => call.method === "POST"), {
     method: "POST", path: "/posts/post-1/comments", token: "token",
@@ -394,7 +403,7 @@ test("sheet: reply/cancel and pending send keep the same input mounted and prese
   assert.equal(sheetInput(), input);
   assert.equal(input.props.editable, true);
   assert.equal(byType("BottomSheetFlatList").props.data[0].replies[0].comment.id, "saved-reply");
-  assert.equal(keyboardSubscriptions, 0);
+  assert.equal(keyboardSubscriptions, 2);
 });
 
 test("sheet: close/reopen, opening an already open post, and switching posts reset drafts predictably", async () => {
@@ -430,10 +439,10 @@ test("sheet: changing dimensions/safe areas updates real insets without remounti
   ]) {
     await changeEnvironment({ window, insets });
     const horizontalPadding = Math.max(14, Math.min(24, window.width * 0.045));
-    assert.equal(byType("BottomSheetModal").props.topInset, insets.top);
-    assert.equal(byType("BottomSheetModal").props.bottomInset, insets.bottom);
+    assert.equal(byType("BottomSheetModal").props.topInset, undefined);
+    assert.equal(byType("BottomSheetModal").props.bottomInset, 0);
     const listStyle = flatten(byType("BottomSheetFlatList").props.contentContainerStyle);
-    const composerContainer = byType("BottomSheetFooter").findAllByType("View")[1];
+    const composerContainer = sheetInput().parent.parent;
     const composerStyle = flatten(composerContainer.props.style);
     assert.equal(listStyle.paddingLeft, horizontalPadding + insets.left);
     assert.equal(listStyle.paddingRight, horizontalPadding + insets.right);
@@ -460,13 +469,14 @@ test("sheet: profile navigation dismisses the keyboard first and navigates only 
 });
 
 for (const platform of ["android", "ios"]) {
-  test(`${platform}: routed comments have one measured controller avoider and bottom safe area`, async () => {
+  test(`${platform}: routed comments restore platform avoidance while retaining the bottom safe area`, async () => {
     native.Platform.OS = platform;
     routeParams = { id: "post-1" };
     await mount(Comments);
-    const avoider = byType("ControllerKeyboardAvoidingView");
-    assert.equal(avoider.props.behavior, "padding");
-    assert.equal(avoider.props.automaticOffset, true);
+    const avoider = byType("NativeKeyboardAvoidingView");
+    assert.equal(avoider.props.behavior, platform === "ios" ? "padding" : "height");
+    assert.equal(avoider.props.keyboardVerticalOffset, 0);
+    assert.equal(avoider.props.automaticOffset, undefined);
     assert.deepEqual(byType("SafeAreaView").props.edges, ["left", "right", "bottom"]);
     assert.equal(byType("FlatList").props.automaticallyAdjustKeyboardInsets, false);
     assert.equal(byType("FlatList").props.contentInsetAdjustmentBehavior, "never");

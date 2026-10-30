@@ -186,6 +186,8 @@ export interface PrimaryButtonProps extends ButtonProps {
   rightIcon?: ImageSourcePropType;
   leftIcon?: ImageSourcePropType;
   iconStyle?: ImageStyle;
+  loading?: boolean;
+  loadingLabel?: string;
 }
 
 // ─── Feed / Posts ─────────────────────────────────────────────────────────────

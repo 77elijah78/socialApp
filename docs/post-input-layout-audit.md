@@ -1,5 +1,7 @@
 # Post input positioning and keyboard audit
 
+> **Historical / superseded:** This records the implementation delivered in `43ecbcc`, whose positioning the user subsequently reported was worse. Its keyboard/positioning changes have since been **selectively** rolled back, while unrelated improvements were retained. Read [the current refinement audit](ui-refinement-audit.md) for the active implementation, regression explanation, and verification limits. Passing tests/exports below did not establish native keyboard quality.
+
 Date: 2026-10-29
 
 ## Scope and outcome
