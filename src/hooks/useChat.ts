@@ -426,6 +426,9 @@ export function useChat({
         session.readVisible();
         void synchronize();
         void socketReceiver
+          .recoverReceipts()
+          .catch((error) => patch({ syncError: asError(error) }));
+        void socketReceiver
           .flushReceipts()
           .catch((error) => patch({ syncError: asError(error) }));
       }
@@ -433,6 +436,9 @@ export function useChat({
     const releaseRoom = socketReceiver.retainRoom(conversationId);
     setConnected(socketReceiver.isConnected);
     session.readVisible();
+    void socketReceiver
+      .syncReceiptStatuses()
+      .catch((error) => patch({ syncError: asError(error) }));
     void (async () => {
       try {
         const room = (await roomStore.findRoom(conversationId))[0];
@@ -740,6 +746,7 @@ export function useChat({
     try {
       session.readVisible();
       await mediaService.message.syncLatest(conversationId, currentUser.id);
+      await socketReceiver.recoverReceipts();
     } catch (error) {
       if (!session.cancelled)
         setState((previous) =>

@@ -5,6 +5,8 @@ import {
   eq,
   and,
   lt,
+  gt,
+  isNotNull,
   gte,
   desc,
   asc,
@@ -192,6 +194,13 @@ export class MessageGetQueries {
         and(eq(messages.conversationId, roomId), eq(messages.status, "FAILED")),
       )
       .orderBy(asc(messages.timestamp), asc(messages.localId));
+  }
+
+  async getReceiptCandidates(userId: string, afterLocalId = "", limit = 100) {
+    return db.select({ localId: messages.localId, id: messages.id, conversationId: messages.conversationId })
+      .from(messages).where(and(eq(messages.senderId, userId), inArray(messages.status, ["SENT", "DELIVERED"]),
+        isNull(messages.deletedAt), isNotNull(messages.id), gt(messages.localId, afterLocalId)))
+      .orderBy(asc(messages.localId)).limit(limit);
   }
 
   async getReadReceipts(

@@ -150,6 +150,9 @@ export class MessageStore {
   getFailed(roomId: string) {
     return messageGetQueries.getFailed(roomId);
   }
+  getReceiptCandidates(userId: string, afterLocalId = "", limit = 100) {
+    return messageGetQueries.getReceiptCandidates(userId, afterLocalId, limit);
+  }
   getReadReceipts(roomId: string, userId: string) {
     return messageGetQueries.getReadReceipts(roomId, userId);
   }

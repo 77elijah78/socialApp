@@ -129,6 +129,8 @@ export interface Message {
   receiver?: PublicUser | null;
   conversation?: Conversation;
   isRead: boolean;
+  readByMe?: boolean;
+  isGroup?: boolean;
   createdAt: Date;
   updatedAt: Date;
   editedAt: Date | null;
@@ -272,6 +274,8 @@ export interface MessageResponse {
   sender: MessageAuthor;
   receiver?: MessageAuthor | null;
   isRead: boolean;
+  readByMe?: boolean;
+  isGroup?: boolean;
   createdAt: Date;
   editedAt: Date | null;
   deletedAt: Date | null;

@@ -376,6 +376,7 @@ function installServer(messages = []) {
     calls: [],
     failure: null,
     pendingPost: null,
+    receiptStates: [],
     response: null,
   };
   global.fetch = async (url, options = {}) => {
@@ -386,6 +387,8 @@ function installServer(messages = []) {
     let result;
     if (parsed.pathname.endsWith("/pending/delivery")) result = { data: [] };
     else if (parsed.pathname.endsWith("/delivered")) result = { success: true };
+    else if (parsed.pathname.endsWith("/receipts/sync"))
+      result = { data: server.receiptStates };
     else if ((options.method ?? "GET") === "POST") {
       if (server.pendingPost) return server.pendingPost.promise;
       result = {

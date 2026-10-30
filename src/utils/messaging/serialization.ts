@@ -15,6 +15,9 @@ export interface RemoteMessage {
   type?: string;
   status?: string;
   isRead?: boolean;
+  // Optional v2 backend contract; old servers keep the conservative fallback.
+  readByMe?: boolean;
+  isGroup?: boolean;
   createdAt?: string | number;
   timestamp?: string | number;
   editedAt?: string | null;
@@ -31,9 +34,11 @@ export interface RemoteMessage {
 export function normalizeRemoteMessage(
   payload: RemoteMessage,
   userId: string,
-  isGroup = false,
+  groupHint = false,
   authors?: Map<string, MessageAuthorInfo>,
 ): NewMessageRow {
+  const isGroup =
+    typeof payload.isGroup === "boolean" ? payload.isGroup : groupHint;
   const senderId = payload.senderId ?? payload.sender?.id;
   const createdAt = payload.createdAt ?? payload.timestamp;
   const timestamp =
@@ -57,10 +62,19 @@ export function normalizeRemoteMessage(
         : userId;
   // A group/global READ is not evidence this individual recipient viewed it.
   const individualRead = !isGroup && receiverId === userId;
+  const personalRead =
+    senderId !== userId &&
+    (typeof payload.readByMe === "boolean"
+      ? payload.readByMe
+      : individualRead && (payload.isRead === true || remoteStatus === "READ"));
   const status =
-    senderId !== userId && !individualRead && remoteStatus === "READ"
-      ? "DELIVERED"
-      : remoteStatus;
+    senderId === userId
+      ? remoteStatus
+      : personalRead
+        ? "READ"
+        : remoteStatus === "READ"
+          ? "DELIVERED"
+          : remoteStatus;
   return {
     localId: payload.id,
     id: payload.id,
@@ -98,9 +112,9 @@ export function normalizeRemoteMessage(
     receiverId,
     conversationId: payload.conversationId,
     isRead:
-      senderId !== userId && !individualRead
-        ? false
-        : payload.isRead === true || status === "READ",
+      senderId === userId
+        ? payload.isRead === true || status === "READ"
+        : personalRead,
     timestamp,
     editedAt: payload.editedAt ?? null,
     deletedAt: payload.deletedAt ?? null,

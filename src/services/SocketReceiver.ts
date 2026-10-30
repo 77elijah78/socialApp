@@ -26,6 +26,7 @@ export class SocketReceiver {
   private authToken = "";
   private generation = 0;
   private pendingSync: Promise<void> | null = null;
+  private receiptSync: Promise<void> | null = null;
   private flushing: Promise<void> | null = null;
   private readFlushing: Promise<void> | null = null;
   private readAgain = false;
@@ -72,7 +73,11 @@ export class SocketReceiver {
         socket.emit("conversation:join", room);
       this.emit("connect");
       safe(() => this.syncPendingDelivery());
+      safe(() => this.syncReceiptStatuses());
       safe(() => this.flushReceipts());
+    });
+    socket.on("receipts:resync", () => {
+      if (current()) safe(() => this.recoverReceipts());
     });
     socket.on("disconnect", (reason) => {
       if (current()) {
@@ -300,6 +305,7 @@ export class SocketReceiver {
     this.currentUserId = "";
     this.authToken = "";
     this.pendingSync = null;
+    this.receiptSync = null;
     this.flushing = null;
     this.readFlushing = null;
     // Screen listeners/reference counts survive token refresh; screens own them.
@@ -443,6 +449,84 @@ export class SocketReceiver {
     void work
       .finally(() => {
         if (this.flushing === work) this.flushing = null;
+      })
+      .catch(() => {});
+    return work;
+  }
+
+  recoverReceipts(): Promise<void> {
+    // A real connection/foreground/server-infrastructure recovery or explicit
+    // retry may replay an unconfirmed read. Ordinary message activity cannot.
+    this.readAttemptToken = receiptAttempt();
+    this.readFlushing = null;
+    return Promise.all([this.flushReceipts(), this.syncReceiptStatuses()]).then(
+      () => undefined,
+    );
+  }
+
+  syncReceiptStatuses(): Promise<void> {
+    if (this.receiptSync) return this.receiptSync;
+    const generation = this.generation,
+      userId = this.currentUserId,
+      token = this.authToken;
+    const current = () =>
+      generation === this.generation && userId === this.currentUserId;
+    if (!userId || !token) return Promise.resolve();
+    const work = (async () => {
+      let after = "";
+      while (current()) {
+        const page = await messageStore.getReceiptCandidates(
+          userId,
+          after,
+          100,
+        );
+        if (!page.length || !current()) return;
+        const requested = new Map(
+          page.flatMap((row) => (row.id ? [[row.id, row] as const] : [])),
+        );
+        const response = await api.post<{
+          data: { messageId: string; conversationId: string; status: string }[];
+        }>(
+          "/messages/receipts/sync",
+          { messageIds: [...requested.keys()] },
+          token,
+        );
+        if (!current()) return;
+        if (!Array.isArray(response.data))
+          throw new Error("Invalid receipt status response");
+        const read = new Map<string, string[]>();
+        for (const receipt of response.data) {
+          const original = requested.get(receipt.messageId);
+          if (
+            !original ||
+            original.conversationId !== receipt.conversationId ||
+            !current()
+          )
+            continue;
+          if (receipt.status === "READ") {
+            const ids = read.get(receipt.conversationId) ?? [];
+            ids.push(receipt.messageId);
+            read.set(receipt.conversationId, ids);
+          } else if (receipt.status === "DELIVERED") {
+            await messageStore.markDelivered(
+              receipt.messageId,
+              receipt.conversationId,
+            );
+          }
+        }
+        // Authoritative authenticated snapshots update only cached own rows;
+        // they do not invent an actor, fetch history, or reset the list.
+        for (const [room, ids] of read) {
+          if (!current()) return;
+          await messageStore.markReadIds(ids, room);
+        }
+        after = page[page.length - 1].localId;
+      }
+    })();
+    this.receiptSync = work;
+    void work
+      .finally(() => {
+        if (this.receiptSync === work) this.receiptSync = null;
       })
       .catch(() => {});
     return work;

@@ -175,7 +175,7 @@ async function migrateV1(): Promise<void> {
 
 /** Additive v2 upgrade. An interrupted ALTER is safe to resume; never replace
  * app.db or discard historical messages, queues, or account ownership. */
-async function migrate(): Promise<void> {
+async function migrateV2(): Promise<void> {
   await migrateV1();
   const version = await db.values<[number]>(sql`PRAGMA user_version`);
   if (Number(version[0]?.[0] ?? 0) >= 2) return;
@@ -191,5 +191,17 @@ async function migrate(): Promise<void> {
     await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_receipt_attempt
       ON message_receipt_outbox(kind, attempt_token, key)`);
     await tx.run(sql`PRAGMA user_version = 2`);
+  });
+}
+
+// v3 changes no message data: bound exact-ID recovery by the existing sender /
+// status / local-ID cursor, including receipts for old cached messages.
+async function migrate(): Promise<void> {
+  await migrateV2();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 3) return;
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_receipt_recovery ON messages(sender_id, status, local_id)`);
+    await tx.run(sql`PRAGMA user_version = 3`);
   });
 }
