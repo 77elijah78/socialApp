@@ -20,10 +20,18 @@ mock("react-native-keyboard-controller", {
   KeyboardAwareScrollView: "KeyboardAwareScrollView",
 });
 let routes = [];
-function Stack(props) { return React.createElement("Stack", props, props.children); }
+let activeScreen = null;
+function Stack(props) {
+  return React.createElement("Stack", props, props.children,
+    activeScreen && React.createElement(activeScreen));
+}
 Stack.Screen = "StackScreen";
+function Redirect({ href }) {
+  React.useEffect(() => { routes.push({ method: "replace", path: href }); }, [href]);
+  return React.createElement("Redirect", { href });
+}
 mock("expo-router", {
-  Stack,
+  Stack, Redirect,
   router: {
     replace: (path) => routes.push({ method: "replace", path }),
     push: (path) => routes.push({ method: "push", path }),
@@ -37,8 +45,20 @@ mock("@/services/MessagingCache", { prepareMessagingAccount: async (id) => prepa
 mock("@/services/MediaService", { mediaService: { message: { resetSession() {} }, disconnectSocket() {} } });
 mock("@/services/api", { setTokens: (...value) => tokens.push(value) });
 const authReducer = require("../../src/store/slices/authSlice.ts").default;
-const dispatch = (action) => { actions.push(action); authState = authReducer(authState, action); };
-mock("@/store/hooks", { useAppDispatch: () => dispatch });
+const authListeners = new Set();
+const subscribeAuth = listener => { authListeners.add(listener); return () => authListeners.delete(listener); };
+const dispatch = (action) => {
+  actions.push(action);
+  authState = authReducer(authState, action);
+  for (const listener of authListeners) listener();
+};
+mock("@/store/hooks", {
+  useAppDispatch: () => dispatch,
+  useAppSelector: select => {
+    const state = React.useSyncExternalStore(subscribeAuth, () => authState);
+    return select({ auth: state });
+  },
+});
 
 const Login = require("../../src/app/(auth)/login.tsx").default;
 const Signup = require("../../src/app/(auth)/register.tsx").default;
@@ -87,10 +107,12 @@ afterEach(async () => {
   if (renderer) await act(async () => renderer.unmount());
   renderer = null;
   assert.equal(listeners.size, 0, "safe-area subscriptions clean up on unmount");
+  assert.equal(authListeners.size, 0, "auth subscriptions clean up on unmount");
 });
 async function mount(Component) {
+  activeScreen = Component === AuthLayout ? null : Component;
   await act(async () => {
-    renderer = create(React.createElement(Component), {
+    renderer = create(React.createElement(AuthLayout), {
       createNodeMock: (element) => element.type === "TextInput"
         ? { focus: () => focused.push(element.props.testID) }
         : null,

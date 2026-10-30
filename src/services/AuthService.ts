@@ -42,6 +42,12 @@ export class AuthService {
 
     const { user, accessToken, refreshToken } = data.data;
     await prepareMessagingAccount(user.id);
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
+    }
+    // Activate the HTTP identity before Redux subscribers mount authenticated
+    // screens/socket providers. Nothing fallible remains after this commit.
+    setTokens(accessToken, refreshToken);
 
     dispatch(
       setCredentials({
@@ -57,12 +63,6 @@ export class AuthService {
         refreshToken,
       }),
     );
-
-    setTokens(accessToken, refreshToken);
-
-    if (refreshToken) {
-      await AsyncStorage.setItem("refreshToken", refreshToken);
-    }
   }
 
   async login(email: string, password: string, dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
@@ -84,6 +84,12 @@ export class AuthService {
 
     const { user, accessToken, refreshToken } = data.data;
     await prepareMessagingAccount(user.id);
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
+    }
+    // Activate the HTTP identity before Redux subscribers mount authenticated
+    // screens/socket providers. Nothing fallible remains after this commit.
+    setTokens(accessToken, refreshToken);
 
     dispatch(
       setCredentials({
@@ -99,12 +105,6 @@ export class AuthService {
         refreshToken,
       }),
     );
-
-    setTokens(accessToken, refreshToken);
-
-    if (refreshToken) {
-      await AsyncStorage.setItem("refreshToken", refreshToken);
-    }
   }
 
   async logout(): Promise<void> {

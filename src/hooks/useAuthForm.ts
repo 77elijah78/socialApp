@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { router } from "expo-router";
 
 import { authService } from "@/services/AuthService";
 import { useAppDispatch } from "@/store/hooks";
@@ -78,7 +77,8 @@ export function useAuthForm(mode: AuthMode) {
           dispatch,
         );
       }
-      if (mounted.current) router.replace("/(tabs)/home");
+      // The auth layout redirects when the service commits Redux credentials.
+      // An unmounted form must not race that state-driven navigation.
     } catch (failure: unknown) {
       if (mounted.current) setError(authErrorMessage(failure, mode));
     } finally {
