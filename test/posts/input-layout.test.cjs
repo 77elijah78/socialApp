@@ -49,6 +49,7 @@ mock("react-native-safe-area-context", {
   useSafeAreaInsets: () => useEnvironment().insets,
 });
 mock("react-native-keyboard-controller", {
+  useReanimatedKeyboardAnimation: () => ({ progress: { value: 0 }, height: { value: 0 } }),
   KeyboardAvoidingView: "ControllerKeyboardAvoidingView",
   KeyboardAwareScrollView: "KeyboardAwareScrollView",
   KeyboardStickyView: "KeyboardStickyView",
@@ -106,7 +107,7 @@ mock("@/services/api", {
     async post(path, body, token) {
       apiCalls.push({ method: "POST", path, body, token });
       if (pendingPost) return pendingPost.promise;
-      return { success: true, data: { id: "saved-comment", ...body } };
+      return { success: true, data: { id: "saved-comment", ...body, author: { id: "user-1", username: "me" }, createdAt: new Date("2026-10-31T10:00:00Z") } };
     },
     async patch(path, body, token) {
       apiCalls.push({ method: "PATCH", path, body, token });
@@ -167,11 +168,12 @@ const byType = (type) => renderer.root.findByType(type);
 const flatten = (style) => Object.assign({}, ...[style].flat(Infinity).filter(Boolean));
 const caption = () => renderer.root.findByProps({ accessibilityLabel: "Post caption" });
 const sheetInput = () => byType("BottomSheetTextInput");
-const postButton = () => renderer.root.findByProps({ accessibilityLabel: "Post comment" });
+const postButton = () => renderer.root.findAllByType("TouchableOpacity").find(node => ["Post comment", "Post reply"].includes(node.props.accessibilityLabel));
 const contentSize = (height) => ({ nativeEvent: { contentSize: { width: 250, height } } });
 
 beforeEach(() => {
   environment = defaults();
+  auth.auth = { token: "token", user };
   routeParams = {};
   native.Platform.OS = "ios";
   keyboardSubscriptions = 0;
@@ -376,7 +378,7 @@ test("sheet: multiline growth is bounded, footer/input identity stay stable, typ
   assert.equal(sheetListRenders, initialListRenders);
 });
 
-test("sheet: reply/cancel and pending send keep the same input mounted and preserve optimistic/API reply semantics", async () => {
+test("sheet: reply/cancel and confirmed send keep the same input mounted without fake optimistic persistence", async () => {
   await mountSheet();
   const input = sheetInput();
   await act(async () => renderer.root.findByType(CommentThread).props.onReply(comment));
@@ -389,7 +391,7 @@ test("sheet: reply/cancel and pending send keep the same input mounted and prese
   pendingPost = deferred();
   await act(async () => renderer.root.findByProps({ accessibilityLabel: "Post reply" }).props.onPress());
   assert.equal(sheetInput(), input);
-  assert.equal(input.props.value, "");
+  assert.equal(input.props.value, "  A reply\nwith two lines  ");
   assert.equal(input.props.editable, false);
   assert.equal(byType("BottomSheetModal").props.footerComponent, undefined);
   assert.equal(postButton().props.disabled, true);
@@ -398,10 +400,11 @@ test("sheet: reply/cancel and pending send keep the same input mounted and prese
     body: { content: "A reply\nwith two lines", repliedToId: "comment-1" },
   });
   const rootThread = byType("BottomSheetFlatList").props.data[0];
-  assert.equal(rootThread.replies[0].comment.content, "A reply\nwith two lines");
-  await act(async () => pendingPost.resolve({ success: true, data: { id: "saved-reply" } }));
+  assert.equal(rootThread.replies.length, 0, "nothing appears persisted before the server confirms");
+  await act(async () => pendingPost.resolve({ success: true, data: { id: "saved-reply", content: "A reply\nwith two lines", repliedToId: "comment-1", author: { id: "user-1", username: "me" }, createdAt: new Date("2026-10-31T10:00:00Z") } }));
   assert.equal(sheetInput(), input);
   assert.equal(input.props.editable, true);
+  assert.equal(input.props.value, "");
   assert.equal(byType("BottomSheetFlatList").props.data[0].replies[0].comment.id, "saved-reply");
   assert.equal(keyboardSubscriptions, 2);
 });
@@ -477,7 +480,7 @@ for (const platform of ["android", "ios"]) {
     assert.equal(avoider.props.behavior, platform === "ios" ? "padding" : "height");
     assert.equal(avoider.props.keyboardVerticalOffset, 0);
     assert.equal(avoider.props.automaticOffset, undefined);
-    assert.deepEqual(byType("SafeAreaView").props.edges, ["left", "right", "bottom"]);
+    assert.deepEqual(byType("SafeAreaView").props.edges, ["top", "left", "right", "bottom"]);
     assert.equal(byType("FlatList").props.automaticallyAdjustKeyboardInsets, false);
     assert.equal(byType("FlatList").props.contentInsetAdjustmentBehavior, "never");
     const input = byType("TextInput");
@@ -508,4 +511,65 @@ test("navigation away/return unmounts local draft state and does not accumulate 
     assert.equal(subscribers.size, 0);
   }
   assert.equal(keyboardSubscriptions, 0);
+});
+
+for (const surface of ["sheet", "route"]) test(`${surface}: a failed comment preserves its draft, shows retry guidance and never appears persisted`, async () => {
+  if (surface === "sheet") await mountSheet();
+  else { routeParams = { id: "post-1" }; await mount(Comments); }
+  const input = surface === "sheet" ? sheetInput() : byType("TextInput");
+  await act(async () => input.props.onChangeText("Keep my real draft"));
+  pendingPost = deferred();
+  await act(async () => postButton().props.onPress());
+  assert.equal(input.props.editable, false);
+  await act(async () => pendingPost.reject(new Error("Offline during save")));
+  assert.equal(input.props.value, "Keep my real draft");
+  assert.equal(input.props.editable, true);
+  assert.ok(renderer.root.findAllByProps({ accessibilityRole: "alert" }).some(node => node.props.children.join("").includes("Offline during save")));
+  const list = byType(surface === "sheet" ? "BottomSheetFlatList" : "FlatList");
+  assert.equal(list.props.data.length, 1);
+  assert.equal(list.props.data[0].comment.id, "comment-1");
+});
+
+for (const surface of ["sheet", "route"]) test(`${surface}: account switch clears a pending draft/reply/lock and a late send cannot touch the next account`, async () => {
+  if (surface === "sheet") await mountSheet();
+  else { routeParams = { id: "post-1" }; await mount(Comments); }
+  const input = surface === "sheet" ? sheetInput() : byType("TextInput");
+  await act(async () => input.props.onChangeText("Old account draft"));
+  pendingPost = deferred();
+  const oldRequest = pendingPost;
+  await act(async () => postButton().props.onPress());
+  assert.equal(input.props.editable, false);
+  auth.auth = { token: "account-b-token", user: { ...user, id: "account-b" } };
+  await act(async () => renderer.update(React.createElement(surface === "sheet" ? CommentBottomSheet : Comments, surface === "sheet" ? { ref: sheetRef } : {})));
+  const nextInput = surface === "sheet" ? sheetInput() : byType("TextInput");
+  assert.equal(nextInput.props.value, "");
+  assert.equal(nextInput.props.editable, true);
+  await act(async () => nextInput.props.onChangeText("New account draft"));
+  await act(async () => oldRequest.resolve({ success: true, data: { id: "old-account-comment", content: "Old", author: { id: "me", username: "me" }, createdAt: "2026-10-31T10:00:00Z" } }));
+  assert.equal(nextInput.props.value, "New account draft");
+  const list = byType(surface === "sheet" ? "BottomSheetFlatList" : "FlatList");
+  assert.ok(!list.props.data.some(node => node.comment.id === "old-account-comment"));
+  pendingPost = null;
+  await act(async () => postButton().props.onPress());
+  assert.equal(apiCalls.filter(call => call.method === "POST").at(-1).token, "account-b-token");
+  assert.equal(nextInput.props.value, "");
+});
+
+test("route: changing the post during a pending send resets the composer without a keyboard/input remount", async () => {
+  routeParams = { id: "post-1" }; await mount(Comments);
+  const input = byType("TextInput");
+  await act(async () => input.props.onChangeText("Old post draft"));
+  pendingPost = deferred(); const oldRequest = pendingPost;
+  await act(async () => postButton().props.onPress());
+  routeParams = { id: "post-2" };
+  await act(async () => renderer.update(React.createElement(Comments)));
+  assert.equal(byType("TextInput"), input);
+  assert.equal(input.props.value, ""); assert.equal(input.props.editable, true);
+  await act(async () => input.props.onChangeText("New post draft"));
+  await act(async () => oldRequest.reject(new Error("Old post failed")));
+  assert.equal(input.props.value, "New post draft");
+  assert.equal(renderer.root.findAllByProps({ accessibilityRole: "alert" }).length, 0);
+  pendingPost = null;
+  await act(async () => postButton().props.onPress());
+  assert.equal(apiCalls.filter(call => call.method === "POST").at(-1).path, "/posts/post-2/comments");
 });

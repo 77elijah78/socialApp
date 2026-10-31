@@ -167,3 +167,41 @@ test("disabled replies never capture touches and one successful lifecycle emits 
     assert.equal(replies, 1, "a duplicate/stale end after finalize cannot emit again");
   } finally { driver.dispose(); }
 });
+
+test("fast threshold-crossing latches through a small release rebound but never a deliberate reversal", async () => {
+  const gesture = await mount();
+  for (const releaseX of [-48, -45, -30, -12]) {
+    const driver = drive(gesture);
+    try {
+      const before = replies;
+      await act(async () => { driver.down(); driver.move(-14, 1); driver.move(-58, 7); driver.up(releaseX, 9); });
+      assert.equal(replies, before + 1, `release ${releaseX}`);
+    } finally { driver.dispose(); }
+  }
+  for (const releaseX of [-11, -3, 0, 10]) {
+    const driver = drive(gesture);
+    try {
+      const before = replies;
+      await act(async () => { driver.down(); driver.move(-14, 1); driver.move(-58, 7); driver.up(releaseX, 9); });
+      assert.equal(replies, before, `deliberate reversal to ${releaseX}`);
+    } finally { driver.dispose(); }
+  }
+});
+
+test("release changedTouches supplies the final position when the native pan-end coordinate is stale", async () => {
+  const gesture = await mount();
+  const driver = drive(gesture);
+  try {
+    await act(async () => { driver.down(); driver.move(-14, 1); driver.up(-62, 8, true); });
+    assert.equal(replies, 1);
+  } finally { driver.dispose(); }
+});
+
+test("crossing, fully reversing and then releasing a short swipe is not an armed reply", async () => {
+  const gesture = await mount();
+  const driver = drive(gesture);
+  try {
+    await act(async () => { driver.down(); driver.move(-14, 1); driver.move(-60, 5); driver.move(-2, 1); driver.move(-35, 2); driver.up(); });
+    assert.equal(replies, 0);
+  } finally { driver.dispose(); }
+});

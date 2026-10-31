@@ -110,8 +110,11 @@ for (const type of [
     assert.equal(reply.status, "SENT");
   });
 }
-for (const type of ["IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]) {
+for (const type of ["IMAGE", "VIDEO", "AUDIO"]) {
   test(`${type} attachments preserve reply target, type and real metadata through the existing REST DTO`, async () => {
+    const extension = { IMAGE: "jpg", VIDEO: "mp4", AUDIO: "m4a" }[type];
+    const mime = { IMAGE: "image/jpeg", VIDEO: "video/mp4", AUDIO: "audio/mp4" }[type];
+    const name = `recording.${extension}`;
     await messageStore.save(row(1));
     service.uploadMedia = async () => ({
       url: "https://cdn.test/file",
@@ -119,15 +122,15 @@ for (const type of ["IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]) {
       width: 640,
       height: 480,
       size: 8200,
-      mimeType: "application/pdf",
+      mimeType: mime,
     });
     await service.sendMediaRecord(
       type,
-      "file:///picked/report.pdf",
+      `file:///picked/${name}`,
       meta,
       12,
       row(1).id,
-      { name: "report.pdf", size: 8000, width: 600, height: 400 },
+      { name, mimeType: mime, size: 8000, width: 600, height: 400 },
     );
     const body = JSON.parse(
       server.calls.find((call) => call.options.method === "POST").options.body,
@@ -142,11 +145,16 @@ for (const type of ["IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]) {
     const sent = (await messageStore.getRecent("room")).find(
       (item) => item.senderId === "me",
     );
-    assert.equal(messageMetadata(sent).attachment.name, "report.pdf");
+    assert.equal(messageMetadata(sent).attachment.name, name);
     assert.equal(messageMetadata(sent).attachment.size, 8200);
     assert.equal(messageMetadata(sent).attachment.width, 640);
   });
 }
+test("unsupported local documents fail honestly without uploading or sending a pretend attachment", async () => {
+  await assert.rejects(service.sendMediaRecord("DOCUMENT", "file:///report.pdf", meta), /does not support/);
+  assert.equal(server.calls.filter((call) => call.options.method === "POST").length, 0);
+  assert.equal((await messageStore.getRecent("room"))[0].status, "FAILED");
+});
 test("several-hundred-message reply search uses existing offset pages, including timestamp ties", async () => {
   const target = row(10).id;
   server.messages = Array.from({ length: 625 }, (_, index) =>
@@ -621,4 +629,21 @@ test("immutable outgoing clock skew cannot exclude cached direct replies from co
   );
   assert.equal(result.parent.timestamp, 10000);
   assert.equal(result.complete, false);
+});
+
+test("retrying malformed legacy attachment metadata does not fail again after a successful upload", async () => {
+  service.uploadMedia = async () => { throw new Error("Offline upload"); };
+  await assert.rejects(service.sendMediaRecord("IMAGE", "file:///legacy.jpg", meta), /Offline upload/);
+  const failed = (await messageStore.getRecent("room"))[0];
+  await messageStore.patch(failed.localId, { attachmentData: "{malformed" });
+  service.uploadMedia = async file => {
+    assert.equal(file.type, "image/jpeg");
+    return { url: "https://cdn.test/legacy.jpg", size: 123, mimeType: "image/jpeg" };
+  };
+  await service.retry("room", failed.localId, meta);
+  const sent = await messageStore.getByLocalId(failed.localId);
+  assert.equal(sent.status, "SENT");
+  assert.equal(messageMetadata(sent).attachment.size, 123);
+  const body = JSON.parse(server.calls.find(call => call.options.method === "POST").options.body);
+  assert.equal(body.mediaUrl, "https://cdn.test/legacy.jpg");
 });

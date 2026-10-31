@@ -1,3 +1,4 @@
+import { mediaFileForUpload } from "@/utils/mediaUpload";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -15,7 +16,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
 import { showAppDialog } from "@/services/AppDialogService";
 import { PickedFile } from "@/types";
 
@@ -77,6 +78,14 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
       return;
     }
 
+    try {
+      for (const file of selectedFiles) mediaFileForUpload(file.uri, {
+        name: file.name, mimeType: file.type, size: file.size,
+      });
+    } catch (error) {
+      showAppDialog({ title: "Unsupported attachment", message: error instanceof Error ? error.message : "Choose another file.", tone: "warning" });
+      return;
+    }
     onSend(selectedFiles);
     clearAll();
     onClose();
@@ -232,23 +241,14 @@ export default function MediaPickerModal({ visible, onClose, onSend }: Props) {
   };
 
   const handlePickSource = (source: (typeof SOURCE_OPTIONS)[number]["key"]) => {
-    switch (source) {
-      case "camera":
-        void takePhoto();
-        break;
-      case "image":
-        void pickImage();
-        break;
-      case "video":
-        void pickVideo();
-        break;
-      case "audio":
-        void pickAudio();
-        break;
-      case "file":
-        void pickFile();
-        break;
-    }
+    const pick = { camera: takePhoto, image: pickImage, video: pickVideo, audio: pickAudio, file: pickFile }[source];
+    void pick().catch((error) => {
+      showAppDialog({
+        title: "Couldn’t open attachments",
+        message: error instanceof Error ? error.message : "Please try again or choose another source.",
+        tone: "error",
+      });
+    });
   };
 
   const renderFileItem = ({ item }: { item: SelectableFile }) => (

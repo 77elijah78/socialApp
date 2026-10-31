@@ -14,6 +14,12 @@ const chat = {
 mock("@/hooks/useChat", { useChat: () => chat });
 const { runMigrations } = require("../../src/db/migrations.ts");
 const { messageStore } = require("../../src/db/MessageStore.ts");
+let keyboardProgress = 0;
+mock("react-native-keyboard-controller", {
+  KeyboardAvoidingView: "KeyboardAvoidingView",
+  useKeyboardState: select => select({ isVisible: keyboardProgress === 1 }),
+  useReanimatedKeyboardAnimation: () => ({ progress: { value: keyboardProgress } }),
+});
 const Screen = require("../../src/app/(chatRoom)/privateRoom.tsx").default;
 const Row = require("../../src/components/chat/ChatMessageRow.tsx").default;
 const { replySwipeIntent, shouldReplyFromSwipe } = require("../../src/utils/messaging/swipeReply.ts");
@@ -26,7 +32,7 @@ beforeEach(async () => {
   chat.getLoadedMessage = undefined;
   chat.messages = Array.from({ length: 30 }, (_, i) => row(i));
   await messageStore.saveMany(chat.messages);
-  resetScrolls(); renders = 0;
+  resetScrolls(); renders = 0; keyboardProgress = 0;
   native.Platform.OS = "ios";
 });
 afterEach(async () => {
@@ -235,5 +241,45 @@ test("web retains automatic pan and browser vertical scrolling without unsupport
     await act(async () => { driver.down(); driver.move(-14, 2); driver.move(-48, 25); driver.up(); });
     assert.deepEqual(driver.calls, [], "web must not call Reanimated's native-only setGestureState API");
     assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
+  } finally { driver.dispose(); }
+});
+
+
+test("composer safe bottom follows the controller progress continuously, with no JS visibility-edge padding jump", async () => {
+  await mount();
+  const composer = renderer.root.findByProps({ testID: "chat-composer" });
+  const wrapper = () => renderer.root.findAllByType("ReanimatedView").find(node => node.findAllByProps({ testID: "chat-composer" }).length > 0);
+  for (const progress of [0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25, 0]) {
+    keyboardProgress = progress;
+    await act(async () => renderer.update(React.createElement(Screen)));
+    const styles = wrapper().props.style.flat();
+    assert.equal(styles.at(-1).paddingBottom, 34 * (1 - progress));
+    assert.equal(renderer.root.findByProps({ testID: "chat-composer" }), composer, "composer is not remounted for keyboard frames");
+  }
+  assert.equal(renderer.root.findAllByType("KeyboardAvoidingView").length, 1);
+  assert.equal(scrolls.length, 0, "keyboard animation does not schedule scroll correction calls");
+});
+
+
+for (const type of ["TEXT", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT", "SHARED_POST", "SHARED_STORY"]) test(`${type}: fast rebound selects the canonical reply immediately and survives keyboard changes until send`, async () => {
+  const target = row(1, { type, mediaUrl: "https://cdn.test/file" });
+  chat.messages = [target];
+  const sent = [];
+  chat.replyMsg = async (...args) => sent.push(args);
+  await mount();
+  const driver = drive(replyPans(renderer)[0]);
+  try {
+    await act(async () => { driver.down(); driver.move(-14, 1); driver.move(-61, 5); driver.up(-44, 8); });
+    assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
+    assert.equal(scrolls.length, 0);
+    keyboardProgress = 1;
+    await act(async () => renderer.update(React.createElement(Screen)));
+    keyboardProgress = 0;
+    await act(async () => renderer.update(React.createElement(Screen)));
+    assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
+    await act(async () => renderer.root.findByType("TextInput").props.onChangeText("Fast reply"));
+    await act(async () => button("Send message").props.onPress());
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0][1], target.id);
   } finally { driver.dispose(); }
 });

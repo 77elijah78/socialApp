@@ -29,18 +29,26 @@ export function replySwipeIntent(x: number, y: number): ReplySwipeIntent {
   return "pending";
 }
 
+/** Latch the visible threshold, but cancel when deliberately returning to the
+ * activation zone. A small rebound after a fast swipe must not lose the reply. */
+export function replySwipeArmed(armed: boolean, x: number): boolean {
+  "worklet";
+  return Number.isFinite(x) && (x <= -REPLY_SWIPE.complete || armed && x <= -REPLY_SWIPE.activate);
+}
+
 /** Completion uses net distance from touch-down, not native pan translation
  * (Android resets that on activation). Initial intent must already have won. */
 export function shouldReplyFromSwipe(
   x: number,
   y: number,
   hasReplyIntent = false,
+  armed = false,
 ) {
   "worklet";
   return (
     hasReplyIntent &&
     Number.isFinite(x) &&
     Number.isFinite(y) &&
-    x <= -REPLY_SWIPE.complete
+    replySwipeArmed(armed, x)
   );
 }

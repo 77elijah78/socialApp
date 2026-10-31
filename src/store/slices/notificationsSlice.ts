@@ -1,75 +1,58 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { Notification } from '@/types';
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import {
+  normalizeLiveActivity,
+  type LiveActivity,
+} from "@/services/NotificationService";
+import { logout, setCredentials } from "./authSlice";
 
-interface NotificationsState {
-  items: Notification[];
-  unreadCount: number;
-  loading: boolean;
-  error: string | null;
-}
-
-const initialState: NotificationsState = {
-  items: [],
-  unreadCount: 0,
-  loading: false,
-  error: null,
-};
-
+type State = { accountId: string | null; items: LiveActivity[] };
+const initialState: State = { accountId: null, items: [] };
 const notificationsSlice = createSlice({
-  name: 'notifications',
+  name: "notifications",
   initialState,
   reducers: {
-    setLoading(state, action: PayloadAction<boolean>) {
-      state.loading = action.payload;
+    activityAccountChanged(state, action: PayloadAction<string | null>) {
+      if (state.accountId !== action.payload)
+        return { accountId: action.payload, items: [] };
     },
-    setError(state, action: PayloadAction<string | null>) {
-      state.error = action.payload;
-    },
-    setNotifications(state, action: PayloadAction<Notification[]>) {
-      state.items = action.payload;
-    },
-    setUnreadCount(state, action: PayloadAction<number>) {
-      state.unreadCount = action.payload;
-    },
-    incrementUnreadCount(state) {
-      state.unreadCount += 1;
-    },
-    addNotification(state, action: PayloadAction<Notification>) {
-      state.items.unshift(action.payload);
-      if (!action.payload.isRead) {
-        state.unreadCount += 1;
+    receiveActivity(
+      state,
+      action: PayloadAction<{
+        accountId: string;
+        payload: unknown;
+        receivedAt: number;
+      }>,
+    ) {
+      if (state.accountId !== action.payload.accountId) return;
+      const item = normalizeLiveActivity(
+        action.payload.payload,
+        action.payload.receivedAt,
+      );
+      if (!item) return;
+      const index = state.items.findIndex(
+        (previous) => previous.clientKey === item.clientKey,
+      );
+      if (index >= 0) {
+        // Coalesce matching deliveries, not fabricated distinct events. Without a
+        // backend ID we cannot distinguish redelivery from a repeat real action.
+        item.occurrences += state.items[index].occurrences;
+        state.items.splice(index, 1);
       }
+      state.items.unshift(item);
+      state.items = state.items.slice(0, 100);
     },
-    markRead(state, action: PayloadAction<string>) {
-      const id = action.payload;
-      const item = state.items.find((n) => n.id === id);
-      if (item && !item.isRead) {
-        item.isRead = true;
-        state.unreadCount = Math.max(0, state.unreadCount - 1);
-      }
-    },
-    markAllRead(state) {
-      state.items.forEach((n) => {
-        n.isRead = true;
-      });
-      state.unreadCount = 0;
-    },
-    clearNotifications() {
-      return initialState;
+    clearActivity(state) {
+      state.items = [];
     },
   },
+  extraReducers: (builder) => {
+    builder.addCase(logout, () => initialState);
+    builder.addCase(setCredentials, (state, action) => {
+      if (state.accountId !== action.payload.user.id)
+        return { accountId: action.payload.user.id, items: [] };
+    });
+  },
 });
-
-export const {
-  setLoading,
-  setError,
-  setNotifications,
-  setUnreadCount,
-  incrementUnreadCount,
-  addNotification,
-  markRead,
-  markAllRead,
-  clearNotifications,
-} = notificationsSlice.actions;
-
+export const { activityAccountChanged, receiveActivity, clearActivity } =
+  notificationsSlice.actions;
 export default notificationsSlice.reducer;

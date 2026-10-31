@@ -12,6 +12,7 @@ import { COLORS, SPACING } from "@/constants/theme";
 import {
   REPLY_SWIPE,
   replySwipeIntent,
+  replySwipeArmed,
   shouldReplyFromSwipe,
   type ReplySwipeIntent,
 } from "@/utils/messaging/swipeReply";
@@ -23,6 +24,9 @@ type SwipeTracking = {
   originY: number;
   intent: ReplySwipeIntent;
   active: boolean;
+  armed: boolean;
+  releaseX: number | null;
+  releaseY: number | null;
 };
 const EMPTY_SWIPE: SwipeTracking = {
   pointerId: null,
@@ -30,6 +34,9 @@ const EMPTY_SWIPE: SwipeTracking = {
   originY: 0,
   intent: "pending",
   active: false,
+  armed: false,
+  releaseX: null,
+  releaseY: null,
 };
 
 /** Lock direction once on the UI thread, then allow natural finger drift.
@@ -71,6 +78,7 @@ function SwipeToReply({
           return;
         }
         tracking.set({
+          ...EMPTY_SWIPE,
           pointerId: touch.id,
           originX: touch.absoluteX,
           originY: touch.absoluteY,
@@ -93,20 +101,28 @@ function SwipeToReply({
           if (manual) manager.fail();
           return;
         }
-        if (state.intent !== "pending") return;
-        const intent = replySwipeIntent(
-          touch.absoluteX - state.originX,
-          touch.absoluteY - state.originY,
-        );
+        const x = touch.absoluteX - state.originX;
+        if (state.intent !== "pending") {
+          if (state.intent === "reply") tracking.set({ ...state, armed: replySwipeArmed(state.armed, x) });
+          return;
+        }
+        const intent = replySwipeIntent(x, touch.absoluteY - state.originY);
         if (intent === "pending") return;
-        tracking.set({ ...state, intent });
+        tracking.set({ ...state, intent, armed: intent === "reply" && replySwipeArmed(false, x) });
         if (manual) {
           if (intent === "reply") manager.activate();
           else manager.fail();
         }
       })
-      .onTouchesUp((_event, manager) => {
-        if (manual && tracking.get().intent === "pending") manager.fail();
+      .onTouchesUp((event, manager) => {
+        const state = tracking.get();
+        const touch = event.changedTouches.find((point) => point.id === state.pointerId);
+        if (touch && Number.isFinite(touch.absoluteX) && Number.isFinite(touch.absoluteY)) {
+          const releaseX = touch.absoluteX - state.originX;
+          tracking.set({ ...state, releaseX, releaseY: touch.absoluteY - state.originY,
+            armed: replySwipeArmed(state.armed, releaseX) });
+        }
+        if (manual && state.intent === "pending") manager.fail();
       })
       .onTouchesCancelled(() => {
         const state = tracking.get();
@@ -128,8 +144,10 @@ function SwipeToReply({
       .onUpdate((event) => {
         const state = tracking.get();
         const x = event.absoluteX - state.originX;
-        if (state.active && Number.isFinite(x))
+        if (state.active && Number.isFinite(x)) {
+          tracking.set({ ...state, armed: replySwipeArmed(state.armed, x) });
           translation.set(Math.max(-REPLY_SWIPE.maximum, Math.min(0, x)));
+        }
       })
       .onEnd((event, success) => {
         const state = tracking.get();
@@ -138,9 +156,10 @@ function SwipeToReply({
           success &&
           state.intent === "reply" &&
           shouldReplyFromSwipe(
-            event.absoluteX - state.originX,
-            event.absoluteY - state.originY,
+            state.releaseX ?? event.absoluteX - state.originX,
+            state.releaseY ?? event.absoluteY - state.originY,
             state.active,
+            state.armed,
           )
         )
           runOnJS(onReply)();

@@ -9,11 +9,12 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test test/messaging/*.test.cjs test/posts/*.test.cjs test/auth/*.test.cjs",
+    "test": "node --test test/messaging/*.test.cjs test/posts/*.test.cjs test/auth/*.test.cjs test/activity/*.test.cjs",
     "test:posts": "node --test test/posts/*.test.cjs",
     "test:auth": "node --test test/auth/*.test.cjs",
     "typecheck": "tsc --noEmit",
-    "benchmark:messaging": "node scripts/benchmark-messaging.cjs"
+    "benchmark:messaging": "node scripts/benchmark-messaging.cjs",
+    "test:activity": "node --test test/activity/*.test.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

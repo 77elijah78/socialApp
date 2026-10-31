@@ -2,13 +2,9 @@ import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { LiquidGlassTabBar } from "@/components/navigation/LiquidGlassTabBar";
-import theme from "@/constants/theme";
-import { useAppSelector } from "@/store/hooks";
+import * as theme from "@/constants/theme";
 
 export default function TabLayout() {
-  const unreadCount = useAppSelector((state) => state.notifications.unreadCount);
-  const activityBadge =
-    unreadCount > 99 ? "99+" : unreadCount > 0 ? unreadCount : undefined;
 
   return (
     <Tabs
@@ -76,7 +72,6 @@ export default function TabLayout() {
         options={{
           headerShown: false,
           title: "Activity",
-          tabBarBadge: activityBadge,
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "heart" : "heart-outline"}

@@ -1,3 +1,4 @@
+import { normalizeMediaUrl } from "../mediaUrls";
 import type { MessageRow } from "../../db/schema";
 
 /** Local presentation metadata, derived from existing author/media API fields.
@@ -127,11 +128,13 @@ export function compactReplyPreview(input: ReplyPreviewModel): ReplyPreviewModel
   }
   return {
     ...input, type,
-    content: input.deleted ? "" : content.slice(0, 180),
+    content: input.deleted ? "" : content.length > 240 ? `${content.slice(0, 239)}…` : content,
+    mediaUrl: normalizeMediaUrl(input.mediaUrl),
+    thumbnailUrl: normalizeMediaUrl(input.thumbnailUrl),
     ...(input.deleted
       ? { mediaUrl: null, thumbnailUrl: null, attachment: undefined, shared: undefined }
       : {
-          shared,
+          shared: shared ? { ...shared, thumbnailUrl: normalizeMediaUrl(shared.thumbnailUrl) } : undefined,
           attachment: input.attachment ? {
             name: input.attachment.name,
             size: input.attachment.size,
@@ -143,9 +146,9 @@ export function compactReplyPreview(input: ReplyPreviewModel): ReplyPreviewModel
 
 export function previewThumbnail(message: ReplyPreviewModel) {
   if (message.deleted) return null;
-  return message.shared?.thumbnailUrl ||
+  return normalizeMediaUrl(message.shared?.thumbnailUrl ||
     (message.type === "IMAGE" ? message.thumbnailUrl || message.mediaUrl
-      : message.type === "VIDEO" ? message.thumbnailUrl : null);
+      : message.type === "VIDEO" ? message.thumbnailUrl : null));
 }
 
 export function previewText(message: Pick<ReplyPreviewModel,

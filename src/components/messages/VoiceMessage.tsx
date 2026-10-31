@@ -190,6 +190,8 @@ function ActiveVoice({
       await setAudioModeAsync({
         allowsRecording: false,
         playsInSilentMode: true,
+        interruptionMode: "doNotMix",
+        shouldPlayInBackground: false,
       });
       if (!allowed()) return;
       if (!loaded.current || status.error || status.playbackState === "error") {

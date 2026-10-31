@@ -1,3 +1,4 @@
+process.env.EXPO_PUBLIC_API_URL ??= "https://api.test";
 /* global __dirname */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -255,6 +256,7 @@ mock("react-native-safe-area-context", {
   useSafeAreaInsets: () => ({ top: 44, bottom: 34, left: 0, right: 0 }),
 });
 mock("react-native-keyboard-controller", {
+  useReanimatedKeyboardAnimation: () => ({ progress: { value: 0 }, height: { value: 0 } }),
   KeyboardAvoidingView: "KeyboardAvoidingView",
   useKeyboardState: (select) => select({ isVisible: false }),
 });

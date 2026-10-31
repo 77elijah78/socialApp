@@ -63,10 +63,10 @@ function drive(gesture, { translationReset = true } = {}) {
     transition(next);
   } });
   const point = (id = 1) => ({ id, x: 240 + x, y: 320 + y, absoluteX: 240 + x, absoluteY: 320 + y });
-  const touches = (eventType, points, numberOfTouches = points.length) => {
+  const touches = (eventType, points, numberOfTouches = points.length, changedTouches = points) => {
     if (terminal() || gesture.config.enabled === false) return;
     onGestureHandlerEvent({ handlerTag: gesture.handlerTag, state, eventType,
-      numberOfTouches, allTouches: points, changedTouches: points, pointerType: 0 });
+      numberOfTouches, allTouches: points, changedTouches, pointerType: 0 });
   };
   return {
     calls, get state() { return state; },
@@ -91,8 +91,11 @@ function drive(gesture, { translationReset = true } = {}) {
     },
     secondPointer() { touches(TouchEventType.TOUCHES_DOWN, [point(), point(2)]); },
     replacePointer() { touches(TouchEventType.TOUCHES_MOVE, [point(2)]); },
-    up() {
-      touches(TouchEventType.TOUCHES_UP, [], 0);
+    up(releaseX = x, releaseY = y, staleEnd = false) {
+      const previous = { x, y };
+      x = releaseX; y = releaseY;
+      touches(TouchEventType.TOUCHES_UP, [], 0, [point()]);
+      if (staleEnd) { x = previous.x; y = previous.y; }
       if (!terminal()) transition(state === State.ACTIVE ? State.END : State.FAILED);
     },
     cancel() {

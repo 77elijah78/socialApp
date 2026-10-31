@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useFocusEffect } from "expo-router";
 import { AppState } from "react-native";
 
 type Pausable = { pause: () => void };
@@ -21,6 +22,15 @@ export function useChatMediaPlayback(
   visible: boolean,
 ) {
   const allowed = useRef(visible);
+  const focused = useRef(false);
+  useFocusEffect(useCallback(() => {
+    focused.current = true;
+    return () => {
+      focused.current = false;
+      if (activePlayer === player) activePlayer = null;
+      try { player.pause(); } catch { /* Expo may already have released the handle. */ }
+    };
+  }, [player]));
   useEffect(() => {
     allowed.current = visible;
     const pause = () => {
@@ -42,7 +52,7 @@ export function useChatMediaPlayback(
     };
   }, [player, visible]);
   return useCallback(
-    () => allowed.current && AppState.currentState === "active",
+    () => allowed.current && focused.current && AppState.currentState === "active",
     [],
   );
 }

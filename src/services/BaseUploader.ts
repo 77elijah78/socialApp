@@ -1,3 +1,5 @@
+import { uploadMultipart } from "./api";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FileUploadPayload {
@@ -40,45 +42,7 @@ export class BaseUploader {
     formData: FormData,
     onProgress?: (percent: number) => void,
   ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-
-      xhr.open("POST", `${this.baseUrl}${endpoint}`);
-      xhr.timeout = 30_000;
-
-      Object.entries(this.defaultHeaders).forEach(([key, value]) => {
-        xhr.setRequestHeader(key, value);
-      });
-
-      if (onProgress) {
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const pct = Math.round((event.loaded / event.total) * 100);
-            onProgress(pct);
-          }
-        };
-      }
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            resolve(xhr.responseText);
-          }
-        } else {
-          reject(
-            new Error(`Upload failed [${xhr.status}]: ${xhr.responseText}`),
-          );
-        }
-      };
-
-      xhr.onerror = () => reject(new Error("Network error during upload"));
-      xhr.onabort = () => reject(new Error("Upload cancelled"));
-      xhr.ontimeout = () => reject(new Error("Upload timed out"));
-
-      xhr.send(formData);
-    });
+    return uploadMultipart(`${this.baseUrl}${endpoint}`, formData, this.authToken, onProgress);
   }
 
   // ─── HTTP Helpers ─────────────────────────────────────────────────────────

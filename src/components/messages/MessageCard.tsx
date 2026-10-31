@@ -1,3 +1,4 @@
+import { displayMediaUrl } from "@/utils/mediaUrls";
 import type { MessageCardProps } from "@/types";
 import {
   BORDER_RADIUS,
@@ -51,12 +52,12 @@ function MessageCard({
   showAuthor,
   isSent,
   status,
-  uri,
+  uri: rawUri,
   onPress,
   onLongPress,
   repliedTo,
   onReplyPress,
-  thumbnailUri,
+  thumbnailUri: rawThumbnailUri,
   playbackId,
   duration,
   onRetry,
@@ -64,6 +65,9 @@ function MessageCard({
   attachment,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
+  const pendingLocal = isSent && ["SENDING", "FAILED", "PENDING"].includes(status ?? "");
+  const uri = displayMediaUrl(rawUri, pendingLocal);
+  const thumbnailUri = displayMediaUrl(rawThumbnailUri, pendingLocal);
   const { openActionMenu } = useOverlay();
   const attachmentMenu = useCallback(
     () =>
@@ -125,7 +129,7 @@ function MessageCard({
           styles.bubble,
           isSent ? styles.sent : styles.received,
           { maxWidth: bubbleWidth },
-          media && { width: bubbleWidth },
+          (media || repliedTo) && { width: bubbleWidth },
         ]}
       >
         {(showAuthor || repliedTo) && (

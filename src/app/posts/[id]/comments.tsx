@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -17,63 +23,48 @@ import { useKeyboardState } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAppSelector } from "@/store/hooks";
-import { api } from "@/services/api";
-import { PostOneResponse, Comment } from "@/types";
-import theme from "@/constants/theme";
+import { usePostComments } from "@/hooks/usePostComments";
+import { Comment } from "@/types";
+import * as theme from "@/constants/theme";
 import { CommentsSkeleton } from "@/components/ui";
-import { buildCommentThreads, CommentThread, CommentThreadNode } from "@/components/posts/CommentThread";
+import {
+  buildCommentThreads,
+  CommentThread,
+  CommentThreadNode,
+} from "@/components/posts/CommentThread";
 
 export default function CommentsScreen() {
   const { id: postId } = useLocalSearchParams<{ id: string }>();
-  const token = useAppSelector((state) => state.auth.token);
   const currentUser = useAppSelector((state) => state.auth.user);
   const currentUserId = currentUser?.id ?? "";
   const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
 
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { comments, total, loading, error, refresh, send } =
+    usePostComments(postId);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const sendingRef = useRef(false);
+  const scope = useRef(0);
   const [sending, setSending] = useState(false);
   const [input, setInput] = useState("");
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
-
-  const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
-
-  const fetchComments = useCallback(async () => {
-    if (!token || !postId) return [];
-    try {
-      const response = await api.get<{
-        success: boolean;
-        data: PostOneResponse;
-      }>(`/posts/${postId}`, token);
-      return response.data.comments ?? [];
-    } catch (error) {
-      console.warn("Failed to fetch comments:", error);
-      return [];
-    }
-  }, [token, postId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadComments = async () => {
-      if (!token || !postId) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      try {
-        const fetched = await fetchComments();
-        if (!cancelled) setComments(fetched);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void loadComments();
+  useLayoutEffect(() => {
+    scope.current += 1;
+    sendingRef.current = false;
+    // A different external post/account owns a new draft, not a keyboard remount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSending(false);
+    setInput("");
+    setReplyingTo(null);
+    setSendError(null);
     return () => {
-      cancelled = true;
+      scope.current += 1;
     };
-  }, [fetchComments, token, postId]);
+  }, [postId, currentUserId]);
+
+  const commentThreads = useMemo(
+    () => buildCommentThreads(comments),
+    [comments],
+  );
 
   const handleProfilePress = useCallback(
     (username: string) => {
@@ -88,53 +79,29 @@ export default function CommentsScreen() {
 
   const handleSend = useCallback(async () => {
     const content = input.trim();
-    if (!content || !postId || sending) return;
-
-    const temporaryId = `local-comment-${Date.now()}`;
-    const optimisticComment: Comment = {
-      id: temporaryId,
-      content,
-      authorId: currentUserId,
-      postId,
-      createdAt: new Date(),
-      repliedToId: replyingTo?.id ?? null,
-      author: currentUser ?? undefined,
-    };
-
-    setComments((previous) => [...previous, optimisticComment]);
-    setInput("");
-    setReplyingTo(null);
-    if (!token) return;
-
+    if (!content || sendingRef.current) return;
+    sendingRef.current = true;
+    const epoch = scope.current;
+    setSendError(null);
     setSending(true);
     try {
-      const response = await api.post<{
-        success: boolean;
-        data: Comment;
-      }>(
-        `/posts/${postId}/comments`,
-        { content, repliedToId: optimisticComment.repliedToId },
-        token,
-      );
-      setComments((previous) =>
-        previous.map((comment) =>
-          comment.id === temporaryId
-            ? {
-                ...optimisticComment,
-                ...response.data,
-                author: response.data.author ?? optimisticComment.author,
-                repliedToId: response.data.repliedToId ?? optimisticComment.repliedToId,
-              }
-            : comment,
-        ),
-      );
-    } catch (error) {
-      // Keep the local reply visible so the interaction can be previewed without an API.
-      console.warn("Comment saved locally; API request failed:", error);
+      await send(content, replyingTo?.id ?? null);
+      if (scope.current === epoch) {
+        setInput("");
+        setReplyingTo(null);
+      }
+    } catch (cause) {
+      if (scope.current === epoch)
+        setSendError(
+          cause instanceof Error ? cause.message : "Could not send comment",
+        );
     } finally {
-      setSending(false);
+      if (scope.current === epoch) {
+        sendingRef.current = false;
+        setSending(false);
+      }
     }
-  }, [input, postId, sending, currentUserId, replyingTo, currentUser, token]);
+  }, [input, replyingTo, send]);
 
   const renderItem = useCallback(
     ({ item }: { item: CommentThreadNode }) => (
@@ -149,28 +116,50 @@ export default function CommentsScreen() {
     [currentUserId, keyboardIsVisible, handleProfilePress],
   );
 
-  // The native stack owns the top/header inset; this screen owns the bottom
+  // This custom header owns the top inset; this screen also owns the bottom
   // and horizontal safe areas. Keep the previous platform avoidance behavior.
   return (
-    <SafeAreaView style={styles.container} edges={["left", "right", "bottom"]}>
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "left", "right", "bottom"]}
+    >
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={theme.COLORS.textPrimary} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={22}
+              color={theme.COLORS.textPrimary}
+            />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerEyebrow}>POST CONVERSATION</Text>
             <Text style={styles.headerTitle}>Comments</Text>
           </View>
           <View style={styles.headerMark}>
-            <Ionicons name="chatbubble-ellipses" size={17} color={theme.COLORS.primary} />
+            <Ionicons
+              name="chatbubble-ellipses"
+              size={17}
+              color={theme.COLORS.primary}
+            />
           </View>
         </View>
 
+        {error ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            onPress={() => void refresh()}
+          >
+            <Text style={styles.emptySubtitle}>{error} · Tap to retry</Text>
+          </TouchableOpacity>
+        ) : null}
         {loading ? (
           <View style={styles.loadingContent}>
             <CommentsSkeleton count={5} />
@@ -189,26 +178,49 @@ export default function CommentsScreen() {
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets={false}
             contentInsetAdjustmentBehavior="never"
+            ListFooterComponent={
+              total > comments.length ? (
+                <Text style={styles.emptySubtitle}>
+                  Showing {comments.length} of {total} comments. This server
+                  does not yet support more pages.
+                </Text>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <View style={styles.emptyIcon}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={25} color={theme.COLORS.primary} />
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={25}
+                    color={theme.COLORS.primary}
+                  />
                 </View>
-                <Text style={styles.emptyTitle}>No comments yet</Text>
-                <Text style={styles.emptySubtitle}>Be the first to join the conversation.</Text>
+                <Text style={styles.emptyTitle}>
+                  {error ? "Comments unavailable" : "No comments yet"}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  Be the first to join the conversation.
+                </Text>
               </View>
             }
           />
         )}
 
         <View style={styles.composer}>
+          {sendError ? (
+            <Text accessibilityRole="alert" style={styles.emptySubtitle}>
+              {sendError}. Your draft is kept; tap Send to retry.
+            </Text>
+          ) : null}
           {replyingTo ? (
             <View style={styles.replyingPreview}>
               <View style={styles.replyingCopy}>
                 <Text style={styles.replyingTitle} numberOfLines={1}>
                   Replying to @{replyingTo.author?.username ?? "comment"}
                 </Text>
-                <Text style={styles.replyingText} numberOfLines={1}>{replyingTo.content}</Text>
+                <Text style={styles.replyingText} numberOfLines={1}>
+                  {replyingTo.content}
+                </Text>
               </View>
               <TouchableOpacity
                 accessibilityRole="button"
@@ -216,7 +228,11 @@ export default function CommentsScreen() {
                 onPress={() => setReplyingTo(null)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close-circle" size={20} color={theme.COLORS.textMuted} />
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color={theme.COLORS.textMuted}
+                />
               </TouchableOpacity>
             </View>
           ) : null}
@@ -234,7 +250,10 @@ export default function CommentsScreen() {
               maxLength={1000}
             />
             <TouchableOpacity
-              style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
+              style={[
+                styles.sendBtn,
+                (!input.trim() || sending) && styles.sendBtnDisabled,
+              ]}
               onPress={() => void handleSend()}
               disabled={!input.trim() || sending}
               accessibilityRole="button"

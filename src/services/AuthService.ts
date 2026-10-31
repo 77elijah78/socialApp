@@ -1,3 +1,4 @@
+import { apiUrl, API_ORIGIN } from "../config/api";
 import { LoginResponse, RegisterResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
 import { setCredentials } from "../store/slices/authSlice";
@@ -7,7 +8,6 @@ import { mediaService } from "./MediaService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
-  private readonly baseUrl = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1/auth`;
 
   private validate(email: string, password: string): void {
     if (!email || !password) {
@@ -26,7 +26,7 @@ export class AuthService {
       throw new Error("Email, username, and password are required.");
     }
 
-    const response = await fetch(`${this.baseUrl}/register`, {
+    const response = await fetch(apiUrl("/auth/register"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -68,7 +68,7 @@ export class AuthService {
   async login(email: string, password: string, dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
     this.validate(email, password);
 
-    const response = await fetch(`${this.baseUrl}/login`, {
+    const response = await fetch(apiUrl("/auth/login"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -113,16 +113,16 @@ export class AuthService {
     mediaService.disconnectSocket();
     await prepareMessagingAccount(null);
     const token = await AsyncStorage.getItem("refreshToken");
-    if (token) {
-      await fetch(`${this.baseUrl}/logout`, {
+    if (token && API_ORIGIN) {
+      await fetch(apiUrl("/auth/logout"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ refreshToken: token }),
       }).catch(() => {});
-      await AsyncStorage.removeItem("refreshToken");
     }
+    await AsyncStorage.removeItem("refreshToken");
     setTokens(null, null);
 
   }

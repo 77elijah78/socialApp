@@ -1,3 +1,4 @@
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import {
   View,
@@ -30,6 +31,7 @@ import {
 import {
   KeyboardAvoidingView,
   useKeyboardState,
+  useReanimatedKeyboardAnimation,
 } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -183,6 +185,10 @@ function Conversation({
   const [buildItems] = useState(createListItemBuilder);
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const composerSafeArea = useAnimatedStyle(() => ({
+    paddingBottom: insets.bottom * (1 - Math.min(1, Math.max(0, keyboardProgress.value))),
+  }), [insets.bottom]);
   const { openActionMenu } = useOverlay();
   const {
     messages,
@@ -963,12 +969,7 @@ function Conversation({
                 </TouchableOpacity>
               )}
             </View>
-            <View
-              style={{
-                paddingBottom: keyboardVisible ? 0 : insets.bottom,
-                backgroundColor: "#F7F6FB",
-              }}
-            >
+            <Animated.View style={[styles.composerSafeArea, composerSafeArea]}>
               <ChatComposer
                 replyingTo={replyingTo}
                 disabled={selectionMode}
@@ -979,7 +980,7 @@ function Conversation({
                 onSendMedia={handleMedia}
                 onReplyPress={goToMessage}
               />
-            </View>
+            </Animated.View>
           </KeyboardAvoidingView>
           {selection.forwardOpen && <ForwardMessagePicker
             count={selectedIds.size} busy={selection.busy} error={selection.forwardError}
@@ -1005,6 +1006,7 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   container: { flex: 1, backgroundColor: COLORS.bgMain },
+  composerSafeArea: { backgroundColor: "#F7F6FB" },
   headerSafeArea: { backgroundColor: COLORS.bgWhite },
   headerWrapper: {
     zIndex: 10,

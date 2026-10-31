@@ -1,3 +1,5 @@
+import { isDeviceFileUri, normalizeMediaUrl, requireRemoteMediaUrl } from "../utils/mediaUrls";
+import { mediaFileForUpload } from "../utils/mediaUpload";
 import { BaseUploader } from "./BaseUploader";
 import { messageStore } from "../db/MessageStore";
 import { syncStateStore } from "../db/syncStateStore";
@@ -10,7 +12,7 @@ import {
 import { compareMessages } from "../utils/messaging/timeline";
 import { roomAuthors } from "../utils/messaging/roomAuthors";
 import { receiptQueue } from "../db/receiptQueue";
-import { replyPreview } from "../utils/messaging/presentation";
+import { replyPreview, parseMetadata } from "../utils/messaging/presentation";
 import type {
   AttachmentInfo,
   MessageAuthorInfo,
@@ -146,41 +148,14 @@ export class MessageService extends BaseUploader {
     try {
       let mediaUrl = message.mediaUrl;
       let thumbnailUrl = message.thumbnailUrl;
-      if (mediaUrl && !/^https?:\/\//i.test(mediaUrl)) {
-        const uploaded = await this.uploadMedia({
-          uri: mediaUrl,
-          name: mediaUrl.split("/").pop() ?? `attachment-${message.localId}`,
-          type:
-            (
-              {
-                png: "image/png",
-                webp: "image/webp",
-                gif: "image/gif",
-                heic: "image/heic",
-                jpg: "image/jpeg",
-                jpeg: "image/jpeg",
-                mov: "video/quicktime",
-                mp4: message.type === "AUDIO" ? "audio/mp4" : "video/mp4",
-                mp3: "audio/mpeg",
-                m4a: "audio/mp4",
-                wav: "audio/wav",
-                pdf: "application/pdf",
-              } as Record<string, string>
-            )[mediaUrl.split(".").pop()?.toLowerCase() ?? ""] ??
-            (message.type === "IMAGE"
-              ? "image/jpeg"
-              : message.type === "VIDEO"
-                ? "video/mp4"
-                : message.type === "AUDIO"
-                  ? "audio/mp4"
-                  : "application/octet-stream"),
-        });
+      if (mediaUrl && isDeviceFileUri(mediaUrl)) {
+        const uploaded = await this.uploadMedia(mediaFileForUpload(
+          mediaUrl, parseMetadata<AttachmentInfo>(message.attachmentData), message.type,
+        ));
         mediaUrl = uploaded.url;
         thumbnailUrl = uploaded.thumbnailUrl ?? null;
         if (epoch !== this.session) return null;
-        const localMetadata = message.attachmentData
-          ? (JSON.parse(message.attachmentData) as AttachmentInfo)
-          : {};
+        const localMetadata = parseMetadata<AttachmentInfo>(message.attachmentData) ?? {};
         await messageStore.patch(message.localId, {
           mediaUrl,
           thumbnailUrl,
@@ -193,6 +168,12 @@ export class MessageService extends BaseUploader {
           }),
         });
       }
+      // Validate at the final wire boundary, including retries of old cached rows.
+      if (mediaUrl) mediaUrl = requireRemoteMediaUrl(mediaUrl, this.baseUrl);
+      thumbnailUrl = normalizeMediaUrl(thumbnailUrl, this.baseUrl);
+      if (epoch !== this.session) return null;
+      if (mediaUrl !== message.mediaUrl || thumbnailUrl !== message.thumbnailUrl)
+        await messageStore.patch(message.localId, { mediaUrl, thumbnailUrl });
       if (epoch !== this.session) return null;
       const endpoint = message.repliedToId ? "reply" : "messages";
       const response = await api.post<SendResponse>(
@@ -304,6 +285,8 @@ export class MessageService extends BaseUploader {
       formData,
       onProgress,
     )) as {
+      success?: boolean;
+      message?: string;
       data?: {
         url: string;
         thumbnailUrl?: string;
@@ -319,9 +302,14 @@ export class MessageService extends BaseUploader {
       size?: number;
       mimeType?: string;
     };
+    if (response.success === false) throw new Error(response.message || "Upload failed");
     const data = response.data ?? response;
     if (!data.url) throw new Error("Upload response did not include a URL.");
-    return { ...data, url: data.url };
+    return {
+      ...data,
+      url: requireRemoteMediaUrl(data.url, this.baseUrl),
+      thumbnailUrl: normalizeMediaUrl(data.thumbnailUrl, this.baseUrl) ?? undefined,
+    };
   }
 
   historyCursor(rows: MessageRow[]): ServerCursor | undefined {

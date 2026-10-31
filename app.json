@@ -6,21 +6,20 @@
     "orientation": "portrait",
     "icon": "./src/assets/favicon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "scheme": "yoursocialapp",
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
@@ -48,7 +47,15 @@
       "expo-sqlite",
       "expo-status-bar",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Social to select photos and videos for posts and messages.",
+          "cameraPermission": "Allow Social to take photos for posts and messages.",
+          "microphonePermission": "Allow Social to record voice messages."
+        }
+      ]
     ],
     "extra": {
       "eas": {

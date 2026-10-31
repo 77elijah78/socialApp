@@ -12,7 +12,7 @@ import {
 
 export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'SHARED_POST' | 'SHARED_STORY';
 export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
-export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SYSTEM';
+export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SHARE' | 'SYSTEM';
 
 export interface User {
   id: string;
@@ -78,7 +78,7 @@ export interface Comment {
   repliedToId: string | null;
   author?: Partial<User> & Pick<User, "id" | "username">;
   post?: Post;
-  /** Frontend-ready comment engagement fields; likes remain optimistic until persisted by the API. */
+  /** Legacy optional engagement fields; current backend exposes no comment-like mutation. */
   likeCount?: number;
   isLiked?: boolean;
   repliesCount?: number;
@@ -227,6 +227,9 @@ export interface PostOneResponse extends PostResponse {
 }
 
 export interface SocialPost extends PostResponse {
+  /** Client knowledge flags, not new server fields. */
+  likeStateKnown?: boolean;
+  saveStateKnown?: boolean;
   timestamp: string;
   imageUrl?: string;
   tags?: string[];

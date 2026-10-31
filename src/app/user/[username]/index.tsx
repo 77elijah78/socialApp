@@ -1,4 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { usePosts } from '@/hooks/usePosts';
+import { authorFeedParams } from '@/utils/postContracts';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,7 +8,7 @@ import {
   Pressable,
   Image,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,19 +20,22 @@ import { mediaService } from '@/services/MediaService';
 import { messageStore } from '@/db/MessageStore';
 import { setRecentMessageCache } from '@/utils/recentMessageCache';
 import { useAppSelector } from '@/store/hooks';
-import theme from '@/constants/theme';
-import { PostResponse, SocialPost, Conversation } from '@/types';
-import { ProfileGridItemSkeleton, ProfileSkeleton, OfflineBanner } from '@/components/ui';
+import * as theme from '@/constants/theme';
+import { SocialPost, Conversation } from '@/types';
+import {
+  ProfileGridItemSkeleton,
+  ProfileSkeleton,
+  OfflineBanner,
+} from '@/components/ui';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { getCached, setCached } from '@/utils/queryCache';
+import { setCached } from '@/utils/queryCache';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
-const GRID_ITEM_SIZE =
-  (SCREEN_WIDTH - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
-  GRID_COLUMNS;
-const GRID_SKELETON_DATA = Array.from({ length: 9 }, (_, index) => `grid-skeleton-${index}`);
+const GRID_SKELETON_DATA = Array.from(
+  { length: 9 },
+  (_, index) => `grid-skeleton-${index}`,
+);
 
 interface SearchedUserProfile {
   id: string;
@@ -45,26 +50,10 @@ interface SearchedUserProfile {
 }
 
 function formatCount(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000_000)
+    return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(n);
-}
-
-function mapPostResponse(post: PostResponse): SocialPost {
-  const firstImageUrl = post.imageUrls?.[0] ?? '';
-  const likeCount = post._count?.likes ?? 0;
-  const commentCount = post._count?.comments ?? 0;
-  return {
-    ...post,
-    timestamp: new Date(post.createdAt).toISOString(),
-    imageUrl: firstImageUrl,
-    tags: [],
-    likeCount,
-    commentCount,
-    shareCount: post.shareCount ?? 0,
-    isLiked: post.isLiked ?? false,
-    isBookmarked: post.isSaved ?? false,
-  };
 }
 
 export default function UserProfileScreen() {
@@ -74,13 +63,23 @@ export default function UserProfileScreen() {
   const { isOffline } = useNetworkStatus();
 
   const [profile, setProfile] = useState<SearchedUserProfile | null>(null);
-  const [posts, setPosts] = useState<SocialPost[]>([]);
+  const {
+    posts,
+    loading: loadingPosts,
+    loadMore,
+    hasMore,
+    paginating,
+    error: postsError,
+    paginationError,
+    refresh: refreshPosts,
+  } = usePosts({ source: 'author', username });
+  const { width: screenWidth } = useWindowDimensions();
+  const gridItemSize =
+    (screenWidth - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * 2) / 3;
   const [loading, setLoading] = useState(true);
-  const [loadingPosts, setLoadingPosts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'posts'>('posts');
   const [messaging, setMessaging] = useState(false);
-  const hydratedRef = useRef(false);
 
   useEffect(() => {
     if (!username) return;
@@ -98,41 +97,10 @@ export default function UserProfileScreen() {
         setError(err.message ?? 'Failed to load profile');
       } finally {
         setLoading(false);
-        hydratedRef.current = false;
       }
     };
 
     fetchProfile();
-  }, [username, token]);
-
-  useEffect(() => {
-    if (!username) return;
-
-    const fetchPosts = async () => {
-      setLoadingPosts(true);
-      try {
-        const resp = await api.get<{
-          success: boolean;
-          data: {
-            user: SearchedUserProfile;
-            posts: PostResponse[];
-            total: number;
-          };
-        }>(`/posts/user/${username}?page=1&limit=50`, token ?? undefined);
-        setProfile((prev) =>
-          prev ? { ...prev, ...resp.data.user } : resp.data.user,
-        );
-        const mapped = (resp.data.posts ?? []).map(mapPostResponse);
-        setPosts(mapped);
-        setCached(`posts:${username}`, mapped, 5 * 60_000);
-      } catch (err: any) {
-        setError(err.message ?? 'Failed to load posts');
-      } finally {
-        setLoadingPosts(false);
-      }
-    };
-
-    fetchPosts();
   }, [username, token]);
 
   const handleFollow = async () => {
@@ -162,7 +130,9 @@ export default function UserProfileScreen() {
       );
       const conv = resp.data;
       if (currentUserId) {
-        void mediaService.message.syncLatest(conv.id, currentUserId).catch(() => {});
+        void mediaService.message
+          .syncLatest(conv.id, currentUserId)
+          .catch(() => {});
       }
       try {
         const latest = await messageStore.getRecent(conv.id, 30);
@@ -188,18 +158,28 @@ export default function UserProfileScreen() {
     }
   }, [token, profile, messaging, currentUserId]);
 
-  const renderGridItem = ({ item }: { item: SocialPost }) => {
+  const renderGridItem = ({
+    item,
+    index,
+  }: {
+    item: SocialPost;
+    index: number;
+  }) => {
     const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';
     return (
       <Pressable
-        style={styles.gridItem}
-        onPress={() => router.push(`/posts/${item.id}/comments`)}
+        style={[styles.gridItem, { width: gridItemSize, height: gridItemSize }]}
+        onPress={() => router.push(authorFeedParams(username, item.id, index))}
       >
         {imageUrl ? (
           <Image source={{ uri: imageUrl }} style={styles.gridImage} />
         ) : (
           <View style={[styles.gridImage, styles.gridPlaceholder]}>
-            <Ionicons name="image-outline" size={24} color={theme.COLORS.textMuted} />
+            <Ionicons
+              name="image-outline"
+              size={24}
+              color={theme.COLORS.textMuted}
+            />
           </View>
         )}
         <View style={styles.gridOverlay}>
@@ -244,128 +224,177 @@ export default function UserProfileScreen() {
             <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
             <Text style={styles.coverLabelText}>COMMUNITY PROFILE</Text>
           </View>
-          <Ionicons name="aperture-outline" size={25} color="rgba(255,255,255,0.8)" />
+          <Ionicons
+            name="aperture-outline"
+            size={25}
+            color="rgba(255,255,255,0.8)"
+          />
         </LinearGradient>
 
         <View style={styles.profileContent}>
-        {/* Avatar */}
-        <View style={styles.avatarContainer}>
-          <View style={[styles.avatarWrapper, { borderColor: theme.COLORS.bgWhite }]}>
-            {profile.avatarUrl ? (
-              <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarInitial}>
-                  {(profile.displayName?.charAt(0) ?? profile.username.charAt(0)).toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* User Info */}
-        <View style={styles.infoSection}>
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName}>
-              {profile.displayName ?? profile.username}
-            </Text>
-            {profile.isVerified && (
-              <Ionicons name="checkmark-circle" size={18} color={theme.COLORS.primary} />
-            )}
-          </View>
-          <Text style={styles.username}>@{profile.username}</Text>
-          {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(profile._count.posts)}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
+          {/* Avatar */}
+          <View style={styles.avatarContainer}>
+            <View
+              style={[
+                styles.avatarWrapper,
+                { borderColor: theme.COLORS.bgWhite },
+              ]}
+            >
+              {profile.avatarUrl ? (
+                <Image
+                  source={{ uri: profile.avatarUrl }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>
+                    {(
+                      profile.displayName?.charAt(0) ??
+                      profile.username.charAt(0)
+                    ).toUpperCase()}
+                  </Text>
+                </View>
+              )}
             </View>
-            <View style={styles.statDivider} />
-            <Pressable
-              style={styles.statItem}
-              onPress={() =>
-                router.push({ pathname: `/users/${profile.username}/followers` as never })
-              }
-            >
-              <Text style={styles.statValue}>{formatCount(profile._count.followers)}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </Pressable>
-            <View style={styles.statDivider} />
-            <Pressable
-              style={styles.statItem}
-              onPress={() =>
-                router.push({ pathname: `/users/${profile.username}/following` as never })
-              }
-            >
-              <Text style={styles.statValue}>{formatCount(profile._count.following)}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </Pressable>
           </View>
 
-          {isOwnProfile ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push("/editProfile")}
-              style={styles.primaryButton}
-            >
-              <Ionicons name="create-outline" size={17} color={theme.COLORS.textOnPrimary} />
-              <Text style={styles.primaryButtonText}>Edit profile</Text>
-            </Pressable>
-          ) : (
-            <>
-              <View style={styles.buttonRow}>
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    styles.followButton,
-                    profile.isFollowing && styles.secondaryButton,
-                  ]}
-                  onPress={handleFollow}
-                >
-                  <Text
-                    style={[
-                      styles.primaryButtonText,
-                      styles.followButtonText,
-                      profile.isFollowing && styles.secondaryButtonText,
-                    ]}
-                  >
-                    {profile.isFollowing ? 'Following' : 'Follow'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.primaryButton, styles.messageButton]}
-                  onPress={handleMessagePress}
-                  disabled={messaging}
-                >
-                  {messaging ? (
-                    <ActivityIndicator size="small" color={theme.COLORS.white} />
-                  ) : (
-                    <Ionicons name="mail-outline" size={20} color={theme.COLORS.textOnPrimary} />
-                  )}
-                  <Text style={[styles.primaryButtonText, styles.messageButtonText]}>
-                    Message
-                  </Text>
-                </Pressable>
-              </View>
-            </>
-          )}
-        </View>
+          {/* User Info */}
+          <View style={styles.infoSection}>
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName}>
+                {profile.displayName ?? profile.username}
+              </Text>
+              {profile.isVerified && (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={theme.COLORS.primary}
+                />
+              )}
+            </View>
+            <Text style={styles.username}>@{profile.username}</Text>
+            {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
-        {/* Tabs */}
-        <View style={styles.tabBar}>
-          <Pressable
-            style={[styles.tab, activeTab === 'posts' && styles.tabActive]}
-            onPress={() => setActiveTab('posts')}
-          >
-            <Ionicons
-              name="grid-outline"
-              size={22}
-              color={activeTab === 'posts' ? theme.COLORS.primary : theme.COLORS.textMuted}
-            />
-          </Pressable>
-        </View>
+            {/* Stats */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {formatCount(profile._count.posts)}
+                </Text>
+                <Text style={styles.statLabel}>Posts</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <Pressable
+                style={styles.statItem}
+                onPress={() =>
+                  router.push({
+                    pathname: `/users/${profile.username}/followers` as never,
+                  })
+                }
+              >
+                <Text style={styles.statValue}>
+                  {formatCount(profile._count.followers)}
+                </Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </Pressable>
+              <View style={styles.statDivider} />
+              <Pressable
+                style={styles.statItem}
+                onPress={() =>
+                  router.push({
+                    pathname: `/users/${profile.username}/following` as never,
+                  })
+                }
+              >
+                <Text style={styles.statValue}>
+                  {formatCount(profile._count.following)}
+                </Text>
+                <Text style={styles.statLabel}>Following</Text>
+              </Pressable>
+            </View>
+
+            {isOwnProfile ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/editProfile')}
+                style={styles.primaryButton}
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={17}
+                  color={theme.COLORS.textOnPrimary}
+                />
+                <Text style={styles.primaryButtonText}>Edit profile</Text>
+              </Pressable>
+            ) : (
+              <>
+                <View style={styles.buttonRow}>
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      styles.followButton,
+                      profile.isFollowing && styles.secondaryButton,
+                    ]}
+                    onPress={handleFollow}
+                  >
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        styles.followButtonText,
+                        profile.isFollowing && styles.secondaryButtonText,
+                      ]}
+                    >
+                      {profile.isFollowing ? 'Following' : 'Follow'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.primaryButton, styles.messageButton]}
+                    onPress={handleMessagePress}
+                    disabled={messaging}
+                  >
+                    {messaging ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={theme.COLORS.white}
+                      />
+                    ) : (
+                      <Ionicons
+                        name="mail-outline"
+                        size={20}
+                        color={theme.COLORS.textOnPrimary}
+                      />
+                    )}
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        styles.messageButtonText,
+                      ]}
+                    >
+                      Message
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* Tabs */}
+          <View style={styles.tabBar}>
+            <Pressable
+              style={[styles.tab, activeTab === 'posts' && styles.tabActive]}
+              onPress={() => setActiveTab('posts')}
+            >
+              <Ionicons
+                name="grid-outline"
+                size={22}
+                color={
+                  activeTab === 'posts'
+                    ? theme.COLORS.primary
+                    : theme.COLORS.textMuted
+                }
+              />
+            </Pressable>
+          </View>
         </View>
       </View>
     );
@@ -411,12 +440,16 @@ export default function UserProfileScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
         >
-          <Ionicons name="chevron-back" size={22} color={theme.COLORS.textPrimary} />
+          <Ionicons
+            name="chevron-back"
+            size={22}
+            color={theme.COLORS.textPrimary}
+          />
         </Pressable>
         <View style={styles.topBarCopy}>
           <Text style={styles.topBarEyebrow}>COMMUNITY PROFILE</Text>
           <Text style={styles.topBarTitle} numberOfLines={1}>
-            {username ? `@${username}` : "Profile"}
+            {username ? `@${username}` : 'Profile'}
           </Text>
         </View>
         <View style={styles.topBarMark}>
@@ -427,6 +460,26 @@ export default function UserProfileScreen() {
       <FlatList
         style={styles.list}
         data={listData}
+        onEndReached={() => {
+          if (hasMore) void loadMore();
+        }}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          <View>
+            {paginating ? (
+              <ActivityIndicator color={theme.COLORS.primary} />
+            ) : null}
+            {postsError || paginationError ? (
+              <Pressable
+                onPress={() => void (postsError ? refreshPosts() : loadMore())}
+              >
+                <Text style={styles.errorText}>
+                  {(postsError || paginationError)?.message} · Retry
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
         keyExtractor={(item, index) =>
           showGridSkeletons
             ? `grid-skeleton-${index}`
@@ -436,9 +489,9 @@ export default function UserProfileScreen() {
         columnWrapperStyle={styles.gridRow}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={!loadingPosts ? renderEmpty : null}
-        renderItem={showGridSkeletons
-          ? () => <ProfileGridItemSkeleton />
-          : renderGridItem}
+        renderItem={
+          showGridSkeletons ? () => <ProfileGridItemSkeleton /> : renderGridItem
+        }
         contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
@@ -710,8 +763,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
   },
   gridItem: {
-    width: GRID_ITEM_SIZE,
-    height: GRID_ITEM_SIZE,
     borderRadius: theme.BORDER_RADIUS.sm,
     overflow: 'hidden',
     backgroundColor: theme.COLORS.bgInput,

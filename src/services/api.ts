@@ -1,6 +1,7 @@
+import { normalizeMediaUrl, requireRemoteMediaUrl } from "../utils/mediaUrls";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { apiUrl } from "../config/api";
 
-const BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1`;
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
 let currentToken: string | null = null;
@@ -71,7 +72,7 @@ async function request<T>(
   } = options;
 
   const generation = authGeneration;
-  const url = `${BASE_URL}${path}`;
+  const url = apiUrl(path);
   const body = fetchOptions.body;
 
   const isJsonBody = typeof body === "string";
@@ -230,7 +231,7 @@ async function refreshAccessToken(generation: number): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
   try {
-    const resp = await fetch(`${BASE_URL}/auth/refresh`, {
+    const resp = await fetch(apiUrl("/auth/refresh"), {
       signal: controller.signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -356,36 +357,51 @@ async function _uploadFile(
   token?: string,
 ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
   const generation = authGeneration;
-  const url = `${BASE_URL}${path}`;
+  const url = apiUrl(path);
   const authToken = token ?? currentToken;
 
   if (!authToken) {
     throw new Error("No authentication token available");
   }
 
-  const filePart = _extractFileFromFormData(formData);
-  if (!filePart) {
-    throw new Error("No file found in FormData");
-  }
+  const response = await uploadMultipart<{ success: boolean; data: MediaUploadResponse; message?: string }>(url, formData, authToken, undefined, generation);
+  if (!response.success || !response.data) throw new Error(response.message || "Upload was not confirmed");
+  return { ...response, data: { ...response.data, url: requireRemoteMediaUrl(response.data.url),
+    thumbnailUrl: normalizeMediaUrl(response.data.thumbnailUrl) ?? undefined } };
+}
 
-  const form = new FormData();
-  form.append(filePart.fieldName, {
-    uri: filePart.uri,
-    name: filePart.filename,
-    type: filePart.mimeType,
-  } as any);
-
+/** The same refresh single-flight/generation guard as JSON HTTP. Keep the whole
+ * multipart body (all files and fields), including on the one authenticated retry. */
+export async function uploadMultipart<T = unknown>(
+  url: string,
+  formData: FormData,
+  token?: string | null,
+  onProgress?: (percent: number) => void,
+  generation = authGeneration,
+): Promise<T> {
+  if (!/^https?:\/\//i.test(url)) apiUrl(""); // actionable missing-config error
+  const authToken = token ?? currentToken;
+  if (!authToken) throw new Error("No authentication token available");
   try {
-    return await _sendXHR(url, form, authToken);
-  } catch (err) {
-    const msg = (err as Error).message;
-    if (msg.includes("401") && generation === authGeneration) {
+    const response = await _sendXHR<T>(url, formData, authToken, onProgress);
+    if (generation !== authGeneration) throw new Error("Authentication changed during upload");
+    return response;
+  } catch (error) {
+    if (error instanceof UploadHttpError && error.status === 401 && generation === authGeneration) {
       const newToken = await _getRefreshedToken();
       if (newToken && generation === authGeneration) {
-        return _sendXHR(url, form, newToken);
+        const response = await _sendXHR<T>(url, formData, newToken, onProgress);
+        if (generation !== authGeneration) throw new Error("Authentication changed during upload");
+        return response;
       }
     }
-    throw err;
+    throw error;
+  }
+}
+
+class UploadHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
   }
 }
 
@@ -405,11 +421,12 @@ function _getRefreshedToken(): Promise<string | null> {
   return flight.work;
 }
 
-function _sendXHR(
+function _sendXHR<T>(
   url: string,
   formData: FormData,
   authToken: string,
-): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
+  onProgress?: (percent: number) => void,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
@@ -419,7 +436,7 @@ function _sendXHR(
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const pct = Math.round((event.loaded / event.total) * 100);
-        console.log(`Upload progress: ${pct}%`);
+        onProgress?.(pct);
       }
     };
 
@@ -436,11 +453,12 @@ function _sendXHR(
           const error = JSON.parse(xhr.responseText);
           errorMsg = `${errorMsg}: ${error.message || "Unknown error"}`;
         } catch {}
-        reject(new Error(errorMsg));
+        reject(new UploadHttpError(xhr.status, errorMsg));
       }
     };
 
     xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
     xhr.ontimeout = () => reject(new Error("Upload timed out"));
 
     xhr.send(formData);
@@ -461,51 +479,6 @@ function _buildFormData(
     type: mimeType,
   } as any);
   return form;
-}
-
-interface FilePart {
-  uri: string;
-  fieldName: string;
-  mimeType: string;
-  filename: string;
-}
-
-function _extractFileFromFormData(formData: FormData): FilePart | null {
-  const entries = (formData as any)._parts ?? (formData as any)._entries ?? [];
-  for (const entry of entries) {
-    const value = entry[1];
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      "uri" in value &&
-      "name" in value
-    ) {
-      return {
-        uri: (value as any).uri,
-        fieldName: entry[0],
-        mimeType: (value as any).type ?? "application/octet-stream",
-        filename: (value as any).name,
-      };
-    }
-  }
-  if (typeof (formData as any).entries === "function") {
-    for (const [name, value] of (formData as any).entries()) {
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        "uri" in value &&
-        "name" in value
-      ) {
-        return {
-          uri: (value as any).uri,
-          fieldName: name,
-          mimeType: (value as any).type ?? "application/octet-stream",
-          filename: (value as any).name,
-        };
-      }
-    }
-  }
-  return null;
 }
 
 export default api;

@@ -57,7 +57,7 @@ function ImageMessage({
     maxWidth,
     height * 0.5,
   );
-  const source = thumbnail || uri;
+  const source = uri;
   return (
     <View style={[styles.frame, frame]}>
       {state !== "error" && (
@@ -77,6 +77,8 @@ function ImageMessage({
           <Image
             key={`${source}:${attempt}`}
             source={{ uri: source }}
+            placeholder={thumbnail && thumbnail !== uri ? { uri: thumbnail } : undefined}
+            placeholderContentFit="contain"
             style={styles.image}
             contentFit="contain"
             cachePolicy="memory-disk"

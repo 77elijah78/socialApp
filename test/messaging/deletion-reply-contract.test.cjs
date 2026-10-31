@@ -60,7 +60,8 @@ test("all media reply models preserve real author, image/video thumbnails, voice
 test("shared quote snapshots parse before bounding and never retain the raw serialized shared payload", () => {
   const source = row(1, { type: "SHARED_POST", content: JSON.stringify({ sharedPostId: "post", content: "Long caption ".repeat(1000), authorName: "Alice", imageUrl: "https://files.test/post.jpg" }) });
   const quote = replyPreview(source);
-  assert.equal(quote.content.length, 180);
+  assert.equal(quote.content.length, 240);
+  assert.ok(quote.content.endsWith("…"));
   assert.equal(previewThumbnail(quote), "https://files.test/post.jpg");
   assert.ok(JSON.stringify(quote).length < 700);
   assert.ok(!quote.content.startsWith("{"));

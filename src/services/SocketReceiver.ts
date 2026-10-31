@@ -1,3 +1,4 @@
+import { API_ORIGIN, requireApiOrigin } from "../config/api";
 import { io, type Socket } from "socket.io-client";
 import { messageStore } from "../db/MessageStore";
 import { roomAuthors } from "../utils/messaging/roomAuthors";
@@ -47,7 +48,14 @@ export class SocketReceiver {
     this.currentUserId = userId;
     this.authToken = token;
     const generation = this.generation;
-    const socket = io(this.baseUrl, {
+    let origin: string;
+    try { origin = this.baseUrl || requireApiOrigin(); }
+    catch (error) {
+      this.emit("sync:error", error);
+      this.emit("disconnect", "API is not configured");
+      return;
+    }
+    const socket = io(origin, {
       auth: { token },
       transports: ["websocket"],
       reconnection: true,
@@ -621,5 +629,5 @@ export class SocketReceiver {
   }
 }
 export const socketReceiver = new SocketReceiver(
-  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000",
+  API_ORIGIN,
 );

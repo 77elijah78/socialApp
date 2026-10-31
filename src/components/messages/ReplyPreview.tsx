@@ -65,10 +65,10 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
         </View>
       )}
       <View style={styles.copy}>
-        <Text style={styles.name} numberOfLines={1}>
+        <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
           {name}
         </Text>
-        <Text style={styles.preview} numberOfLines={2}>
+        <Text style={styles.preview} numberOfLines={compact ? 2 : 3} ellipsizeMode="tail">
           {text}
         </Text>
       </View>
@@ -88,7 +88,8 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
 export default memo(ReplyPreview);
 const styles = StyleSheet.create({
   quote: {
-    minHeight: 52,
+    minHeight: 60,
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: SPACING.md,
@@ -100,12 +101,13 @@ const styles = StyleSheet.create({
   },
   compact: { flex: 1, backgroundColor: COLORS.transparent },
   thumbnail: {
+    flexShrink: 0,
     width: 38,
     height: 38,
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.primaryGhostBorder,
   },
-  type: { width: 30, alignItems: "center", justifyContent: "center" },
+  type: { flexShrink: 0, width: 30, alignItems: "center", justifyContent: "center" },
   copy: { flex: 1, minWidth: 0, gap: SPACING.xs },
   name: {
     fontSize: TYPOGRAPHY.fontSize.lg,
@@ -114,7 +116,7 @@ const styles = StyleSheet.create({
   },
   preview: {
     fontSize: TYPOGRAPHY.fontSize.lg,
-    lineHeight: 18,
+    lineHeight: 20,
     color: COLORS.textGray,
   },
 });

@@ -1,3 +1,4 @@
+import { DETAIL_STACK_OPTIONS } from "@/constants/navigation";
 import { Stack, useRouter } from "expo-router";
 import { PaperProvider } from "react-native-paper";
 import { runMigrations } from "../db/migrations";
@@ -8,7 +9,7 @@ import { ActivityIndicator, View, Text, Linking } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { messageStore } from "@/db/MessageStore";
 import { mediaService } from "@/services/MediaService";
@@ -17,7 +18,7 @@ import {
   setTokenRefreshCallback,
 } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
-import { addNotification as addNotificationToStore } from "@/store/slices/notificationsSlice";
+import { activityAccountChanged, receiveActivity } from "@/store/slices/notificationsSlice";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
@@ -114,6 +115,7 @@ function SocketProvider() {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
+    dispatch(activityAccountChanged(isAuthenticated ? userId ?? null : null));
     if (isAuthenticated && userId && token) {
       mediaService.setAuthToken(token);
       mediaService.connectSocket(userId, token);
@@ -121,17 +123,14 @@ function SocketProvider() {
       mediaService.disconnectSocket();
     }
     return () => mediaService.disconnectSocket();
-  }, [isAuthenticated, token, userId]);
+  }, [dispatch, isAuthenticated, token, userId]);
 
   useEffect(() => {
-    const unsub = mediaService.socket.on("notification:new", (payload: any) => {
-      if (payload) {
-        dispatch(addNotificationToStore(payload));
-      }
+    if (!isAuthenticated || !userId) return;
+    return mediaService.socket.on("notification:new", (payload: unknown) => {
+      dispatch(receiveActivity({ accountId: userId, payload, receivedAt: Date.now() }));
     });
-
-    return unsub;
-  }, [dispatch]);
+  }, [dispatch, isAuthenticated, userId]);
 
   return null;
 }
@@ -195,6 +194,7 @@ export default function RootLayout() {
                     <SocketProvider />
                     <Stack
                       screenOptions={{
+                        ...DETAIL_STACK_OPTIONS,
                         contentStyle: {
                           backgroundColor: theme.COLORS.bgLight,
                           borderColor: theme.COLORS.bgLight,

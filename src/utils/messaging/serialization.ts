@@ -1,3 +1,4 @@
+import { normalizeMediaUrl } from "../mediaUrls";
 import { compactReplyPreview, type MessageAuthorInfo, type ReplyPreviewModel } from "./presentation";
 import type { NewMessageRow } from "../../db/schema";
 
@@ -110,8 +111,8 @@ export function normalizeRemoteMessage(
         }))
       : null,
     attachmentData: null,
-    mediaUrl: payload.mediaUrl ?? null,
-    thumbnailUrl: payload.thumbnailUrl ?? null,
+    mediaUrl: normalizeMediaUrl(payload.mediaUrl),
+    thumbnailUrl: normalizeMediaUrl(payload.thumbnailUrl),
     type: (payload.type ?? "TEXT").toUpperCase(),
     status,
     senderId,
