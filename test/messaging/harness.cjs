@@ -258,19 +258,10 @@ mock("react-native-keyboard-controller", {
   KeyboardAvoidingView: "KeyboardAvoidingView",
   useKeyboardState: (select) => select({ isVisible: false }),
 });
-class GestureBuilder {
-  handlers = {};
-  config = {};
-  enabled(v) { this.config.enabled = v; return this; }
-  maxPointers(v) { this.config.maxPointers = v; return this; }
-  activeOffsetX(v) { this.config.activeOffsetX = v; return this; }
-  failOffsetX(v) { this.config.failOffsetX = v; return this; }
-  failOffsetY(v) { this.config.failOffsetY = v; return this; }
-  onUpdate(v) { this.handlers.update = v; return this; }
-  onEnd(v) { this.handlers.end = v; return this; }
-  onFinalize(v) { this.handlers.finalize = v; return this; }
-}
-mock("react-native-gesture-handler", { Gesture: { Pan: () => new GestureBuilder() }, GestureDetector: "GestureDetector" });
+mock("react-native-gesture-handler", {
+  Gesture: require("./gesture-driver.cjs").Gesture,
+  GestureDetector: "GestureDetector",
+});
 mock("react-native-reanimated", {
   __esModule: true, default: { View: "ReanimatedView" },
   useSharedValue: value => React.useRef({ value, set(next) { this.value = next; }, get() { return this.value; } }).current,

@@ -7,6 +7,8 @@
 
 **Status:** frontend implementation and automated verification completed. **Not full native/two-account acceptance sign-off:** backend limitations below prevent some requested behavior, and no devices, live accounts, or production services were exercised. No backend files, backend schema, production database, deployment, or merge were changed.
 
+**Swipe reliability follow-up:** the original frontend implementation was published as `c40b809dbfbc5ba54aaec6920d5181bcad783111`. The subsequent [swipe-left reliability repair](./swipe-reply-reliability-fix.md) documents the direction lock, native list coordination and expanded 282-test verification. This report's 43-file inventory and 269-test results below describe the original publication, not the later follow-up.
+
 This audit describes the actual backend commit above. Backend findings in the earlier `messaging-upgrade-audit.md` and `read-receipts-integration.md` are historical, not the current contract. In particular, current main **does** have individual `MessageReceipt` records, read ACKs, transactional read/outbox persistence, sender/reader read events, group recipient handling, and deterministic history cursors. These were reused, not replaced.
 
 ## 1. Root causes and repairs

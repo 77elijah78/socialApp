@@ -36,6 +36,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatComposer from "@/components/chat/ChatComposer";
 import ChatMessageRow from "@/components/chat/ChatMessageRow";
+import { ChatGestureCoordinator } from "@/components/chat/ChatGestureCoordinator";
 import MessageSelectionBar from "@/components/chat/MessageSelectionBar";
 import ForwardMessagePicker from "@/components/chat/ForwardMessagePicker";
 import { useMessageSelection } from "@/hooks/useMessageSelection";
@@ -770,106 +771,108 @@ function Conversation({
           >
             <View style={styles.listViewport} testID="chat-message-viewport">
               <MessageCellMeasurements.Provider value={measurements}>
-                <FlatList
-                  CellRendererComponent={MeasuredMessageCell}
-                  initialNumToRender={12}
-                  maxToRenderPerBatch={8}
-                  windowSize={9}
-                  ref={list}
-                  testID="chat-message-list"
-                  style={styles.messageList}
-                  data={data}
-                  extraData={selectedIds}
-                  inverted
-                  keyExtractor={keyExtractor}
-                  renderItem={renderItem}
-                  maintainVisibleContentPosition={anchorHistory ? maintainPosition : undefined}
-                  automaticallyAdjustKeyboardInsets={false}
-                  contentInsetAdjustmentBehavior="never"
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode={
-                    Platform.OS === "ios" ? "interactive" : "on-drag"
-                  }
-                  contentContainerStyle={styles.listContent}
-                  onLayout={(event) => {
-                    listHeight.current = event.nativeEvent.layout.height;
-                    if (
-                      viewport.layout(listHeight.current) &&
-                      !navigator.pending &&
-                      !contextActive.current
-                    )
-                      list.current?.scrollToOffset({
-                        offset: 0,
-                        animated: false,
-                      });
-                    navigator.settled();
-                  }}
-                  onContentSizeChange={(_width, height) => {
-                    if (focusedRef.current) list.current?.recordInteraction?.();
-                    if (
-                      viewport.content(height) &&
-                      !navigator.pending &&
-                      !contextActive.current
-                    )
-                      list.current?.scrollToOffset({
-                        offset: 0,
-                        animated: false,
-                      });
-                    if (
-                      viewport.atLatest &&
-                      !viewport.interacting &&
-                      !navigator.pending &&
-                      !contextActive.current &&
-                      canReleaseHistory()
-                    )
-                      releaseHistory();
-                  }}
-                  onScrollBeginDrag={() => {
-                    manualDrag.current = true;
-                    setAnchorHistory(true);
-                    navigator.cancel();
-                    viewport.beginInteraction();
-                  }}
-                  onMomentumScrollBegin={() => {
-                    navigator.started();
-                    setAnchorHistory(true);
-                    viewport.beginInteraction();
-                  }}
-                  onScrollEndDrag={onScrollEnd}
-                  onMomentumScrollEnd={onScrollEnd}
-                  onScroll={onScroll}
-                  scrollEventThrottle={32}
-                  onEndReached={onOlder}
-                  onEndReachedThreshold={0.3}
-                  viewabilityConfigCallbackPairs={viewabilityPairs}
-                  onScrollToIndexFailed={onIndexFailed}
-                  showsVerticalScrollIndicator={false}
-                  ListEmptyComponent={
-                    isSyncing ? (
-                      <View style={styles.emptyLoading}>
-                        <ChatBubbleSkeleton isOwn={false} />
-                        <ChatBubbleSkeleton isOwn />
-                        <ChatBubbleSkeleton isOwn={false} />
-                      </View>
-                    ) : (
-                      <View style={styles.emptyState}>
-                        <View style={styles.emptyStateIcon}>
-                          <Ionicons
-                            name="chatbubble-ellipses-outline"
-                            size={28}
-                            color={COLORS.primary}
-                          />
+                <ChatGestureCoordinator>
+                  <FlatList
+                    CellRendererComponent={MeasuredMessageCell}
+                    initialNumToRender={12}
+                    maxToRenderPerBatch={8}
+                    windowSize={9}
+                    ref={list}
+                    testID="chat-message-list"
+                    style={styles.messageList}
+                    data={data}
+                    extraData={selectedIds}
+                    inverted
+                    keyExtractor={keyExtractor}
+                    renderItem={renderItem}
+                    maintainVisibleContentPosition={anchorHistory ? maintainPosition : undefined}
+                    automaticallyAdjustKeyboardInsets={false}
+                    contentInsetAdjustmentBehavior="never"
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={
+                      Platform.OS === "ios" ? "interactive" : "on-drag"
+                    }
+                    contentContainerStyle={styles.listContent}
+                    onLayout={(event) => {
+                      listHeight.current = event.nativeEvent.layout.height;
+                      if (
+                        viewport.layout(listHeight.current) &&
+                        !navigator.pending &&
+                        !contextActive.current
+                      )
+                        list.current?.scrollToOffset({
+                          offset: 0,
+                          animated: false,
+                        });
+                      navigator.settled();
+                    }}
+                    onContentSizeChange={(_width, height) => {
+                      if (focusedRef.current) list.current?.recordInteraction?.();
+                      if (
+                        viewport.content(height) &&
+                        !navigator.pending &&
+                        !contextActive.current
+                      )
+                        list.current?.scrollToOffset({
+                          offset: 0,
+                          animated: false,
+                        });
+                      if (
+                        viewport.atLatest &&
+                        !viewport.interacting &&
+                        !navigator.pending &&
+                        !contextActive.current &&
+                        canReleaseHistory()
+                      )
+                        releaseHistory();
+                    }}
+                    onScrollBeginDrag={() => {
+                      manualDrag.current = true;
+                      setAnchorHistory(true);
+                      navigator.cancel();
+                      viewport.beginInteraction();
+                    }}
+                    onMomentumScrollBegin={() => {
+                      navigator.started();
+                      setAnchorHistory(true);
+                      viewport.beginInteraction();
+                    }}
+                    onScrollEndDrag={onScrollEnd}
+                    onMomentumScrollEnd={onScrollEnd}
+                    onScroll={onScroll}
+                    scrollEventThrottle={32}
+                    onEndReached={onOlder}
+                    onEndReachedThreshold={0.3}
+                    viewabilityConfigCallbackPairs={viewabilityPairs}
+                    onScrollToIndexFailed={onIndexFailed}
+                    showsVerticalScrollIndicator={false}
+                    ListEmptyComponent={
+                      isSyncing ? (
+                        <View style={styles.emptyLoading}>
+                          <ChatBubbleSkeleton isOwn={false} />
+                          <ChatBubbleSkeleton isOwn />
+                          <ChatBubbleSkeleton isOwn={false} />
                         </View>
-                        <Text style={styles.emptyStateTitle}>
-                          A quiet little corner
-                        </Text>
-                        <Text style={styles.emptyStateText}>
-                          Send a message to start the conversation.
-                        </Text>
-                      </View>
-                    )
-                  }
-                />
+                      ) : (
+                        <View style={styles.emptyState}>
+                          <View style={styles.emptyStateIcon}>
+                            <Ionicons
+                              name="chatbubble-ellipses-outline"
+                              size={28}
+                              color={COLORS.primary}
+                            />
+                          </View>
+                          <Text style={styles.emptyStateTitle}>
+                            A quiet little corner
+                          </Text>
+                          <Text style={styles.emptyStateText}>
+                            Send a message to start the conversation.
+                          </Text>
+                        </View>
+                      )
+                    }
+                  />
+                </ChatGestureCoordinator>
               </MessageCellMeasurements.Provider>
               {replyContext?.status === "loading" &&
                 !messages.some(

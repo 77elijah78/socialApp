@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { act, create } = require("react-test-renderer");
 const { row, mock, native, scrolls, resetScrolls, settle } = require("./harness.cjs");
+const { drive, swipe, replyPans } = require("./gesture-driver.cjs");
 let renders = 0;
 mock("@/components/messages/MessageCard", props => { renders++; return React.createElement("MessageCard", props); });
 const noop = () => {};
@@ -15,7 +16,7 @@ const { runMigrations } = require("../../src/db/migrations.ts");
 const { messageStore } = require("../../src/db/MessageStore.ts");
 const Screen = require("../../src/app/(chatRoom)/privateRoom.tsx").default;
 const Row = require("../../src/components/chat/ChatMessageRow.tsx").default;
-const { shouldReplyFromSwipe } = require("../../src/utils/messaging/swipeReply.ts");
+const { replySwipeIntent, shouldReplyFromSwipe } = require("../../src/utils/messaging/swipeReply.ts");
 const { router } = require("expo-router");
 let renderer;
 const button = label => renderer.root.findByProps({ accessibilityLabel: label });
@@ -35,11 +36,11 @@ afterEach(async () => {
 });
 async function mount() { await act(async () => { renderer = create(React.createElement(Screen)); }); }
 
-test("left reply thresholds reject taps, tiny/right/vertical/failed movements regardless of message kind", () => {
-  for (const [x, y] of [[-2, 0], [-17, 0], [-55, 0], [90, 0], [-70, 40], [-90, 80], [NaN, 0], [-60, Infinity]])
-    assert.equal(shouldReplyFromSwipe(x, y), false);
-  assert.equal(shouldReplyFromSwipe(-56, 0), true);
-  assert.equal(shouldReplyFromSwipe(-70, 8), true);
+test("left reply thresholds reject taps, tiny/right/vertical movements regardless of message kind", () => {
+  for (const [x, y] of [[-2, 0], [-11, 0], [-47, 0], [90, 0], [-30, 60], [-60, 90], [NaN, 0], [-60, Infinity]])
+    assert.equal(shouldReplyFromSwipe(x, y, replySwipeIntent(x, y) === "reply"), false);
+  assert.equal(shouldReplyFromSwipe(-48, 0, true), true);
+  assert.equal(shouldReplyFromSwipe(-70, 32, true), true);
 });
 
 test("the real common row installs the same one-finger horizontal gesture for all seven supported types", async () => {
@@ -50,17 +51,18 @@ test("the real common row installs the same one-finger horizontal gesture for al
     React.createElement(Row, { key: message.id, item: { kind: "message", id: `message:${message.localId}`, message },
       userId: "me", receiverName: "Other", onAction: noop, onRetry: noop, onReply: row => replied.push(row),
       onNavigate: noop, onContextClose: noop, onContextPage: noop, onContextRefresh: noop })))); });
-  for (const detector of renderer.root.findAllByType("GestureDetector")) {
-    const gesture = detector.props.gesture;
+  for (const gesture of replyPans(renderer)) {
     assert.equal(gesture.config.enabled, true);
     assert.equal(gesture.config.maxPointers, 1);
-    assert.equal(gesture.config.activeOffsetX, -18);
-    assert.deepEqual(gesture.config.failOffsetY, [-12, 12]);
-    gesture.handlers.end({ translationX: -20, translationY: 0 }, true);
-    gesture.handlers.end({ translationX: -80, translationY: 60 }, true);
-    gesture.handlers.end({ translationX: -80, translationY: 0 }, false);
-    gesture.handlers.end({ translationX: -60, translationY: 4 }, true);
-    gesture.handlers.finalize();
+    assert.equal(gesture.config.manualActivation, true);
+    swipe(gesture, -20, 0);
+    const vertical = drive(gesture);
+    try { vertical.down(); vertical.move(-4, 14); vertical.move(-80, 60); vertical.up(); }
+    finally { vertical.dispose(); }
+    const cancelled = drive(gesture);
+    try { cancelled.down(); cancelled.move(-14, 1); cancelled.move(-80, 0); cancelled.cancel(); }
+    finally { cancelled.dispose(); }
+    swipe(gesture, -60, 34);
   }
   assert.deepEqual(replied, messages, "reply callback receives the actual canonical row, not a text-only reconstruction");
 });
@@ -82,14 +84,16 @@ test("selection disables pan replies and intercepts row/media taps without chang
   assert.equal(renderer.root.findByType("MessageCard").props.uri, message.mediaUrl);
 });
 
-test("actual screen preserves draft/composer identity, multi-selects with only the changed row rerendering, and hardware back exits first", async () => {
+test("actual screen preserves draft/composer identity, multi-selects with only the changed row rerendering, and hardware back exits first", async t => {
   native.Platform.OS = "android";
   await mount();
   const input = renderer.root.findByType("TextInput");
   await act(async () => input.props.onChangeText("Keep this draft"));
   const composerBefore = renderer.root.findByProps({ testID: "chat-composer" });
   const first = renderer.root.findAllByType("MessageCard")[0];
-  const queuedGesture = renderer.root.findAllByType("GestureDetector")[0].props.gesture;
+  const queuedGesture = drive(replyPans(renderer)[0]);
+  t.after(() => queuedGesture.dispose());
+  await act(async () => { queuedGesture.down(); queuedGesture.move(-14, 1); queuedGesture.move(-60, 0); });
   await act(async () => first.props.onLongPress());
   assert.equal(renderer.root.findByProps({ testID: "message-selection-toolbar" }).findAllByType("Text")[0].props.children[0], 1);
   assert.equal(renderer.root.findByType("TextInput").props.editable, false);
@@ -100,7 +104,7 @@ test("actual screen preserves draft/composer identity, multi-selects with only t
   await act(async () => renderer.root.findByProps({ testID: `message-select-${secondId}` }).props.onPress());
   assert.ok(renders - before <= 1, `selection rerendered ${renders - before} cards, not the unchanged visible window`);
   assert.ok(renderer.root.findAllByProps({ accessibilityRole: "checkbox" }).filter(item => item.props.accessibilityState.checked).length === 2);
-  await act(async () => queuedGesture.handlers.end({ translationX: -60, translationY: 0 }, true));
+  await act(async () => queuedGesture.up());
   assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 0, "a late UI-thread reply cannot bypass active selection");
   await act(async () => assert.equal(native.BackHandler.press(), true));
   assert.equal(renderer.root.findAllByProps({ testID: "message-selection-toolbar" }).length, 0);
@@ -114,7 +118,7 @@ test("actual screen preserves draft/composer identity, multi-selects with only t
 
 test("swipe and single-selection reply share the existing composer/cancel path, not a parallel reply sender", async () => {
   await mount();
-  await act(async () => renderer.root.findAllByType("GestureDetector")[0].props.gesture.handlers.end({ translationX: -60, translationY: 1 }, true));
+  await act(async () => swipe(replyPans(renderer)[0], -60, 32));
   assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
   await act(async () => button("Cancel reply").props.onPress());
   const message = renderer.root.findAllByType("MessageCard")[1];
@@ -147,7 +151,7 @@ test("metadata commits keep the row's gesture/action callbacks stable while usin
   await act(async () => renderer.update(React.createElement(Row, { ...props, item: { ...props.item, message: updated } })));
   assert.equal(renderer.root.findByType("GestureDetector").props.gesture, gesture);
   assert.equal(renderer.root.findByType("MessageCard").props.onLongPress, press);
-  gesture.handlers.end({ translationX: -60, translationY: 0 }, true);
+  swipe(gesture);
   press();
   assert.equal(replied[0], updated);
   assert.equal(pressed[0], updated);
@@ -157,9 +161,9 @@ test("a queued swipe consults canonical session identity instead of a just-delet
   let canonical = chat.messages;
   chat.getLoadedMessage = id => canonical.find(message => message.localId === id);
   await mount();
-  const gesture = renderer.root.findAllByType("GestureDetector")[0].props.gesture;
+  const gesture = replyPans(renderer)[0];
   canonical = [];
-  await act(async () => gesture.handlers.end({ translationX: -60, translationY: 0 }, true));
+  await act(async () => swipe(gesture));
   assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 0);
   assert.equal(scrolls.length, 0);
 });
@@ -167,13 +171,69 @@ test("a queued swipe consults canonical session identity instead of a just-delet
 test("reply-source cache validation covers a deletion missed before the composer subscription without losing its draft", async () => {
   await mount();
   await act(async () => renderer.root.findByType("TextInput").props.onChangeText("Keep my draft"));
-  const staleGesture = renderer.root.findAllByType("GestureDetector")[0].props.gesture;
+  const staleGesture = replyPans(renderer)[0];
   const id = renderer.root.findAllByType("MessageCard")[0].props.playbackId;
   await messageStore.deleteOne(id, "me", { conversationId: "room", deleteFor: "everyone" });
   // The adapted screen deliberately still has the previous render. The real
   // useChat lookup is tested separately; this exercises the subscription gap.
-  await act(async () => { staleGesture.handlers.end({ translationX: -60, translationY: 0 }, true); await settle(); });
+  await act(async () => { swipe(staleGesture); await settle(); });
   assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 0);
   assert.equal(renderer.root.findByType("TextInput").props.value, "Keep my draft");
   assert.ok(renderer.root.findAllByType("Text").some(node => String(node.props.children).includes("was removed")));
+});
+
+test("screen coordinates every row with exactly one native handler directly on the existing RN list", async () => {
+  await mount();
+  const nativeDetectors = renderer.root.findAllByType("GestureDetector")
+    .filter(detector => detector.props.gesture.handlerName === "NativeViewGestureHandler");
+  assert.equal(nativeDetectors.length, 1);
+  const detector = nativeDetectors[0];
+  const nativeGesture = detector.props.gesture;
+  assert.equal(detector.props.children.props.testID, "chat-message-list", "no extra native layout view surrounds the list");
+  assert.equal(nativeGesture.config.shouldCancelWhenOutside, false);
+  assert.equal(nativeGesture.config.shouldActivateOnStart, undefined);
+  assert.equal(nativeGesture.config.disallowInterruption, undefined, "the scroll handler must remain interruptible during intent arbitration");
+  const pans = replyPans(renderer);
+  assert.ok(pans.length > 0);
+  for (const pan of pans) {
+    assert.deepEqual(pan.config.blocksHandlers, [nativeGesture]);
+    assert.equal(pan.config.simultaneousWith, undefined, "do not enable simultaneous scrolling while replying");
+    assert.equal(pan.config.requireToFail, undefined, "the list waits for row intent, not vice versa");
+  }
+});
+
+test("the native list relationship and every row gesture survive typing/receipt commits without reattachment", async () => {
+  await mount();
+  const nativeGesture = renderer.root.findAllByType("GestureDetector")
+    .find(detector => detector.props.gesture.handlerName === "NativeViewGestureHandler").props.gesture;
+  const pans = replyPans(renderer);
+  await act(async () => renderer.root.findByType("TextInput").props.onChangeText("Still typing"));
+  chat.messages = chat.messages.map((message, index) => index === 0 ? { ...message, status: "READ", isRead: true } : message);
+  await act(async () => renderer.update(React.createElement(Screen)));
+  assert.equal(renderer.root.findAllByType("GestureDetector")
+    .find(detector => detector.props.gesture.handlerName === "NativeViewGestureHandler").props.gesture, nativeGesture);
+  assert.deepEqual(replyPans(renderer), pans);
+  await act(async () => swipe(pans[0], -48, 25));
+  assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
+  assert.equal(renderer.root.findByType("TextInput").props.value, "Still typing");
+  assert.equal(scrolls.length, 0);
+});
+
+test("web retains automatic pan and browser vertical scrolling without unsupported native state-manager calls", async () => {
+  native.Platform.OS = "web";
+  await mount();
+  const detectors = renderer.root.findAllByType("GestureDetector");
+  assert.ok(detectors.length > 0);
+  assert.equal(detectors.filter(detector => detector.props.gesture.handlerName === "NativeViewGestureHandler").length, 0);
+  for (const detector of detectors) {
+    assert.equal(detector.props.touchAction, "pan-y");
+    assert.equal(detector.props.gesture.config.manualActivation, false);
+    assert.equal(detector.props.gesture.config.blocksHandlers, undefined);
+  }
+  const driver = drive(replyPans(renderer)[0]);
+  try {
+    await act(async () => { driver.down(); driver.move(-14, 2); driver.move(-48, 25); driver.up(); });
+    assert.deepEqual(driver.calls, [], "web must not call Reanimated's native-only setGestureState API");
+    assert.equal(renderer.root.findAllByProps({ accessibilityLabel: "Cancel reply" }).length, 1);
+  } finally { driver.dispose(); }
 });
