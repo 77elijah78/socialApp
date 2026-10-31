@@ -2,6 +2,8 @@
 
 **Date:** 2026-10-31. **Frontend baseline:** `44aabd7a5c683bfc957ffdbf591bd3e32b08b704`. **Working branch:** `arena/e4dfc24a-socialapp`. **Backend inspected read-only:** [`77elijah78/nodejs-socialapp` main `eb79c440ae38f0f120b8301c59ff64904b67c7bc`](https://github.com/77elijah78/nodejs-socialapp/commit/eb79c440ae38f0f120b8301c59ff64904b67c7bc).
 
+**Security follow-up (2026-10-31):** This original audit records the frontend repairs published in `24a5b31`. Subsequent compatible dependency fixes, current scan results (**22 production-install / 39 full affected package entries, zero critical**), **353 passing tests**, and remaining upgrade boundaries are recorded in the [dependency security follow-up](dependency-security-follow-up.md). SDK/native versions are unchanged. The historical inventory and measurements below are retained; physical-device certification remains pending.
+
 **Verdict: frontend repairs and automated/build checks completed; NOT production-readiness certification.** The requested two-account, two-physical-Android-device production verification has **not** been performed. No APK/AAB was built or installed. The reported approximately 128 MB APK and sub-second startup were user observations, not measurements reproduced here. Backend capabilities still limit comments and activity; dependency advisories also require review. Nothing was merged, deployed, or changed in the live database.
 
 ## 1. Initial audit, root causes and disposition
