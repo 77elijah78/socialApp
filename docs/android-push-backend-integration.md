@@ -1,5 +1,7 @@
 # Android message push — real backend integration
 
+> **Setup-error follow-up:** [safe stage/code diagnostics](android-push-setup-diagnostics.md) replaces the catch-all connection/FCM message without exposing tokens or changing credentials. The actual handset cause still needs the resulting diagnostic.
+
 > **Token-refresh follow-up:** [SDK token-event feedback-loop fix](android-push-token-loop-fix.md) reuses the event payload, stops duplicate registration cycles and adds stage-specific status messages.
 
 > **SDK 56 sound follow-up:** [default-channel sound correction](android-notification-sound-fix.md) removes an invalid explicit channel sound argument without muting notifications or adding assets. The validation below remains the original `6e3a79b` integration evidence.

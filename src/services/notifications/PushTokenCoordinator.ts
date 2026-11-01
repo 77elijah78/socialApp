@@ -1,4 +1,5 @@
 import { PushSetupError } from "./PushBackendService";
+import { describePushSetupFailure, type PushSetupStage } from "./PushSetupDiagnostics";
 export interface PushIdentity { accountId: string; authToken: string }
 export interface PushRegistration {
   register(expoPushToken: string, identity: PushIdentity): Promise<void>;
@@ -124,11 +125,12 @@ export class PushTokenCoordinator {
       const capability = this.native.capability();
       if (!capability.available) { this.publish("unsupported", capability.explanation ?? "System notifications are unavailable in this build."); return; }
       this.publish("syncing", "Checking notification permissions…");
+      let stage: PushSetupStage = "permissions";
       try {
         const permission = await this.native.permission(requestPermission);
         if (!current()) return;
         if (!permission.granted) {
-          if (this.registered || this.backend?.revokeCurrent) await this.clearRegistration(identity);
+          if (this.registered || this.backend?.revokeCurrent) { stage = "cleanup"; await this.clearRegistration(identity); }
           if (!current()) return;
           this.publish(permission.canAskAgain ? "permission-required" : "denied", permission.canAskAgain
             ? "Allow notifications to receive messages when SocialApp is closed." : "Notifications are blocked. Enable them in Android/iOS settings.");
@@ -138,12 +140,14 @@ export class PushTokenCoordinator {
           if (!current()) return;
           // Native unregister/token acquisition are ordered too: an old logout
           // must not invalidate a token just acquired by a new account.
+          stage = "identity";
           this.publish("syncing", "Preparing notification registration…");
           await this.backend?.beforeToken?.(identity);
           if (!current()) return;
           let nativeToken = this.pendingDeviceToken ?? requestedToken;
           this.pendingDeviceToken = null;
           if (!nativeToken && this.native.deviceToken) {
+            stage = "native-token";
             this.publish("syncing", "Getting Android push token…");
             this.nativeDisabled = false; // Native acquisition may succeed even if the later Expo request fails.
             nativeToken = deviceToken(await this.native.deviceToken());
@@ -157,6 +161,7 @@ export class PushTokenCoordinator {
             if (sameDeviceToken(this.pendingDeviceToken, nativeToken)) this.pendingDeviceToken = null;
             if (!this.pendingDeviceToken) this.observedDeviceToken = nativeToken;
           }
+          stage = "expo-token";
           this.publish("syncing", "Registering token with Expo…");
           this.nativeDisabled = false;
           const token = await this.native.token(nativeToken ?? undefined);
@@ -166,6 +171,7 @@ export class PushTokenCoordinator {
             return;
           }
           const registeredIdentity = { ...identity, authToken: this.identity?.authToken ?? identity.authToken };
+          stage = "server";
           this.publish("syncing", "Registering this device with the server…");
           await this.backend.register(token, registeredIdentity);
           if (!current()) {
@@ -176,7 +182,7 @@ export class PushTokenCoordinator {
         });
         if (current() && this.registered) this.publish("ready", "System notifications are enabled on this device.");
       } catch (error) {
-        if (current()) this.publish("error", error instanceof PushSetupError ? error.message : "Couldn’t synchronize system notifications. Check your connection and native FCM configuration, then retry.");
+        if (current()) this.publish("error", error instanceof PushSetupError ? error.message : describePushSetupFailure(error, stage));
       }
     })();
     this.work = work;

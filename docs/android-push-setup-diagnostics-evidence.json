@@ -1,0 +1,87 @@
+{
+  "status": "safe-stage-diagnostics-implemented-user-handset-cause-still-unverified",
+  "capturedAt": "2026-11-01T23:47:48.199279+00:00",
+  "baseline": "8ca0116a508a0f9637e29b9785f45c583ac9e52e",
+  "handsetCauseDetermined": false,
+  "sdkVersion": "56.0.26",
+  "beforeRegression": {
+    "tests": 1,
+    "pass": 0,
+    "fail": 1,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 912.509705,
+    "logSha256": "64b1894530ab9b1e7185f64389a5834715c0d6fdd7a04f1ccda0e799df3428cc"
+  },
+  "newDiagnosticCases": {
+    "tests": 24,
+    "pass": 24,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 788.375264,
+    "logSha256": "3fc1ecbf2cdc3b173fb8e72e1806f704d43d8f2ae41b1833c05df3fa204b56c8"
+  },
+  "notifications": {
+    "tests": 172,
+    "pass": 172,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 10952.361533,
+    "logSha256": "db664e6e6a208437c768a1ce1e7b371862fb955511847e1039986196cef9dcc9"
+  },
+  "full": {
+    "tests": 625,
+    "pass": 625,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 69664.553322,
+    "logSha256": "91fbed62339c2b5254ecc976436cd0b388263e59446974d52a1116496fe077af"
+  },
+  "typecheck": {
+    "passed": true,
+    "logSha256": "ab87a51fef194d38042db72eb2b577c59d2ad902e25f1dae43566f437231b36f"
+  },
+  "eslint": {
+    "files": 3,
+    "errors": 0,
+    "warnings": 0
+  },
+  "exports": {
+    "android": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JS export, not native binary",
+      "bundle": "_expo/static/js/android/entry-7d799bf6736885c0dae327e101d90fa4.hbc",
+      "bytes": 6832313,
+      "sha256": "bc394b75f5dceb74b460d91cdadae6b1ba1d0b703bfb0e8640d59edcc86c9047"
+    },
+    "ios": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JS export, not native binary",
+      "bundle": "_expo/static/js/ios/entry-8d13b5d1899d7acf2a611c8f47eef751.hbc",
+      "bytes": 6647536,
+      "sha256": "22f7ec33eca9097a5d3f7f7c14dc401f1087290ad8ada42e9b38f5c2de4c8d10"
+    }
+  },
+  "sourceAndTestSha256": {
+    "src/services/notifications/PushTokenCoordinator.ts": "38faffc24317e7e8c517c0632c8f6d1984f0f8fd56da4a26316bb11cef12d724",
+    "src/services/notifications/PushSetupDiagnostics.ts": "83608f6933834dfde5b2f874b7eaee820b58ae3ce25973b0647490d8ad4c3b86",
+    "test/notifications/push-diagnostics.test.cjs": "3475081a4d8a8566dbe755c07d4ccb734a0f3d5b1fcf2405b7a81aebe0f566e6"
+  },
+  "unchangedDependenciesAndNativeConfig": {
+    "package.json": "362ff429cc044c1aa16d9bf8ab81b6b73647b7a900851db33db717009f933994",
+    "package-lock.json": "b0317e6a3a50cd19d87ec7a0e6c5a03b8cc3133a3ce7f098e5be1a29bb1958b4",
+    "app.json": "943c3b943922dc6756e0f512e7afaec9cb05b3c57f55549a7b6e0c7088245e03",
+    "app.config.ts": "a6882c55b31437a71abdf2d1bf25cef9e4564cc679ad510b56dccc995cefd6db"
+  },
+  "privacy": "Only static whitelisted codes/actions are displayed. Raw SDK messages/HTTP bodies/tokens/keys/native identifiers are not echoed or logged.",
+  "boundaries": "Native/Expo/backend failure inputs are test doubles. Actual user error is unknown until the new safe diagnostic is observed.",
+  "unperformed": [
+    "Live device/Firebase/Expo provider diagnosis",
+    "Native build/install and credentials verification",
+    "Backend changes/merge/deployment/live DB actions",
+    "Native size/startup/FPS and two-device delivery certification"
+  ]
+}
