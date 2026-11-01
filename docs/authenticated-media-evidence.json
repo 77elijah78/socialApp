@@ -1,0 +1,238 @@
+{
+  "observedDate": "2026-10-31",
+  "frontendBaseline": "4af5d455b683eca6a816596820ff09e3b43b2c4a",
+  "frontendBranch": "arena/e4dfc24a-socialapp",
+  "readOnlyBackendSecurityPin": "12e570c4ba0ce21dbc8c25325314b547e52e9534",
+  "deployedBackendShaVerified": false,
+  "boundary": "Native Android/iOS authenticated-media request construction and lifecycle. No backend edit, merge, deployment or live database mutation.",
+  "freshBaselineSuite": {
+    "passed": 353,
+    "failed": 0,
+    "durationMs": 42889.11916
+  },
+  "nativeSourceProbe": {
+    "before": {
+      "baseline": "before",
+      "passed": 1,
+      "failed": 7,
+      "results": [
+        {
+          "name": "chat photo",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "reply thumbnail",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "chat video",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "chat audio",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "story image",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "story video",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "native download",
+          "passed": false,
+          "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'Bearer token'\n"
+        },
+        {
+          "name": "external signed URL/no-credential control",
+          "passed": true
+        }
+      ]
+    },
+    "after": {
+      "baseline": "after",
+      "passed": 8,
+      "failed": 0,
+      "results": [
+        {
+          "name": "chat photo",
+          "passed": true
+        },
+        {
+          "name": "reply thumbnail",
+          "passed": true
+        },
+        {
+          "name": "chat video",
+          "passed": true
+        },
+        {
+          "name": "chat audio",
+          "passed": true
+        },
+        {
+          "name": "story image",
+          "passed": true
+        },
+        {
+          "name": "story video",
+          "passed": true
+        },
+        {
+          "name": "native download",
+          "passed": true
+        },
+        {
+          "name": "external signed URL/no-credential control",
+          "passed": true
+        }
+      ]
+    }
+  },
+  "verification": {
+    "newMediaAuthorizationTests": {
+      "passed": 34,
+      "failed": 0
+    },
+    "fullSuite": {
+      "passed": 387,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 62556.62821,
+      "note": "Ran concurrently with offline Metro exports; duration is not an app/native performance benchmark."
+    },
+    "typecheck": "passed",
+    "eslint": {
+      "files": 20,
+      "errors": 0,
+      "warnings": 0,
+      "paths": [
+        "src/app/(chatRoom)/imageViewer.tsx",
+        "src/app/stories/viewer.tsx",
+        "src/components/common/AuthenticatedImage.tsx",
+        "src/components/messages/ImageMessage.tsx",
+        "src/components/messages/MessageCard.tsx",
+        "src/components/messages/ReplyPreview.tsx",
+        "src/components/messages/SharedStoryCard.tsx",
+        "src/components/messages/Videoplayer.tsx",
+        "src/components/messages/VoiceMessage.tsx",
+        "src/components/stories/StoryViewer.tsx",
+        "src/hooks/useMediaSource.ts",
+        "src/hooks/useStories.ts",
+        "src/services/DocumentDownloads.ts",
+        "src/services/MediaSharing.ts",
+        "src/services/api.ts",
+        "src/utils/mediaRequests.ts",
+        "test/messaging/bubbles.test.cjs",
+        "test/messaging/gesture-driver.cjs",
+        "test/messaging/media-authorization.test.cjs",
+        "test/messaging/media.test.cjs"
+      ]
+    },
+    "diffWhitespace": "passed"
+  },
+  "offlineHermesExports": {
+    "environment": {
+      "CI": "1",
+      "EXPO_OFFLINE": "1",
+      "EXPO_NO_TELEMETRY": "1",
+      "EXPO_PUBLIC_API_URL": "https://api.example.invalid",
+      "EAS_BUILD_PROFILE": "production",
+      "maxWorkers": 2
+    },
+    "baselineMethod": "Read-only git archive of 4af5d45 in a separate ignored fixture, symlinked to the same unchanged node_modules; no checkout/rollback of the working tree. Export paths differ, so this is a controlled byte check, not APK/startup measurement.",
+    "platforms": {
+      "android": {
+        "before": {
+          "hermesBytes": 6554792,
+          "hermesSha256": "27d5ac3c01db99c73cea32b01a817d28ff49fc2454573032031a1b40ee4670f4",
+          "assetFiles": 46,
+          "assetsDigestSha256": "85a435ffcfabacad02dc323e75e661c38946e020bcbe76aea36d09f27a329575"
+        },
+        "after": {
+          "hermesBytes": 6582415,
+          "hermesSha256": "3cf11932bda92530171c083ef0c02458e8b08379749ba19b01b99480a29984de",
+          "assetFiles": 46,
+          "assetsDigestSha256": "85a435ffcfabacad02dc323e75e661c38946e020bcbe76aea36d09f27a329575"
+        },
+        "deltaBytes": 27623,
+        "deltaPercent": 0.421417,
+        "allAssetPathsAndContentsIdentical": true
+      },
+      "ios": {
+        "before": {
+          "hermesBytes": 6370512,
+          "hermesSha256": "1b35e68aacb84e1f3562bf8aa905415d3648c5c740bccc1826deaec623f92cec",
+          "assetFiles": 43,
+          "assetsDigestSha256": "86a00d6e4539a92bc4e57ae7072509a3c3225289728772a0c9420ff09dab4592"
+        },
+        "after": {
+          "hermesBytes": 6394883,
+          "hermesSha256": "433116ade459175fe5d770292ab3a504bd09f4d099b8a5bfec536e697561cfdc",
+          "assetFiles": 43,
+          "assetsDigestSha256": "86a00d6e4539a92bc4e57ae7072509a3c3225289728772a0c9420ff09dab4592"
+        },
+        "deltaBytes": 24371,
+        "deltaPercent": 0.38256,
+        "allAssetPathsAndContentsIdentical": true
+      }
+    }
+  },
+  "unchangedDependencyFiles": {
+    "package.json": "f1551cbb89523a1876c64d24c9b3b8093f5f5772fe2641f6b5e0b3e8e1ae9cef",
+    "package-lock.json": "78d5e9ccdebdfb7c0237df802291ab970d8a18f6aab79ace1f5263cfa566d012"
+  },
+  "verifiedSourceFilesSha256": {
+    "src/app/(chatRoom)/imageViewer.tsx": "2d4b48aab072abe7dd797b7518b10812df7f31651c4595acaa7aa9abd875a9fc",
+    "src/app/stories/viewer.tsx": "f32336dd19ad5686509f4ee59dee8e754c72483523dd70ea99707a5a252d345d",
+    "src/components/common/AuthenticatedImage.tsx": "f7d4294c6d64b6197eb87c5e38920ecc715ca58b135db2ae873f03cc1fd7bde7",
+    "src/components/messages/ImageMessage.tsx": "09aec7d7d289d7f90fbf6bc5bd1c78693a820588a627ba7c13a3284b63b0f92f",
+    "src/components/messages/MessageCard.tsx": "85b863e308e0ad3b503080185b321bce9b214a6bfc10752c67f71665324d7da0",
+    "src/components/messages/ReplyPreview.tsx": "f7a4ca3bda12f85db43da9c02c924c36a028c0ad2184e4d3ee3595250426c163",
+    "src/components/messages/SharedStoryCard.tsx": "24a2926b114d9869cb5be4dbd59b9d990af87691406730d1652b9c7a3b683257",
+    "src/components/messages/Videoplayer.tsx": "f2b4bde2eafda533f82fc0a4928a84cb09e87ab6c710a5465b29b606a6055803",
+    "src/components/messages/VoiceMessage.tsx": "d5813eac656213faff1947a1ab26b82a0ccbef424068d2dbcd93dc25f352b81f",
+    "src/components/stories/StoryViewer.tsx": "d4478f60645198c2d13df37332ca5c7b5ee915d6fc586da34da3b92133a17bbc",
+    "src/hooks/useMediaSource.ts": "091f3542d54c681f4ab92db72838bb0c4411bfb9710a79a40b44f414211ef5f7",
+    "src/hooks/useStories.ts": "8a09cd1974549b66a14d66d7676b3eae6a96c87aec09dc6be3d4a95e702ce087",
+    "src/services/DocumentDownloads.ts": "a12e795db64ca8a736fd9740ecb73bfdef70300ea9ca3c41c6ed938568f45583",
+    "src/services/MediaSharing.ts": "85a184e0fd47f2770a07414587003d8acf59fc20c674685e24b37f6d0e7b5679",
+    "src/services/api.ts": "1ba481f5522523551e2ba10bbbe475134dee70e89038ce18b284fe42fa85c21d",
+    "src/utils/mediaRequests.ts": "f1519dcf3a2aee815392b09bc8e7f6249c7c7c5f19ee6f763f2aa1223e33577b",
+    "test/messaging/bubbles.test.cjs": "0817a4b86a1a0af5415540af8a5ec9e3dab2d5f8f11fab71f1e2fd63376a373f",
+    "test/messaging/gesture-driver.cjs": "6418594b3929962a3830814924f187ad97ed8bdc13020a9fbf11de6c98958af7",
+    "test/messaging/media-authorization.test.cjs": "ac2201460270a7e8c0c3f58561fcee72c50e7a9d4f2c8b028c27c623989a41d4",
+    "test/messaging/media.test.cjs": "efb743bc5b070536d9bc8d1c5ad9f29223092f8b50bc51be7ced72089c620836"
+  },
+  "notPerformed": [
+    "Native Android/iOS compilation or APK/AAB generation/installation",
+    "APK size, startup/FPS or native memory measurement",
+    "Production API/account/SQL/media/codec/range/TLS verification",
+    "Two accounts on two physical Android production installs",
+    "Web private-media authenticated playback compatibility",
+    "Backend authorization/hosting/data-URL remediation",
+    "Merge, deployment or live database mutation"
+  ],
+  "workspaceEvidence": [
+    "/home/user/media-auth-baseline-tests.log",
+    "/home/user/media-auth-new-tests.log",
+    "/home/user/media-auth-full-tests.log",
+    "/home/user/media-auth-final-typecheck.log",
+    "/home/user/media-auth-eslint.json",
+    "/home/user/media-auth-loader-probe.cjs",
+    "/home/user/media-auth-loader-comparison.json",
+    "/home/user/media-auth-bundle-comparison.json",
+    "/home/user/media-auth-baseline-export-android.log",
+    "/home/user/media-auth-baseline-export-ios.log",
+    "/home/user/media-auth-export-android.log",
+    "/home/user/media-auth-export-ios.log"
+  ]
+}

@@ -1,3 +1,6 @@
+import { useMediaSource } from "@/hooks/useMediaSource";
+import { getAccessToken } from "@/services/api";
+import { mediaRequestSource } from "@/utils/mediaRequests";
 import {
   memo,
   useCallback,
@@ -150,9 +153,13 @@ function ActiveVoice({
   onLongPress,
 }: Props) {
   const visible = useMediaVisibility(playbackId);
+  const { isCurrent, retryAfterAuthError, ownerId, resetAuthRetry } = useMediaSource(audioUri);
   const player = useAudioPlayer(null, { updateInterval: 200 });
   const status = useAudioPlayerStatus(player);
   const allowed = useChatMediaPlayback(player, visible);
+  const pendingError = useRef<unknown>(null);
+  const loadAttempt = useRef(0);
+  const handledError = useRef<{ attempt: number; error: unknown } | null>(null);
   const loaded = useRef(false),
     loading = useRef(false),
     alive = useRef(true);
@@ -173,19 +180,43 @@ function ActiveVoice({
   const error =
     failed || Boolean(status.error) || status.playbackState === "error";
   const busy = !error && (starting || status.isBuffering);
+  const wantsPlayback = useRef(true);
+  const retryPlay = useRef<() => Promise<void>>(async () => {});
+  const recover = useCallback(async (failure: unknown) => {
+    const retried = await retryAfterAuthError(failure, () => {
+      loaded.current = false;
+      if (allowed() && wantsPlayback.current) {
+        player.pause();
+        void retryPlay.current();
+      }
+    });
+    if (!retried && alive.current && isCurrent()) setFailed(true);
+  }, [retryAfterAuthError, isCurrent, allowed, player]);
+  useEffect(() => {
+    if (status.error || status.playbackState === "error") {
+      if (handledError.current?.attempt === loadAttempt.current && handledError.current.error === status.error) return;
+      handledError.current = { attempt: loadAttempt.current, error: status.error };
+      if (loading.current) pendingError.current = status.error ?? new Error("This audio couldn’t be loaded.");
+      else void recover(status.error);
+    }
+  }, [status, recover]);
   const play = useCallback(async () => {
     if (loading.current) return;
-    if (!allowed()) {
+    if (!allowed() || !isCurrent()) {
       if (alive.current) setStarting(false);
       return;
     }
     loading.current = true;
+    pendingError.current = null;
+    let failure: unknown;
     try {
       setFailed(false);
       if (player.playing) {
+        wantsPlayback.current = false;
         player.pause();
         return;
       }
+      wantsPlayback.current = true;
       setStarting(true);
       await setAudioModeAsync({
         allowsRecording: false,
@@ -193,25 +224,26 @@ function ActiveVoice({
         interruptionMode: "doNotMix",
         shouldPlayInBackground: false,
       });
-      if (!allowed()) return;
+      if (!allowed() || !isCurrent()) return;
       if (!loaded.current || status.error || status.playbackState === "error") {
-        player.replace({ uri: audioUri });
+        loadAttempt.current++;
+        player.replace(mediaRequestSource(audioUri, ownerId ? getAccessToken() : null));
         loaded.current = true;
       }
       if (status.didJustFinish) await player.seekTo(0);
-      if (allowed()) {
+      if (allowed() && isCurrent()) {
         claimChatPlayback(player);
         player.play();
       }
-    } catch {
-      if (allowed()) {
-        loaded.current = false;
-        setFailed(true);
-      }
+    } catch (error) {
+      loaded.current = false;
+      failure = error;
     } finally {
       loading.current = false;
       if (alive.current) setStarting(false);
     }
+    failure ??= pendingError.current;
+    if (failure) await recover(failure);
   }, [
     allowed,
     player,
@@ -219,7 +251,11 @@ function ActiveVoice({
     status.didJustFinish,
     status.error,
     status.playbackState,
+    isCurrent,
+    ownerId,
+    recover,
   ]);
+  useEffect(() => { retryPlay.current = play; }, [play]);
   // This child is created only by an explicit play tap, not while scrolling.
   const initialPlay = useRef(play);
   useEffect(() => {
@@ -238,6 +274,7 @@ function ActiveVoice({
           onLongPress={onLongPress}
           style={styles.play}
           onPress={() => {
+            if (error) resetAuthRetry();
             void play();
           }}
           disabled={busy}

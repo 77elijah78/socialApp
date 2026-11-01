@@ -7,7 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { Image } from "expo-image";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
@@ -74,10 +74,10 @@ function ImageMessage({
             })
           }
         >
-          <Image
+          <AuthenticatedImage
             key={`${source}:${attempt}`}
-            source={{ uri: source }}
-            placeholder={thumbnail && thumbnail !== uri ? { uri: thumbnail } : undefined}
+            uri={source}
+            placeholderUri={thumbnail && thumbnail !== uri ? thumbnail : undefined}
             placeholderContentFit="contain"
             style={styles.image}
             contentFit="contain"

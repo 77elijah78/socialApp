@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 
 interface SharedStoryCardProps {
   mediaUrl: string;
@@ -24,7 +25,8 @@ export default function SharedStoryCard({
   onPress,
   onLongPress,
 }: SharedStoryCardProps) {
-  const [imageError, setImageError] = useState(false);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const video = mediaType.toLowerCase() === "video";
 
   return (
     <TouchableOpacity
@@ -34,21 +36,21 @@ export default function SharedStoryCard({
       activeOpacity={0.9}
     >
       <View style={styles.mediaWrapper}>
-        {!imageError ? (
-          <Image
-            source={{ uri: mediaUrl }}
+        {!video && mediaUrl && failedUri !== mediaUrl ? (
+          <AuthenticatedImage
+            uri={mediaUrl}
             style={styles.media}
-            resizeMode="cover"
-            onError={() => setImageError(true)}
+            contentFit="cover"
+            onError={() => setFailedUri(mediaUrl)}
           />
         ) : (
           <View style={styles.mediaPlaceholder}>
             <Ionicons
-              name="image-outline"
+              name={video ? "videocam-outline" : "image-outline"}
               size={32}
               color={theme.COLORS.textMuted}
             />
-            <Text style={styles.unavailableText}>Media unavailable</Text>
+            <Text style={styles.unavailableText}>{video ? "Video story · Tap to watch" : "Media unavailable"}</Text>
           </View>
         )}
         <View style={styles.overlay}>

@@ -93,7 +93,7 @@ test("message media wiring preserves playback identity, aspect-aware image geome
   await act(async () =>
     image.props.onLoad({ source: { width: 800, height: 1200 } }),
   );
-  const frame = renderer.root.findByType("ExpoImage").parent.parent.props.style;
+  const frame = renderer.root.findAllByType("View").find(node => Array.isArray(node.props.style) && node.props.style[1]?.width && node.props.style[1]?.height).props.style;
   assert.ok(frame[1].width <= 390 * 0.84);
   assert.ok(Math.abs(frame[1].width / frame[1].height - 800 / 1200) < 1e-9);
   await act(async () => renderer.unmount());

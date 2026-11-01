@@ -39,6 +39,22 @@ export function getAccessToken(): string | null {
   return currentToken;
 }
 
+/** Native image/player/file requests share this HTTP identity and refresh flight;
+ * never let a callback from an old account refresh or retry under a new login. */
+export function getAuthGeneration(): number {
+  return authGeneration;
+}
+
+export async function refreshMediaAccessToken(
+  attemptedToken: string,
+  generation: number,
+): Promise<string | null> {
+  if (generation !== authGeneration || !currentToken) return null;
+  if (currentToken !== attemptedToken) return currentToken;
+  const refreshed = await _getRefreshedToken();
+  return generation === authGeneration ? refreshed : null;
+}
+
 export interface MediaUploadResponse {
   url: string;
   thumbnailUrl?: string;

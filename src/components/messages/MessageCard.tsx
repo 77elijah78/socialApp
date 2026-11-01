@@ -1,3 +1,7 @@
+import { isAuthenticatedMediaUrl } from "@/utils/mediaRequests";
+import { shareMediaFile } from "@/services/MediaSharing";
+import { getAuthGeneration } from "@/services/api";
+import { ChatReadVisibility } from "@/components/chat/ChatReadVisibility";
 import { displayMediaUrl } from "@/utils/mediaUrls";
 import type { MessageCardProps } from "@/types";
 import {
@@ -17,7 +21,7 @@ import {
   TouchableOpacity,
   Linking,
 } from "react-native";
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useRef, useContext } from "react";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -69,21 +73,31 @@ function MessageCard({
   const uri = displayMediaUrl(rawUri, pendingLocal);
   const thumbnailUri = displayMediaUrl(rawThumbnailUri, pendingLocal);
   const { openActionMenu } = useOverlay();
+  const sharing = useRef(false);
+  const coverReads = useContext(ChatReadVisibility);
   const attachmentMenu = useCallback(
     () =>
       openActionMenu([
         {
           key: "open",
           icon: "open-outline",
-          label: "Open in browser",
+          label: isAuthenticatedMediaUrl(uri) ? "Save / share file" : "Open in browser",
           onPress: () => {
-            void Linking.openURL(uri).catch(() =>
+            if (sharing.current) return;
+            sharing.current = true;
+            const generation = getAuthGeneration();
+            const release = coverReads();
+            const action = isAuthenticatedMediaUrl(uri)
+              ? shareMediaFile({ ownerId, id: playbackId ?? uri, uri, name: fileNameFromUri(uri) })
+              : Linking.openURL(uri);
+            void action.catch(() => {
+              if (generation !== getAuthGeneration()) return;
               showAppDialog({
                 title: "Couldn’t open attachment",
                 message: "The original file may be unavailable.",
                 tone: "error",
-              }),
-            );
+              });
+            }).finally(() => { sharing.current = false; release(); });
           },
         },
         {
@@ -93,7 +107,7 @@ function MessageCard({
           onPress: () => {},
         },
       ]),
-    [uri, openActionMenu],
+    [uri, openActionMenu, ownerId, playbackId, coverReads],
   );
   const bubbleWidth = Math.min(SIZING.messageMaxImage + 24, width * 0.84);
   const contentWidth = Math.max(1, bubbleWidth - SPACING.lg * 2 - 2);

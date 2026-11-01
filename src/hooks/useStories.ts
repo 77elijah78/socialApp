@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { api } from "@/services/api";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
+import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from "react";
+import { api, getAuthGeneration } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
 
@@ -20,6 +21,7 @@ interface BackendStory {
   views: { viewerId: string }[];
 }
 
+const EMPTY_STORIES: StoryItem[] = [];
 const STORIES_ENDPOINT = "/posts/stories" as const;
 
 function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem {
@@ -29,8 +31,8 @@ function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem 
     username: story.user.username,
     displayName: story.user.displayName ?? story.user.username,
     avatarUrl: story.user.avatarUrl,
-    mediaUrl: story.mediaUrl,
-    mediaType: story.mediaType as "image" | "video",
+    mediaUrl: normalizeMediaUrl(story.mediaUrl) ?? "",
+    mediaType: story.mediaType.toLowerCase() === "video" ? "video" : "image",
     caption: story.caption,
     createdAt: new Date(story.createdAt),
     expiresAt: new Date(story.expiresAt),
@@ -59,38 +61,40 @@ export function useStories() {
   const token = useAppSelector((s) => s.auth.token);
   const currentUserId = useAppSelector((s) => s.auth.user?.id) ?? "";
 
-  const [stories, setStories] = useState<StoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    api
-      .get<{ success: boolean; data: BackendStory[] }>(STORIES_ENDPOINT, token)
-      .then((response) => {
-        if (!cancelled) {
-          const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
-          setStories(mapped);
-          setError(null);
-        }
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+  const hasToken = Boolean(token);
+  const scopeKey = `${currentUserId}:${getAuthGeneration()}`;
+  const scope = useMemo(() => ({ ownerId: currentUserId, key: scopeKey }), [currentUserId, scopeKey]);
+  const activeScope = useRef<typeof scope | null>(scope);
+  useLayoutEffect(() => {
+    activeScope.current = scope;
+    return () => { activeScope.current = null; };
+  }, [scope]);
+  const [feed, setFeed] = useState({ key: scopeKey, items: EMPTY_STORIES, loading: true, error: null as Error | null });
+  const stories = hasToken && feed.key === scopeKey ? feed.items : EMPTY_STORIES;
+  const loading = hasToken && Boolean(currentUserId) && (feed.key !== scopeKey || feed.loading);
+  const error = hasToken && feed.key === scopeKey ? feed.error : null;
+  const refetch = useCallback(() => {
+    if (!hasToken || !scope.ownerId) return Promise.resolve();
+    const generation = getAuthGeneration();
+    const current = () => activeScope.current === scope && generation === getAuthGeneration();
+    return api.get<{ success: boolean; data: BackendStory[] }>(STORIES_ENDPOINT, tokenRef.current ?? undefined)
+      .then(response => {
+        if (!current()) return;
+        const mapped = response.data.map(story => mapBackendStory(story, scope.ownerId));
+        setFeed({ key: scope.key, items: mapped, loading: false, error: null });
+        return mapped;
       })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch(err => {
+        if (!current()) return;
+        setFeed(previous => ({ key: scope.key, items: previous.key === scope.key ? previous.items : [],
+          loading: false, error: err instanceof Error ? err : new Error(String(err)) }));
       });
-
-    return () => { cancelled = true; };
-  }, [token, currentUserId]);
+  }, [hasToken, scope]);
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
 
   // Derived: one ring per user (latest story), sorted with "me" first
   const groupedStories = useMemo(() => computeGrouped(stories), [stories]);
@@ -106,31 +110,14 @@ export function useStories() {
 
   // When any story from a user is viewed, mark ALL that user's stories as viewed
   const updateStoryViewed = useCallback((storyId: string, isViewed: boolean) => {
-    setStories((prev) => {
-      const target = prev.find((s) => s.id === storyId);
-      if (!target) return prev;
-
-      const userId = target.userId;
-
-      return prev.map((s) =>
-        s.userId === userId ? { ...s, isViewed } : s
-      );
+    if (activeScope.current !== scope) return;
+    setFeed(previous => {
+      if (previous.key !== scope.key) return previous;
+      const target = previous.items.find(story => story.id === storyId);
+      if (!target) return previous;
+      return { ...previous, items: previous.items.map(story => story.userId === target.userId ? { ...story, isViewed } : story) };
     });
-  }, []);
-
-  const refetch = useCallback(() => {
-    if (!token) return Promise.resolve();
-    return api
-      .get<{ success: boolean; data: BackendStory[] }>(STORIES_ENDPOINT, token)
-      .then((response) => {
-        const mapped = response.data.map((s) => mapBackendStory(s, currentUserId));
-        setStories(mapped);
-        return mapped;
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err : new Error(String(err)));
-      });
-  }, [token, currentUserId]);
+  }, [scope]);
 
   return {
     stories,

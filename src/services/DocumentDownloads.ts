@@ -1,3 +1,5 @@
+import { getAccessToken, getAuthGeneration, refreshMediaAccessToken } from "./api";
+import { isAuthenticatedMediaUrl, mediaHttpStatus, mediaRequestSource } from "../utils/mediaRequests";
 import * as FileSystem from "expo-file-system/legacy";
 
 export interface DocumentSpec {
@@ -137,8 +139,9 @@ export class DocumentDownloads {
     epoch: number,
     job: { pause?: () => Promise<unknown> },
   ) {
+    const authEpoch = getAuthGeneration();
     const key = documentKey(spec),
-      current = () => epoch === this.generation;
+      current = () => epoch === this.generation && authEpoch === getAuthGeneration();
     this.publish(key, { status: "queued", bytes: 0 });
     await this.acquire();
     try {
@@ -164,42 +167,53 @@ export class DocumentDownloads {
         if (/^(file|content):\/\//i.test(spec.uri))
           await FileSystem.copyAsync({ from: spec.uri, to: partial });
         else {
-          let lastBucket = -1;
-          const transfer = FileSystem.createDownloadResumable(
-            spec.uri,
-            partial,
-            {},
-            (progress) => {
-              if (!current()) return;
-              const total =
-                progress.totalBytesExpectedToWrite > 0
-                  ? progress.totalBytesExpectedToWrite
-                  : undefined;
-              expected = total;
-              const bucket = total
-                ? Math.floor((progress.totalBytesWritten / total) * 100)
-                : Math.floor(progress.totalBytesWritten / 65536);
-              if (bucket === lastBucket) return;
-              lastBucket = bucket;
-              this.publish(key, {
-                status: "downloading",
-                bytes: progress.totalBytesWritten,
-                total,
-              });
-            },
-          );
-          job.pause = () => transfer.pauseAsync();
-          const result = await transfer.downloadAsync();
-          if (
-            Object.entries(result?.headers ?? {}).some(
-              ([key, value]) =>
-                key.toLowerCase() === "content-encoding" &&
-                value !== "identity",
-            )
-          )
+          let token = getAccessToken();
+          for (let attempt = 0; attempt < 2; attempt++) {
+            if (!current()) return;
+            let lastBucket = -1;
             expected = undefined;
-          if (!result || result.status < 200 || result.status >= 300)
-            throw new Error("Couldn’t download this file. Tap to retry.");
+            const source = mediaRequestSource(spec.uri, token);
+            if (!source.uri) throw new Error("This file address is unavailable.");
+            const transfer = FileSystem.createDownloadResumable(
+              source.uri,
+              partial,
+              source.headers ? { headers: source.headers } : {},
+              (progress) => {
+                if (!current()) return;
+                const total = progress.totalBytesExpectedToWrite > 0
+                  ? progress.totalBytesExpectedToWrite : undefined;
+                expected = total;
+                const bucket = total ? Math.floor((progress.totalBytesWritten / total) * 100)
+                  : Math.floor(progress.totalBytesWritten / 65536);
+                if (bucket === lastBucket) return;
+                lastBucket = bucket;
+                this.publish(key, { status: "downloading", bytes: progress.totalBytesWritten, total });
+              },
+            );
+            job.pause = () => transfer.pauseAsync();
+            let failure: unknown;
+            const result = await transfer.downloadAsync().catch(error => { failure = error; return undefined; });
+            if (!current()) return;
+            const status = result?.status ?? mediaHttpStatus(failure);
+            if (attempt === 0 && token && isAuthenticatedMediaUrl(source.uri) &&
+                (status === 401 || status === 403)) {
+              const fresh = await refreshMediaAccessToken(token, authEpoch);
+              if (!current()) return;
+              if (fresh) {
+                token = fresh;
+                await FileSystem.deleteAsync(partial, { idempotent: true });
+                continue;
+              }
+            }
+            if (failure) throw failure;
+            if (Object.entries(result?.headers ?? {}).some(([key, value]) =>
+              key.toLowerCase() === "content-encoding" && value !== "identity")) expected = undefined;
+            if (!result || result.status < 200 || result.status >= 300)
+              throw new Error(result?.status === 401 || result?.status === 403
+                ? "You don’t have access to this file, or your session has expired."
+                : "Couldn’t download this file. Tap to retry.");
+            break;
+          }
         }
         if (!current()) return;
         const completed = await FileSystem.getInfoAsync(partial);

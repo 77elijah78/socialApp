@@ -1,7 +1,12 @@
-import { Image } from "expo-image";
+import { useMediaSource } from "@/hooks/useMediaSource";
+import { isAuthenticatedMediaUrl } from "@/utils/mediaRequests";
+import { shareMediaFile } from "@/services/MediaSharing";
+import { fileNameFromUri } from "@/utils/messaging/presentation";
+import { showAppDialog } from "@/services/AppDialogService";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 import { useLocalSearchParams, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Share,
@@ -16,7 +21,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
 
 // Reanimated gesture worklets intentionally mutate shared values.
 /* eslint-disable react-hooks/immutability */
@@ -25,6 +30,8 @@ export default function ImageViewerScreen() {
   const params = useLocalSearchParams<{ uri?: string; name?: string }>();
   const uri = Array.isArray(params.uri) ? params.uri[0] : params.uri;
   const name = Array.isArray(params.name) ? params.name[0] : params.name;
+  const media = useMediaSource(uri);
+  const sharing = useRef(false);
   const insets = useSafeAreaInsets();
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [loading, setLoading] = useState(Boolean(uri));
@@ -113,16 +120,18 @@ export default function ImageViewerScreen() {
   ]);
 
   const handleShare = async () => {
-    if (!uri) return;
+    if (!uri || sharing.current || !media.isCurrent()) return;
+    sharing.current = true;
     try {
-      await Share.share({
-        title: "Share photo",
-        message: uri,
-        url: uri,
-      });
+      if (isAuthenticatedMediaUrl(media.source.uri)) {
+        if (!media.ownerId) throw new Error("Sign in again to share this photo.");
+        await shareMediaFile({ ownerId: media.ownerId, id: media.source.uri, uri: media.source.uri,
+          name: fileNameFromUri(media.source.uri) });
+      } else await Share.share({ title: "Share photo", message: uri, url: uri });
     } catch {
-      // Sharing is optional; keep the viewer open if the native share sheet is unavailable.
-    }
+      if (media.isCurrent()) showAppDialog({ title: "Couldn’t share photo",
+        message: "The original file may be unavailable. Please retry.", tone: "error" });
+    } finally { sharing.current = false; }
   };
 
   if (!uri) return null;
@@ -174,8 +183,8 @@ export default function ImageViewerScreen() {
           <GestureDetector gesture={gesture}>
             <View style={styles.gestureArea}>
               <Animated.View style={[styles.zoomLayer, zoomStyle]}>
-                <Image
-                  source={{ uri }}
+                <AuthenticatedImage
+                  uri={uri}
                   style={styles.image}
                   contentFit="contain"
                   transition={180}

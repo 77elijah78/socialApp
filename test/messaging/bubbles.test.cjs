@@ -307,7 +307,7 @@ test("image loading, failed/retry state and real portrait geometry remain within
       .props.onLoad({ source: { width: 600, height: 1200 } }),
   );
   const frame =
-    renderer.root.findByType("ExpoImage").parent.parent.props.style[1];
+    renderer.root.findAllByType("View").find(node => Array.isArray(node.props.style) && node.props.style[1]?.width && node.props.style[1]?.height).props.style[1];
   assert.ok(Math.abs(frame.width / frame.height - 0.5) < 1e-9);
   assert.ok(frame.height <= 844 * 0.5);
 });

@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Image } from "expo-image";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 import { Ionicons } from "@expo/vector-icons";
 import {
   BORDER_RADIUS,
@@ -51,8 +51,8 @@ function ReplyPreview({ message, userId, onPress, compact = false }: Props) {
       style={[styles.quote, compact && styles.compact]}
     >
       {showThumbnail ? (
-        <Image
-          source={{ uri: thumbnail }}
+        <AuthenticatedImage
+          uri={thumbnail}
           style={styles.thumbnail}
           contentFit="contain"
           cachePolicy="memory-disk"

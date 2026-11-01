@@ -33,11 +33,19 @@ function load(name) {
 }
 const { PanGesture } = load("handlers/gestures/panGesture");
 const { NativeGesture } = load("handlers/gestures/nativeGesture");
+const { PinchGesture } = load("handlers/gestures/pinchGesture");
+const { TapGesture } = load("handlers/gestures/tapGesture");
+const { ExclusiveGesture, SimultaneousGesture } = load("handlers/gestures/gestureComposition");
 const { registerHandler, unregisterHandler } = load("handlers/handlersRegistry");
 const { onGestureHandlerEvent } = load("handlers/gestures/eventReceiver");
 const { State } = load("State");
 const { TouchEventType } = load("TouchEventType");
-const Gesture = { Pan: () => new PanGesture(), Native: () => new NativeGesture() };
+const Gesture = {
+  Pan: () => new PanGesture(), Native: () => new NativeGesture(),
+  Pinch: () => new PinchGesture(), Tap: () => new TapGesture(),
+  Exclusive: (...gestures) => new ExclusiveGesture(...gestures),
+  Simultaneous: (...gestures) => new SimultaneousGesture(...gestures),
+};
 const replyPans = renderer => renderer.root.findAllByType("GestureDetector")
   .map(detector => detector.props.gesture).filter(gesture => gesture.handlerName === "PanGestureHandler");
 

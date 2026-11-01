@@ -20,7 +20,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
-import { Image } from "expo-image";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
+import { useMediaSource } from "@/hooks/useMediaSource";
+import { getAccessToken } from "@/services/api";
+import { mediaRequestSource } from "@/utils/mediaRequests";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -63,8 +66,8 @@ function Poster({
   return failed ? (
     <Text style={styles.posterHint}>Preview unavailable</Text>
   ) : (
-    <Image
-      source={{ uri }}
+    <AuthenticatedImage
+      uri={uri}
       style={StyleSheet.absoluteFill}
       contentFit="contain"
       cachePolicy="memory-disk"
@@ -80,35 +83,55 @@ function VideoModal({
   onClose,
 }: Pick<Props, "uri" | "playbackId"> & { onClose: () => void }) {
   const visible = useMediaVisibility(playbackId);
+  const { isCurrent, retryAfterAuthError, ownerId, authenticated, resetAuthRetry } = useMediaSource(uri);
   const player = useVideoPlayer(null, (instance) => {
     instance.loop = false;
   });
   const canPlay = useChatMediaPlayback(player, visible);
-  const { status, error: nativeError } = useEvent(player, "statusChange", {
-    status: player.status,
-  });
+  const statusEvent = useEvent(player, "statusChange", { status: player.status });
+  const { status, error: nativeError } = statusEvent;
+  const handledStatus = useRef<typeof statusEvent | null>(null);
   const [failed, setFailed] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [rotated, setRotated] = useState(false);
   const originalLock = useRef<ScreenOrientation.OrientationLock | null>(null);
   const alive = useRef(true);
   const loading = useRef(false);
+  const pendingError = useRef<unknown>(null);
+  const retryLoad = useRef<() => Promise<void>>(async () => {});
+  const recover = useCallback(async (error: unknown) => {
+    const retried = await retryAfterAuthError(error, () => { void retryLoad.current(); });
+    if (!retried && alive.current && isCurrent()) setFailed(true);
+  }, [retryAfterAuthError, isCurrent]);
   const load = useCallback(async () => {
-    if (loading.current || !canPlay()) return;
+    if (loading.current || !canPlay() || !isCurrent()) return;
     loading.current = true;
+    pendingError.current = null;
     setFailed(false);
+    let failure: unknown;
     try {
-      await player.replaceAsync({ uri, useCaching: true });
-      if (canPlay()) {
+      const source = mediaRequestSource(uri, ownerId ? getAccessToken() : null);
+      await player.replaceAsync({ ...source, useCaching: !authenticated });
+      if (canPlay() && isCurrent() && player.status !== "error") {
         claimChatPlayback(player);
         player.play();
       }
-    } catch {
-      if (alive.current) setFailed(true);
+    } catch (error) {
+      failure = error;
     } finally {
       loading.current = false;
     }
-  }, [canPlay, player, uri]);
+    failure ??= pendingError.current;
+    if (failure) await recover(failure);
+  }, [canPlay, player, uri, isCurrent, ownerId, authenticated, recover]);
+  useEffect(() => { retryLoad.current = load; }, [load]);
+  useEffect(() => {
+    if (status === "error" && handledStatus.current !== statusEvent) {
+      handledStatus.current = statusEvent;
+      if (loading.current) pendingError.current = nativeError ?? new Error("This video couldn’t be loaded.");
+      else void recover(nativeError);
+    }
+  }, [statusEvent, status, nativeError, recover]);
   const initialLoad = useRef(load);
   useEffect(() => {
     alive.current = true;
@@ -221,6 +244,7 @@ function VideoModal({
                 style={styles.retry}
                 accessibilityLabel="Retry video"
                 onPress={() => {
+                  resetAuthRetry();
                   void load();
                 }}
               >
