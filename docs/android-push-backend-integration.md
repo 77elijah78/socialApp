@@ -1,5 +1,7 @@
 # Android message push — real backend integration
 
+> **SDK 56 sound follow-up:** [default-channel sound correction](android-notification-sound-fix.md) removes an invalid explicit channel sound argument without muting notifications or adding assets. The validation below remains the original `6e3a79b` integration evidence.
+
 **Current status: the frontend is now connected to the actual push APIs in backend `54d68dfd61efbd25da3afdeab033e7e060ef2d95`. Native token registration, revocation, preferences, visibility and supported push navigation are implemented and locally validated. Real handset/FCM/EAS delivery is NOT certified.**
 
 This supersedes the disconnected-client checkpoint at frontend `3b8d75f54eae570b4fe60652cacb867a370661c7`. The user reports uploading the Firebase client file and FCM V1 credential to EAS, and already has the local API URL configured. Neither credentials nor the live device/backend environment were accessed or verified here. The user's actual API URL was not changed.

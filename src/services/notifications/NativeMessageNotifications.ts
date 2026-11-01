@@ -41,7 +41,9 @@ export async function ensureMessageChannel() {
   const notifications = notificationModule();
   if (notifications && Platform.OS === "android") await notifications.setNotificationChannelAsync(MESSAGE_CHANNEL_ID, {
     name: "Messages", description: "Private and group messages", importance: notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 180, 100, 180], lightColor: "#6C5CE7", sound: "default", enableVibrate: true,
+    // SDK 56 treats sound strings as bundled custom resources. Omit the key
+    // for Android’s system default; null would silence this channel.
+    vibrationPattern: [0, 180, 100, 180], lightColor: "#6C5CE7", enableVibrate: true,
     lockscreenVisibility: notifications.AndroidNotificationVisibility.PRIVATE,
   });
 }
