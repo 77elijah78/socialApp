@@ -12,7 +12,7 @@ mock('expo-constants',{executionEnvironment:'bare',easConfig:{projectId:PROJECT}
 mock('expo-secure-store',{getItemAsync:async key=>encrypted.get(key)??null,setItemAsync:async(key,value)=>{encrypted.set(key,value);}});
 const sdk={DEFAULT_ACTION_IDENTIFIER:'native-default',AndroidImportance:{HIGH:4},AndroidNotificationVisibility:{PRIVATE:0},setNotificationHandler(){},
  setNotificationChannelAsync:async(channel,options)=>{nativeCalls.push(['channel',channel,options]);},getPermissionsAsync:async()=>({granted:true,canAskAgain:true}),
- getExpoPushTokenAsync:async()=>({data:'ExpoPushToken[device_token]'}),setAutoServerRegistrationEnabledAsync:async value=>{nativeCalls.push(['auto-register',value]);},unregisterForNotificationsAsync:async()=>{nativeCalls.push(['unregister']);},
+ getDevicePushTokenAsync:async()=>({type:'android',data:'native-fcm-token'}),getExpoPushTokenAsync:async()=>({data:'ExpoPushToken[device_token]'}),setAutoServerRegistrationEnabledAsync:async value=>{nativeCalls.push(['auto-register',value]);},unregisterForNotificationsAsync:async()=>{nativeCalls.push(['unregister']);},
  addNotificationResponseReceivedListener:fn=>{responseListeners.add(fn);return{remove:()=>responseListeners.delete(fn)};},
  addNotificationReceivedListener:fn=>{receivedListeners.add(fn);return{remove:()=>receivedListeners.delete(fn)};},getLastNotificationResponse:()=>last,
  clearLastNotificationResponse:()=>{last=null;},dismissNotificationAsync:async()=>{},dismissAllNotificationsAsync:async()=>{},};

@@ -16,7 +16,7 @@ import { PushBackendService, PushAccountAmbiguous } from "./PushBackendService";
 import { PushInstallation } from "./PushInstallation";
 import { PushPreferencesController } from "./PushPreferencesController";
 import { PushVisibilityCoordinator } from "./PushVisibilityCoordinator";
-import { getMessagePushToken, notificationModule, pushCapability, readPushPermission,
+import { getAndroidPushDeviceToken, getMessagePushToken, notificationModule, pushCapability, readPushPermission,
   nativePushStorage, nativePushDeviceId, easPushProjectId, type NativeResponse } from "./NativeMessageNotifications";
 
 function currentIdentity(): PushIdentity | null {
@@ -40,7 +40,7 @@ export const messageNotifications = new MessageNotificationCoordinator({
     buttons: retry ? [{ key: "cancel", label: "Not now", cancel: true }, { key: "retry", label: "Try again", onPress: retry }] : undefined }),
 });
 export const messagePush = new PushTokenCoordinator({
-  capability: pushCapability, permission: readPushPermission, token: getMessagePushToken,
+  capability: pushCapability, permission: readPushPermission, deviceToken: getAndroidPushDeviceToken, token: getMessagePushToken,
   unregister: async () => {
     if (pushCapability().available) {
       const native = notificationModule()!;

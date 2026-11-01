@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import { Linking, Platform } from "react-native";
 import type * as Notifications from "expo-notifications";
+import type { AndroidPushDeviceToken } from "./PushTokenCoordinator";
 
 export const MESSAGE_CHANNEL_ID = "messages";
 export type NotificationModule = typeof Notifications;
@@ -57,9 +58,15 @@ export async function readPushPermission(request = false) {
     permission = await notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
   return permission;
 }
-export async function getMessagePushToken() {
+export async function getAndroidPushDeviceToken(): Promise<AndroidPushDeviceToken> {
+  const token = await notificationModule()!.getDevicePushTokenAsync();
+  if (token.type !== "android" || typeof token.data !== "string" || !token.data)
+    throw new Error("The native Android push token is unavailable");
+  return { type: "android", data: token.data };
+}
+export async function getMessagePushToken(devicePushToken?: AndroidPushDeviceToken) {
   const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
-  return (await notificationModule()!.getExpoPushTokenAsync({ projectId })).data;
+  return (await notificationModule()!.getExpoPushTokenAsync({ projectId, ...(devicePushToken ? { devicePushToken } : {}) })).data;
 }
 export function openNotificationSettings() { return Linking.openSettings(); }
 

@@ -6,6 +6,7 @@ const device={isDevice:true};let calls=[],handler,permission={granted:false,canA
 const notifications={AndroidImportance:{HIGH:4},AndroidNotificationVisibility:{PRIVATE:0},
  setNotificationHandler(value){handler=value;},setNotificationChannelAsync:async(id,config)=>{calls.push(['channel',id,config]);},
  getPermissionsAsync:async()=>{calls.push(['permission']);return permission;},requestPermissionsAsync:async()=>{calls.push(['request']);return{granted:true,canAskAgain:true};},
+ getDevicePushTokenAsync:async()=>{calls.push(['native-token']);return{type:'android',data:'fcm-native-value'};},
  getExpoPushTokenAsync:async options=>{calls.push(['token',options]);return{data:'ExponentPushToken[test]'};}};
 mock('expo-constants',constants);mock('expo-device',device);mock('expo-notifications',notifications);native.Linking.openSettings=async()=>calls.push(['settings']);
 function load(){delete require.cache[require.resolve('../../src/services/notifications/NativeMessageNotifications.ts')];return require('../../src/services/notifications/NativeMessageNotifications.ts');}
@@ -20,3 +21,6 @@ test('physical device and EAS project configuration are checked independently',(
 test('notification settings route opens the OS settings, not an invented internal settings screen',async()=>{await load().openNotificationSettings();assert.deepEqual(calls,[['settings']]);});
 test('Android-only backend is not sent iOS registrations',()=>{native.Platform.OS='ios';assert.equal(load().pushCapability().available,false);assert.equal(calls.length,0);});
 test('native installation UUID uses existing Expo Modules Core without another native dependency',()=>{const previous=globalThis.expo;try{globalThis.expo={uuidv4:()=> '00000000-0000-4000-8000-000000000001'};assert.equal(load().nativePushDeviceId(),'00000000-0000-4000-8000-000000000001');}finally{globalThis.expo=previous;}});
+
+test('native token lookup is explicit and returns a typed Android token',async()=>{const token=await load().getAndroidPushDeviceToken();assert.deepEqual(token,{type:'android',data:'fcm-native-value'});assert.deepEqual(calls,[['native-token']]);});
+test('listener-provided native token is passed into the Expo exchange without another native lookup',async()=>{const provided={type:'android',data:'provided-fcm-value'};assert.equal(await load().getMessagePushToken(provided),'ExponentPushToken[test]');assert.deepEqual(calls,[['token',{projectId:'real-eas-id',devicePushToken:provided}]]);});

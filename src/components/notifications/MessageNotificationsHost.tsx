@@ -33,7 +33,7 @@ export default function MessageNotificationsHost() {
   }, [accountId, token, enabled, conversationId, ready, overlay]);
   useEffect(() => {
     const native = notificationModule(); if (!native) return;
-    const tokenChange = native.addPushTokenListener(() => { void messagePush.refresh(); });
+    const tokenChange = native.addPushTokenListener(token => { messagePush.deviceTokenChanged(token); });
     return () => tokenChange.remove();
   }, []);
   return banner && accountId === messageNotifications.getAccountId() && enabled && banner.conversationId !== conversationId

@@ -1,5 +1,7 @@
 # Android message push — real backend integration
 
+> **Token-refresh follow-up:** [SDK token-event feedback-loop fix](android-push-token-loop-fix.md) reuses the event payload, stops duplicate registration cycles and adds stage-specific status messages.
+
 > **SDK 56 sound follow-up:** [default-channel sound correction](android-notification-sound-fix.md) removes an invalid explicit channel sound argument without muting notifications or adding assets. The validation below remains the original `6e3a79b` integration evidence.
 
 **Current status: the frontend is now connected to the actual push APIs in backend `54d68dfd61efbd25da3afdeab033e7e060ef2d95`. Native token registration, revocation, preferences, visibility and supported push navigation are implemented and locally validated. Real handset/FCM/EAS delivery is NOT certified.**
