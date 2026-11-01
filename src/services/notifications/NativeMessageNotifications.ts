@@ -1,0 +1,61 @@
+import Constants from "expo-constants";
+import { Linking, Platform } from "react-native";
+import type * as Notifications from "expo-notifications";
+
+export const MESSAGE_CHANNEL_ID = "messages-v1";
+export type NotificationModule = typeof Notifications;
+export type NativeNotification = Notifications.Notification;
+export type NativeResponse = Notifications.NotificationResponse;
+export interface PushCapability { available: boolean; explanation?: string }
+let loadedModule: NotificationModule | null | undefined;
+export function notificationModule(): NotificationModule | null {
+  if (loadedModule !== undefined) return loadedModule;
+  if ((Platform.OS !== "android" && Platform.OS !== "ios") || Constants.executionEnvironment === "storeClient") return loadedModule = null;
+  try {
+    // Keep Expo Go / an old binary without this native module usable for chat.
+    // A new EAS development/production binary is required for real push.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- conditional native load keeps Expo Go and old binaries usable
+    loadedModule = require("expo-notifications") as NotificationModule;
+  } catch { loadedModule = null; }
+  return loadedModule;
+}
+const silentForeground = { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+/** Run at module initialization, before auth/storage/network startup. Native
+ * background/terminated alerts are sent by the server, never socket-scheduled. */
+export function installForegroundHandler() {
+  notificationModule()?.setNotificationHandler({ handleNotification: async () => silentForeground });
+}
+export function pushCapability(): PushCapability {
+  if (!notificationModule()) return { available: false, explanation: "Push notifications require a new EAS development or production build, not Expo Go." };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- the new device module may be absent in an old development binary
+    const device = require("expo-device") as typeof import("expo-device");
+    if (!device.isDevice) return { available: false, explanation: "Test push notifications on a physical device." };
+  } catch { return { available: false, explanation: "Rebuild the EAS development/production app to include native push dependencies." }; }
+  const id = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  return typeof id === "string" && id ? { available: true }
+    : { available: false, explanation: "The EAS project ID is missing from this build." };
+}
+export async function ensureMessageChannel() {
+  const notifications = notificationModule();
+  if (notifications && Platform.OS === "android") await notifications.setNotificationChannelAsync(MESSAGE_CHANNEL_ID, {
+    name: "Messages", description: "Private and group messages", importance: notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 180, 100, 180], lightColor: "#6C5CE7", sound: "default", enableVibrate: true,
+    lockscreenVisibility: notifications.AndroidNotificationVisibility.PRIVATE,
+  });
+}
+export async function readPushPermission(request = false) {
+  const capability = pushCapability();
+  if (!capability.available) throw new Error(capability.explanation);
+  await ensureMessageChannel(); // Android 13: create a channel before requesting POST_NOTIFICATIONS.
+  const notifications = notificationModule()!;
+  let permission = await notifications.getPermissionsAsync();
+  if (request && !permission.granted && permission.canAskAgain)
+    permission = await notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
+  return permission;
+}
+export async function getMessagePushToken() {
+  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  return (await notificationModule()!.getExpoPushTokenAsync({ projectId })).data;
+}
+export function openNotificationSettings() { return Linking.openSettings(); }

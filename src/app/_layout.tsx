@@ -22,6 +22,7 @@ import { useNotificationSync } from "@/hooks/useNotifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
+import MessageNotificationsHost from "@/components/notifications/MessageNotificationsHost";
 
 import { prepareMessagingAccount } from "@/services/MessagingCache";
 
@@ -223,6 +224,7 @@ export default function RootLayout() {
                         }}
                       />
                     </Stack>
+                    <MessageNotificationsHost />
                   </OverlayProvider>
                 </BottomSheetModalProvider>
               </GestureHandlerRootView>

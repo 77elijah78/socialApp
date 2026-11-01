@@ -5,6 +5,7 @@ import { setCredentials } from "../store/slices/authSlice";
 import { setTokens } from "@/services/api";
 import { prepareMessagingAccount } from "./MessagingCache";
 import { mediaService } from "./MediaService";
+import { revokePushBeforeLogout } from "./notifications/PushLogout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
@@ -108,6 +109,9 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
+    // Revoke while this account still owns the HTTP identity; local native
+    // unregister also prevents an offline logout from leaving FCM active.
+    await revokePushBeforeLogout().catch(() => {});
     setTokens(null, null);
     mediaService.message.resetSession();
     mediaService.disconnectSocket();

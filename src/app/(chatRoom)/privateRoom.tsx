@@ -44,6 +44,7 @@ import ForwardMessagePicker from "@/components/chat/ForwardMessagePicker";
 import { useMessageSelection } from "@/hooks/useMessageSelection";
 import { canReplyToMessage } from "@/utils/messaging/actions";
 import { messageStore } from "@/db/MessageStore";
+import { roomStore } from "@/db/RoomStore";
 import { useChat } from "@/hooks/useChat";
 import { useAppSelector } from "@/store/hooks";
 import type { MessageRow } from "@/db/schema";
@@ -514,15 +515,27 @@ function Conversation({
     return () => { active = false; stop(); };
   }, [conversationId, replyLocalId, replyServerId]);
   const onMenu = useCallback(
-    (anchor?: { x: number; y: number; width: number; height: number }) => {
+    async (anchor?: { x: number; y: number; width: number; height: number }) => {
+      const muted = (await roomStore.findRoom(conversationId).catch(() => []))[0]?.muted ?? false;
       openActionMenu(
         [
           { key: "search", icon: "search", label: "Search", onPress: () => {} },
           {
             key: "mute",
             icon: "notifications-off-outline",
-            label: "Mute notifications",
-            onPress: () => {},
+            label: muted ? "Unmute in-app banners" : "Mute in-app banners",
+            onPress: async () => {
+              try {
+                const room = (await roomStore.findRoom(conversationId))[0];
+                if (!room) throw new Error("Conversation metadata is unavailable");
+                await roomStore.setMuted(conversationId, !room.muted);
+                showAppDialog({ title: room.muted ? "Conversation unmuted" : "Conversation muted",
+                  message: room.muted ? "In-app message banners are enabled for this conversation."
+                    : "In-app message banners are muted for this conversation. Server push mute requires the compatible backend release." });
+              } catch {
+                showAppDialog({ title: "Couldn’t update notifications", message: "Please try again when the conversation is available.", tone: "error" });
+              }
+            },
           },
           {
             key: "wallpaper",

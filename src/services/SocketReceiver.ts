@@ -104,6 +104,12 @@ export class SocketReceiver {
       const stillCurrent = () =>
         current() &&
         roomVersion === messageStore.getRoomVersion(payload.conversationId);
+      // Presentation observes only genuinely new, persisted socket messages.
+      // SQLite is the restart/reconnect dedupe boundary; the banner also handles
+      // the two concurrent native events for the same canonical message ID.
+      const previouslyStored = this.listeners.has("message:incoming")
+        ? await messageStore.getByServerId(payload.id) : true;
+      if (!stillCurrent()) return;
       const room = (await roomStore.findRoom(payload.conversationId))[0];
       const isGroup = room?.isGroup === true;
       if (!stillCurrent()) return;
@@ -161,6 +167,8 @@ export class SocketReceiver {
         if (stillCurrent()) this.emit("message:notification", row);
       }
       if (stillCurrent()) this.emit("message:new", row);
+      if (stillCurrent() && !previouslyStored && row.senderId !== userId)
+        this.emit("message:incoming", row); // Local facade event, not a new wire contract.
     };
     socket.on("message:new", (payload) => safe(() => receive(payload, false)));
     socket.on("message:notification", (payload) =>

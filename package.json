@@ -9,13 +9,14 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test test/messaging/*.test.cjs test/posts/*.test.cjs test/auth/*.test.cjs test/activity/*.test.cjs test/security/*.test.cjs",
+    "test": "node --test test/messaging/*.test.cjs test/posts/*.test.cjs test/auth/*.test.cjs test/activity/*.test.cjs test/security/*.test.cjs test/notifications/*.test.cjs",
     "test:posts": "node --test test/posts/*.test.cjs",
     "test:auth": "node --test test/auth/*.test.cjs",
     "typecheck": "tsc --noEmit",
     "benchmark:messaging": "node scripts/benchmark-messaging.cjs",
     "test:activity": "node --test test/activity/*.test.cjs",
-    "test:security": "node --test test/security/*.test.cjs"
+    "test:security": "node --test test/security/*.test.cjs",
+    "test:notifications": "node --test test/notifications/*.test.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -31,6 +32,7 @@
     "expo-build-properties": "~56.0.18",
     "expo-constants": "~56.0.18",
     "expo-dev-client": "~56.0.20",
+    "expo-device": "~56.0.4",
     "expo-document-picker": "~56.0.4",
     "expo-file-system": "56.0.8",
     "expo-font": "~56.0.6",
@@ -39,6 +41,7 @@
     "expo-image-picker": "~56.0.18",
     "expo-linear-gradient": "~56.0.4",
     "expo-linking": "~56.0.14",
+    "expo-notifications": "~56.0.17",
     "expo-router": "~56.2.10",
     "expo-screen-orientation": "~56.0.5",
     "expo-secure-store": "~56.0.4",

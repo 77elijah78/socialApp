@@ -21,7 +21,8 @@
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.elijah77.social",
       "multidex": true
@@ -55,6 +56,14 @@
           "cameraPermission": "Allow Social to take photos for posts and messages.",
           "microphonePermission": "Allow Social to record voice messages."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "messages-v1",
+          "color": "#6C5CE7",
+          "icon": "./src/assets/notification-icon.png"
+        }
       ]
     ],
     "extra": {
@@ -62,7 +71,7 @@
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.1.0",
     "updates": {
       "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }
