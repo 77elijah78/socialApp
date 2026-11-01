@@ -2,7 +2,7 @@ import Constants from "expo-constants";
 import { Linking, Platform } from "react-native";
 import type * as Notifications from "expo-notifications";
 
-export const MESSAGE_CHANNEL_ID = "messages-v1";
+export const MESSAGE_CHANNEL_ID = "messages";
 export type NotificationModule = typeof Notifications;
 export type NativeNotification = Notifications.Notification;
 export type NativeResponse = Notifications.NotificationResponse;
@@ -26,6 +26,7 @@ export function installForegroundHandler() {
   notificationModule()?.setNotificationHandler({ handleNotification: async () => silentForeground });
 }
 export function pushCapability(): PushCapability {
+  if (Platform.OS !== "android") return { available: false, explanation: "This server release supports system message push on Android only." };
   if (!notificationModule()) return { available: false, explanation: "Push notifications require a new EAS development or production build, not Expo Go." };
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- the new device module may be absent in an old development binary
@@ -59,3 +60,23 @@ export async function getMessagePushToken() {
   return (await notificationModule()!.getExpoPushTokenAsync({ projectId })).data;
 }
 export function openNotificationSettings() { return Linking.openSettings(); }
+
+/** SDK 56 already exposes the native UUID generator through Expo Modules Core.
+ * Do not add another native library just to generate an installation identifier. */
+export function nativePushDeviceId() {
+  const runtime = globalThis as typeof globalThis & { expo?: { uuidv4?: () => string } };
+  if (!runtime.expo?.uuidv4) throw new Error("Rebuild the native app to enable installation identity");
+  return runtime.expo.uuidv4();
+}
+function secureStore() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- load only for an Android native push operation
+  return require("expo-secure-store") as typeof import("expo-secure-store");
+}
+export const nativePushStorage = {
+  getItem: (key: string) => secureStore().getItemAsync(key),
+  setItem: (key: string, value: string) => secureStore().setItemAsync(key, value),
+};
+export function easPushProjectId(): string | null {
+  const value = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  return typeof value === "string" ? value : null;
+}

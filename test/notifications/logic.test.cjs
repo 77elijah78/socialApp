@@ -108,3 +108,6 @@ test('logout immediately clears presentation and prevents an old route/auth effe
  const{socket,scope,navigations}=setup();socket.emit('message:incoming',row(1));await settle();controller.prepareLogout();controller.update(scope);socket.emit('message:incoming',row(2));controller.openConversation('room','me');await settle();assert.equal(controller.banners.getSnapshot(),null);assert.equal(navigations.length,0);
  controller.update({...scope,accountId:'',ready:false});controller.update(scope);socket.emit('message:incoming',row(3));await settle();assert.ok(controller.banners.getSnapshot());
 });
+test('ambiguous-account notification notice waits for authentication/navigation and contains no foreign content',async()=>{
+ const{scope,errors}=setup();controller.update({...scope,accountId:'',ready:false});let consumed=0;controller.noticeWhenReady('Open Messages to view your current conversations.',()=>consumed++);await settle();assert.equal(errors.length,0);controller.update(scope);assert.equal(errors.length,1);assert.equal(consumed,1);assert.match(errors[0].message,/current conversations/);
+});

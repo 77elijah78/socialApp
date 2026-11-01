@@ -1,5 +1,7 @@
 # Message push integration — backend handoff
 
+> **Update:** backend `54d68df` now implements the push HTTP APIs/worker and the frontend is wired against it. See [current integration report](android-push-backend-integration.md). Remaining backend contracts are recipient-scoped push data and per-conversation system-push mute. The audit below is historical at `902e191`. The matched channel is now `messages`.
+
 Frontend base: `a2fd1876ac332a452f232e3202d28faf95bc2624`.
 Inspected backend: `902e191d807e83d47cba2e66831e024b04db9921`.
 

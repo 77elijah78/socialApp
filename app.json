@@ -60,7 +60,7 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "messages-v1",
+          "defaultChannel": "messages",
           "color": "#6C5CE7",
           "icon": "./src/assets/notification-icon.png"
         }
@@ -71,7 +71,7 @@
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
     },
-    "runtimeVersion": "1.1.0",
+    "runtimeVersion": "1.1.1",
     "updates": {
       "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }

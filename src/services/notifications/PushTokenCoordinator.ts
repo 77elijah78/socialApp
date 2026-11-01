@@ -1,7 +1,10 @@
+import { PushSetupError } from "./PushBackendService";
 export interface PushIdentity { accountId: string; authToken: string }
 export interface PushRegistration {
   register(expoPushToken: string, identity: PushIdentity): Promise<void>;
+  beforeToken?(identity: PushIdentity): Promise<void>;
   revoke(expoPushToken: string, identity: PushIdentity): Promise<void>;
+  revokeCurrent?(identity: PushIdentity | null): Promise<void>;
 }
 export interface PushPermission { granted: boolean; canAskAgain: boolean }
 export interface PushNativeClient {
@@ -43,15 +46,16 @@ export class PushTokenCoordinator {
     const first = !this.initialized, restarting = this.stopped; this.initialized = true;
     if (this.suspendedAccount && identity?.accountId === this.suspendedAccount) { identity = null; enabled = false; }
     else this.suspendedAccount = null;
-    const oldAccount = this.identity?.accountId;
+    const oldIdentity = this.identity;
+    const oldAccount = oldIdentity?.accountId;
     const changed = identity?.accountId !== oldAccount || enabled !== this.enabled;
     this.identity = identity; this.enabled = enabled; this.stopped = false;
     if (changed) this.epoch++;
     if (identity && this.registered?.identity.accountId === identity.accountId) this.registered.identity = identity;
-    if (identity && oldAccount && oldAccount !== identity.accountId) void this.revoke().catch(() => {});
+    if (identity && oldAccount && oldAccount !== identity.accountId) void this.revoke(oldIdentity).catch(() => {});
     if (!identity || !enabled) {
       this.publish("disabled", "Message notifications are off.");
-      if (changed || first) void this.revoke().catch(() => {
+      if (changed || first) void this.revoke(identity ?? oldIdentity).catch(() => {
         if (!this.identity || !this.enabled) this.publish("error", "Couldn’t disable system notifications. Retry from notification settings.");
       });
     } else if (changed || restarting || this.status.state === "idle") void this.refresh();
@@ -62,19 +66,23 @@ export class PushTokenCoordinator {
     return operation;
   }
   deactivate() {
-    this.suspendedAccount = this.identity?.accountId ?? this.suspendedAccount;
+    const identity = this.identity;
+    this.suspendedAccount = identity?.accountId ?? this.suspendedAccount;
     this.identity = null; this.enabled = false;
     this.publish("disabled", "Message notifications are off.");
-    return this.revoke();
+    return this.revoke(identity);
   }
-  async revoke() {
+  async revoke(identity = this.identity) {
     this.epoch++;
-    await this.clearRegistration();
+    await this.clearRegistration(identity);
   }
-  private async clearRegistration() {
+  private async clearRegistration(identity: PushIdentity | null = this.identity) {
     const registered = this.registered; this.registered = null;
     await this.mutate(async () => {
-      try { if (registered && this.backend) await this.backend.revoke(registered.token, registered.identity); }
+      try {
+        if (registered && this.backend) await this.backend.revoke(registered.token, registered.identity);
+        else await this.backend?.revokeCurrent?.(identity);
+      }
       finally { if (!this.nativeDisabled) { await this.native.unregister(); this.nativeDisabled = true; } }
     });
   }
@@ -92,7 +100,7 @@ export class PushTokenCoordinator {
         const permission = await this.native.permission(requestPermission);
         if (!current()) return;
         if (!permission.granted) {
-          if (this.registered) await this.clearRegistration();
+          if (this.registered || this.backend?.revokeCurrent) await this.clearRegistration(identity);
           if (!current()) return;
           this.publish(permission.canAskAgain ? "permission-required" : "denied", permission.canAskAgain
             ? "Allow notifications to receive messages when SocialApp is closed." : "Notifications are blocked. Enable them in Android/iOS settings.");
@@ -102,6 +110,8 @@ export class PushTokenCoordinator {
           if (!current()) return;
           // Native unregister/token acquisition are ordered too: an old logout
           // must not invalidate a token just acquired by a new account.
+          await this.backend?.beforeToken?.(identity);
+          if (!current()) return;
           const token = await this.native.token();
           this.nativeDisabled = false;
           if (!current()) return;
@@ -118,8 +128,8 @@ export class PushTokenCoordinator {
           this.registered = { token, identity: this.identity! };
         });
         if (current() && this.registered) this.publish("ready", "System notifications are enabled on this device.");
-      } catch {
-        if (current()) this.publish("error", "Couldn’t synchronize system notifications. Check your connection and native FCM configuration, then retry.");
+      } catch (error) {
+        if (current()) this.publish("error", error instanceof PushSetupError ? error.message : "Couldn’t synchronize system notifications. Check your connection and native FCM configuration, then retry.");
       }
     })();
     this.work = work;

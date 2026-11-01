@@ -42,6 +42,7 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await revokePushBeforeLogout(user.id).catch(() => {});
     await prepareMessagingAccount(user.id);
     if (refreshToken) {
       await AsyncStorage.setItem("refreshToken", refreshToken);
@@ -84,6 +85,7 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await revokePushBeforeLogout(user.id).catch(() => {});
     await prepareMessagingAccount(user.id);
     if (refreshToken) {
       await AsyncStorage.setItem("refreshToken", refreshToken);

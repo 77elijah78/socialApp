@@ -1,12 +1,12 @@
 /** Keep AuthService independent of native notification/router initialization. */
-let cleanup: (() => Promise<void>) | null = null;
-export function registerPushLogout(handler: () => Promise<void>) {
+let cleanup: ((nextAccountId?: string) => Promise<void>) | null = null;
+export function registerPushLogout(handler: (nextAccountId?: string) => Promise<void>) {
   cleanup = handler;
   return () => { if (cleanup === handler) cleanup = null; };
 }
-export async function revokePushBeforeLogout() {
+export async function revokePushBeforeLogout(nextAccountId?: string) {
   if (!cleanup) return;
-  const operation = cleanup(); // Suspends the account synchronously, before I/O.
+  const operation = cleanup(nextAccountId); // Suspends the account synchronously, before I/O.
   // Native Firebase unregister may wait for connectivity. Do not strand the
   // existing offline logout/cache-clear flow behind it. The coordinator keeps
   // subsequent native token acquisition ordered after that cleanup completes.

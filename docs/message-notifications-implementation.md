@@ -1,6 +1,8 @@
-# Global message banners and Android push — frontend checkpoint
+# Global message banners and Android push — historical frontend checkpoint
 
-**Status: foreground banners implemented; native push client prepared; end-to-end system push BLOCKED on the backend contract.**
+> **Superseded:** the real backend adapter is now wired. See [Android push integration](android-push-backend-integration.md) for the current contracts, validation and remaining native/backend gates. The sections below describe only the original `3b8d75f` checkpoint.
+
+**Checkpoint status: foreground banners implemented; native push client prepared; end-to-end system push BLOCKED on the backend contract.**
 
 Frontend baseline: `a2fd1876ac332a452f232e3202d28faf95bc2624`.
 Backend inspected and rechecked: `902e191d807e83d47cba2e66831e024b04db9921`.

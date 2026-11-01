@@ -251,6 +251,7 @@ export class SocketReceiver {
       "presence:online",
       "presence:offline",
       "notification:new",
+      "messages:sync",
     ]) {
       socket.on(event, (payload) => {
         if (current()) this.emit(event, payload);
@@ -614,6 +615,14 @@ export class SocketReceiver {
       })
       .catch(() => {});
     return work;
+  }
+
+  /** Actual backend push viewing lease, scoped to this socket's JWT owner. */
+  setConversationVisibility(ownerId: string, deviceId: string, active: boolean, conversationId: string | null) {
+    if (!this.isConnected || this.currentUserId !== ownerId) return;
+    this.socket!.emit("conversation:visibility", {
+      deviceId, state: active ? "foreground" : "background", conversationId: active ? conversationId : null,
+    });
   }
 
   on(event: string, callback: Listener): () => void {

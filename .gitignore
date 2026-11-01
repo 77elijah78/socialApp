@@ -7,3 +7,6 @@ test/socket-test-bob.js
 
 # Generated Expo exports
 /dist/
+
+# Local Firebase Android client config; private service-account keys must stay outside this repository.
+/google-services.json

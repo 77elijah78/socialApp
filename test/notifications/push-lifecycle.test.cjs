@@ -40,3 +40,18 @@ test('a StrictMode stop/restart requeues canceled native registration instead of
 test('signed-out startup cleans an old native registration without requesting permission or blocking messaging',async()=>{
  const{controller,calls}=setup();controller.update(null,true);await settle();assert.equal(calls.some(x=>x[0]==='permission'),false);assert.equal(calls.filter(x=>x[0]==='unregister').length,1);assert.equal(controller.getSnapshot().state,'disabled');controller.stop();
 });
+test('async persisted-owner decoding survives boot, dedupes get-last/live and cancels on cleanup',async()=>{
+ let listener;const gate=deferred(),opened=[];const response={id:'async-native',action:'default',data:{}};const bridge=new MessagePushBridge({onResponse:fn=>{listener=fn;return()=>{};},onReceived:()=>()=>{},lastResponse:()=>response,clearResponse(){}},()=>gate.promise,target=>opened.push(target),()=>{});
+ bridge.start();listener(response);bridge.stop();gate.resolve({accountId:'me',conversationId:'room',messageId:'message'});await settle();assert.equal(opened.length,0);
+});
+test('different native request IDs for the same provider notification job do not push duplicate screens',()=>{
+ let listener;const opened=[],cleared=[];const target={accountId:'me',conversationId:'room',messageId:'message',notificationId:'stable-job'};const bridge=new MessagePushBridge({onResponse:fn=>{listener=fn;return()=>{};},onReceived:()=>()=>{},lastResponse:()=>null,clearResponse:id=>cleared.push(id)},()=>target,(target,consumed)=>opened.push({target,consumed}),()=>{});
+ bridge.start();listener({id:'first',action:'default',data:{}});listener({id:'second',action:'default',data:{}});assert.equal(opened.length,1);assert.deepEqual(cleared,['second']);bridge.stop();
+});
+test('a failed lookup permits a deliberate repeat tap of the same provider job',()=>{
+ let listener,failure;const opened=[];const bridge=new MessagePushBridge({onResponse:fn=>{listener=fn;return()=>{};},onReceived:()=>()=>{},lastResponse:()=>null,clearResponse(){}},()=>({accountId:'me',conversationId:'room',messageId:'message',notificationId:'job'}),(target,consume,failed)=>{opened.push(target);failure=failed;},()=>{});
+ bridge.start();listener({id:'one',action:'default',data:{}});failure();listener({id:'one',action:'default',data:{}});assert.equal(opened.length,2);bridge.stop();
+});
+test('ambiguous account data reaches a safe rejection path, not a guessed destination',async()=>{
+ let listener;const opened=[],rejected=[];const bridge=new MessagePushBridge({onResponse:fn=>{listener=fn;return()=>{};},onReceived:()=>()=>{},lastResponse:()=>null,clearResponse(){}},async()=>{throw Error('ambiguous');},target=>opened.push(target),()=>{},error=>rejected.push(error));bridge.start();listener({id:'one',action:'default',data:{}});await settle();assert.equal(opened.length,0);assert.equal(rejected.length,1);bridge.stop();
+});

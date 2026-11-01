@@ -25,6 +25,7 @@ export class MessageNotificationCoordinator {
   private retryPaused = false;
   private releases: (() => void)[] = [];
   private pending: Destination | null = null;
+  private notice: { message: string; consumed: () => void } | null = null;
   private opening: Destination | null = null;
   private processing = Promise.resolve();
   constructor(private deps: MessageNotificationDependencies) {}
@@ -49,7 +50,7 @@ export class MessageNotificationCoordinator {
   }
   prepareLogout() {
     this.suspendedAccount = this.scope.accountId; this.generation++; this.presentation++;
-    this.pending = null; this.retryPaused = false; this.banners.clear(true);
+    this.pending = null; this.notice = null; this.retryPaused = false; this.banners.clear(true);
     this.scope = { ...this.scope, enabled: false, ready: false };
   }
   update(next: Scope) {
@@ -63,7 +64,13 @@ export class MessageNotificationCoordinator {
     this.scope = next;
     if (!next.enabled || !next.active || !next.accountId) this.banners.clear();
     else if (next.conversationId) this.banners.removeConversation(next.conversationId);
+    this.flushNotice();
     void this.openPending();
+  }
+  noticeWhenReady(message: string, consumed: () => void) { this.notice = { message, consumed }; this.flushNotice(); }
+  private flushNotice() {
+    if (!this.running || !this.notice || !this.scope.ready || !this.scope.active || !this.scope.accountId) return;
+    const notice = this.notice; this.notice = null; notice.consumed(); this.deps.unavailable(notice.message);
   }
   receive(row: MessageRow) {
     const scope = this.scope;

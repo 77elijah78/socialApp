@@ -2,8 +2,11 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 import { isPrivateHost, parseApiOrigin } from "./src/config/origin";
 
 export default ({ config }: ConfigContext): ExpoConfig => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Expo config runs in Node, not the mobile bundle
+  const existsSync = require("node:fs").existsSync as (path: string) => boolean;
   const production = process.env.EAS_BUILD_PROFILE === "production";
-  const googleServicesFile = process.env.GOOGLE_SERVICES_JSON ?? config.android?.googleServicesFile;
+  const googleServicesFile = process.env.GOOGLE_SERVICES_JSON ?? config.android?.googleServicesFile ??
+    (existsSync("./google-services.json") ? "./google-services.json" : undefined);
   if (production) {
     const origin = parseApiOrigin(process.env.EXPO_PUBLIC_API_URL);
     if (
