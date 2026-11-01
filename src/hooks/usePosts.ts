@@ -25,6 +25,8 @@ type Options = {
   limit?: number;
   source?: PostSource;
   username?: string;
+  /** Detail entry only; not a guessed canonical author-page position. */
+  entryPost?: SocialPost;
 };
 type FeedCache = { posts: SocialPost[]; total: number; hasMore: boolean };
 const EMPTY_POSTS: SocialPost[] = [];
@@ -37,6 +39,7 @@ export function usePosts({
   limit = 20,
   source = "feed",
   username,
+  entryPost,
 }: Options = {}) {
   const token = useAppSelector((state) => state.auth.token);
   const accountId = useAppSelector((state) => state.auth.user?.id);
@@ -47,8 +50,12 @@ export function usePosts({
     username,
     initialPage,
     limit,
+    entryPost?.id,
   ]);
   const [owner, setOwner] = useState(scopeKey);
+  const entryRef = useRef(entryPost);
+  useLayoutEffect(() => { entryRef.current = entryPost; }, [entryPost]);
+  const [entrySeparate, setEntrySeparate] = useState(false);
   const tokenRef = useRef(token);
   useLayoutEffect(() => {
     tokenRef.current = token;
@@ -135,12 +142,18 @@ export function usePosts({
                 ? [currentById.get(post.id)!]
                 : [post],
           );
+          const entry = entryRef.current;
+          const separate = entry && !removed.current.has(entry.id) && !fetched.some(post => post.id === entry.id);
+          const prefix = separate ? [currentById.get(entry.id) ?? entry] : [];
+          const existing = rows.current.map(post => post.id === entry?.id
+            ? fetched.find(fresh => fresh.id === post.id) ?? post : post);
           const next =
             mode === "previous"
-              ? uniquePosts([...fetched, ...rows.current])
+              ? uniquePosts([...fetched, ...existing])
               : mode === "next"
-                ? uniquePosts([...rows.current, ...fetched])
-                : fetched;
+                ? uniquePosts([...existing, ...fetched])
+                : uniquePosts([...prefix, ...fetched]);
+          if (mode === "initial" || mode === "refresh") setEntrySeparate(Boolean(separate));
           networkCommitted.current = true;
           cacheMeta.current = {
             total: responseTotal,
@@ -170,7 +183,16 @@ export function usePosts({
           if (mode === "next" || mode === "previous") {
             failedPageMode.current = mode;
             setPaginationError(failure);
-          } else setError(failure);
+          } else {
+            // A resolved detail entry remains usable if only the surrounding
+            // author page fails; do not hide a real post behind a feed error.
+            const entry = entryRef.current;
+            if (entry && !rows.current.length && !removed.current.has(entry.id)) {
+              commit([entry]);
+              setEntrySeparate(true);
+            }
+            setError(failure);
+          }
         } finally {
           if (epoch === session.current) {
             inFlight.current = null;
@@ -292,10 +314,20 @@ export function usePosts({
           else throw cause;
         }
         if (epoch !== session.current) return;
-        const count = Math.max(
+        let count = Math.max(
           0,
           (post?.likeCount ?? 0) + (alreadyApplied ? 0 : value ? 1 : -1),
         );
+        if (kind === "like" && post?.likeStateKnown === false) {
+          // GET /posts/:id omits membership flags. An idempotent LIKE may
+          // already exist, so never invent an increment for a detail entry.
+          count = post.likeCount;
+          try {
+            const response = await api.get<{ data: { _count: { likes: number } } }>(`/posts/${encodeURIComponent(postId)}`, token, { deduplicate: false });
+            if (Number.isSafeInteger(response.data?._count?.likes) && response.data._count.likes >= 0) count = response.data._count.likes;
+          } catch { /* The write succeeded. Keep the last real count until refresh. */ }
+        }
+        if (epoch !== session.current) return;
         publishPostUpdate({
           postId,
           accountId,
@@ -322,6 +354,7 @@ export function usePosts({
 
   return {
     posts: authReady && owner === scopeKey ? posts : EMPTY_POSTS,
+    entrySeparate,
     loading: loading || (authReady && owner !== scopeKey),
     refreshing,
     paginating,

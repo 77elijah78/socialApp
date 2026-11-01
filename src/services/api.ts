@@ -4,6 +4,15 @@ import { apiUrl } from "../config/api";
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
+/** Preserve HTTP status for unavailable-content/release handling; message and
+ * existing Error-based callers remain compatible. Never include credentials. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 let currentToken: string | null = null;
 let currentRefreshToken: string | null = null;
 let onTokenRefresh: ((token: string, refreshToken?: string) => void) | null =
@@ -180,7 +189,7 @@ async function request<T>(
         const retry = await performRequest(authToken);
         if (!retry.ok) {
           const error = await retry.json().catch(() => ({}));
-          throw new Error(error.message || `Request failed [${retry.status}]`);
+          throw new ApiError(error.message || `Request failed [${retry.status}]`, retry.status);
         }
         return await retry.json();
       }
@@ -197,14 +206,14 @@ async function request<T>(
         const retry = await performRequest(newToken);
         if (!retry.ok) {
           const error = await retry.json().catch(() => ({}));
-          throw new Error(error.message || `Request failed [${retry.status}]`);
+          throw new ApiError(error.message || `Request failed [${retry.status}]`, retry.status);
         }
         return await retry.json();
       }
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || `Request failed [${response.status}]`);
+        throw new ApiError(error.message || `Request failed [${response.status}]`, response.status);
       }
 
       return await response.json();

@@ -10,7 +10,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import * as theme from "@/constants/theme";
-import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useAppSelector } from "@/store/hooks";
 import { messageStore } from "@/db/MessageStore";
 import { mediaService } from "@/services/MediaService";
 import {
@@ -18,7 +18,7 @@ import {
   setTokenRefreshCallback,
 } from "@/services/api";
 import { setTokens as setReduxTokens } from "@/store/slices/authSlice";
-import { activityAccountChanged, receiveActivity } from "@/store/slices/notificationsSlice";
+import { useNotificationSync } from "@/hooks/useNotifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
@@ -112,10 +112,9 @@ function SocketProvider() {
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
   const token = useAppSelector((s) => s.auth.token);
   const userId = useAppSelector((s) => s.auth.user?.id);
-  const dispatch = useAppDispatch();
+  useNotificationSync();
 
   useEffect(() => {
-    dispatch(activityAccountChanged(isAuthenticated ? userId ?? null : null));
     if (isAuthenticated && userId && token) {
       mediaService.setAuthToken(token);
       mediaService.connectSocket(userId, token);
@@ -123,14 +122,8 @@ function SocketProvider() {
       mediaService.disconnectSocket();
     }
     return () => mediaService.disconnectSocket();
-  }, [dispatch, isAuthenticated, token, userId]);
+  }, [isAuthenticated, token, userId]);
 
-  useEffect(() => {
-    if (!isAuthenticated || !userId) return;
-    return mediaService.socket.on("notification:new", (payload: unknown) => {
-      dispatch(receiveActivity({ accountId: userId, payload, receivedAt: Date.now() }));
-    });
-  }, [dispatch, isAuthenticated, userId]);
 
   return null;
 }

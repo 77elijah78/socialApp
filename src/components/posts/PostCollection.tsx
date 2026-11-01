@@ -25,6 +25,7 @@ type Props = {
   username?: string;
   selectedId?: string;
   initialPage?: number;
+  entryPost?: SocialPost;
 };
 
 /** A bounded page is measured once for a variable-height selected-item entry.
@@ -35,12 +36,14 @@ export default function PostCollection({
   username,
   selectedId,
   initialPage = 1,
+  entryPost,
 }: Props) {
   const feed = usePosts({
     source,
     username,
     page: initialPage,
     limit: PAGE_SIZE,
+    entryPost,
   });
   const { openComments, openShare, openActionMenu } = useOverlay();
   const { width } = useWindowDimensions();
@@ -168,6 +171,9 @@ export default function PostCollection({
             : undefined
         }
       >
+        {feed.entrySeparate && item.id === entryPost?.id ? (
+          <Text style={styles.entryLabel}>SELECTED POST · MORE FROM THIS AUTHOR BELOW</Text>
+        ) : null}
         <PostCard
           post={item}
           onLike={(id, liked) => (liked ? feed.like(id) : feed.unlike(id))}
@@ -213,7 +219,7 @@ export default function PostCollection({
       </View>
       <View style={styles.toolbar}>
         <Text style={styles.subtitle}>
-          {feed.total} {source === "saved" ? "saved posts" : "posts"}
+          {entryPost && feed.error && !feed.total ? "More from this author" : `${feed.total} ${source === "saved" ? "saved posts" : "posts"}`}
         </Text>
         {source === "saved" ? (
           <View style={styles.switch}>
@@ -438,6 +444,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingBottom: theme.SPACING.lg,
   },
+  entryLabel: { color: theme.COLORS.textSecondary, fontSize: 10, lineHeight: 16, letterSpacing: 0.5, marginBottom: theme.SPACING.md },
   link: { color: theme.COLORS.primary, fontSize: 13, lineHeight: 20 },
   center: {
     flex: 1,

@@ -3,8 +3,11 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { LiquidGlassTabBar } from "@/components/navigation/LiquidGlassTabBar";
 import * as theme from "@/constants/theme";
+import { useAppSelector } from "@/store/hooks";
 
 export default function TabLayout() {
+  const unread = useAppSelector(state => state.notifications.accountId === state.auth.user?.id
+    ? state.notifications.unreadCount : 0);
 
   return (
     <Tabs
@@ -72,6 +75,8 @@ export default function TabLayout() {
         options={{
           headerShown: false,
           title: "Activity",
+          tabBarBadge: unread > 99 ? "99+" : unread || undefined,
+          tabBarAccessibilityLabel: unread ? `Activity, ${unread} unread` : "Activity",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? "heart" : "heart-outline"}
