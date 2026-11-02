@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import expo.modules.notifications.notifications.NotificationSerializer
@@ -45,12 +46,15 @@ private class GroupedPresentationDelegate(context: Context) : ExpoPresentationDe
     val group = data.optString("groupKey")
     val uuid = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
     if (!uuid.matches(recipient) || !uuid.matches(conversation) || group != "socialapp:v2:$recipient:$conversation") return original
+    // Framework recovery is available on Android 7.0+. Older versions retain
+    // Expo's original notification and inline action without custom grouping.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return original
     val dismissIntent = Intent(context, GroupedNotificationDismissReceiver::class.java).apply {
-      data = Uri.Builder().scheme("socialapp-notification").authority("dismiss").appendPath(notification.notificationRequest.identifier).build()
+      this.data = Uri.Builder().scheme("socialapp-notification").authority("dismiss").appendPath(notification.notificationRequest.identifier).build()
       putExtra("group", group)
     }
     val dismiss = PendingIntent.getBroadcast(context, 0, dismissIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    val child = NotificationCompat.Builder.recoverBuilder(context, original).setGroup(group).setDeleteIntent(dismiss).build()
+    val child = android.app.Notification.Builder.recoverBuilder(context, original).setGroup(group).setDeleteIntent(dismiss).build()
     val summary = NotificationCompat.Builder(context, "messages")
       .setSmallIcon(context.applicationInfo.icon).setContentTitle("Messages").setContentText("New messages")
       .setGroup(group).setGroupSummary(true).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
