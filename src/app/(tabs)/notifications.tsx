@@ -1,473 +1,194 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import theme from '@/constants/theme';
-import { useAppSelector, useAppDispatch } from '@/store/hooks';
-import { notificationService } from '@/services/NotificationService';
-import {
-  setNotifications,
-  setUnreadCount,
-  markRead,
-  markAllRead,
-  setLoading,
-  setError,
-} from '@/store/slices/notificationsSlice';
-import { Notification, NotificationType } from '@/types';
+import React, { useCallback, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useFocusEffect } from "expo-router";
+import { COLORS, LAYOUT, SPACING } from "@/constants/theme";
+import { useAppSelector } from "@/store/hooks";
+import { emptyNotifications } from "@/store/slices/notificationsSlice";
+import { useActivityController } from "@/hooks/useNotifications";
+import { activityDestination, type ActivityItem } from "@/services/NotificationService";
+import { showAppDialog } from "@/services/AppDialogService";
+import ActivityRow from "@/components/notifications/ActivityRow";
+import ActivitySkeleton from "@/components/notifications/ActivitySkeleton";
 
-type FilterTab = 'all' | 'unread';
-
-const ICON_MAP: Record<NotificationType, keyof typeof Ionicons.glyphMap> = {
-  LIKE: 'heart',
-  COMMENT: 'chatbubble',
-  FOLLOW: 'person-add',
-  MESSAGE: 'mail',
-  MENTION: 'at',
-  SYSTEM: 'notifications',
-};
-
-function formatTimestamp(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+function EmptyActivity({ error, retry }: { error: string | null; retry(): void }) {
+  return (
+    <View style={styles.empty} accessibilityRole={error ? "alert" : undefined}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name={error ? "cloud-offline-outline" : "notifications-outline"} size={34} color={COLORS.primary} />
+      </View>
+      <Text style={styles.emptyTitle}>{error ? "Couldn’t load activity" : "You’re in the loop"}</Text>
+      <Text style={styles.emptyCopy}>{error || "Likes, comments, replies and new followers will find a home here. Keep sharing what makes you, you."}</Text>
+      {error ? <Pressable accessibilityRole="button" accessibilityLabel="Try again" onPress={retry} style={styles.retryButton}>
+        <Text style={styles.retryText}>Try again</Text>
+      </Pressable> : <Text style={styles.emptyHint}>Pull down any time to refresh.</Text>}
+    </View>
+  );
 }
-
-function getAvatarColor(actorId: string | null): string {
-  if (!actorId) return theme.COLORS.primary;
-  let hash = 0;
-  for (let i = 0; i < actorId.length; i++) {
-    hash = actorId.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colors = [
-    theme.COLORS.primary,
-    theme.COLORS.accentBlue,
-    theme.COLORS.accentPurple,
-    theme.COLORS.secondary,
-    theme.COLORS.indigo,
-  ];
-  return colors[Math.abs(hash) % colors.length];
-}
-
-function getInitial(actorId: string | null): string {
-  if (!actorId) return '?';
-  return actorId.charAt(0).toUpperCase();
-}
+function Separator() { return <View style={styles.separator} />; }
 
 export default function NotificationsScreen() {
-  const token = useAppSelector((s) => s.auth.token);
-  const userId = useAppSelector((s) => s.auth.user?.id);
-  const dispatch = useAppDispatch();
-  const items = useAppSelector((s) => s.notifications.items);
-  const unreadCount = useAppSelector((s) => s.notifications.unreadCount);
-  const loading = useAppSelector((s) => s.notifications.loading);
-  const error = useAppSelector((s) => s.notifications.error);
+  const accountId = useAppSelector(state => state.auth.user?.id);
+  const activity = useAppSelector(state => state.notifications.accountId === state.auth.user?.id
+    ? state.notifications : emptyNotifications);
+  const controller = useActivityController();
+  const [now, setNow] = useState(() => Date.now());
+  const navigating = useRef(false);
+  useFocusEffect(useCallback(() => {
+    navigating.current = false;
+    if (!accountId) return;
+    void controller.open({ accountId, session: activity.session });
+    if (!activity.foreground) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [controller, activity.foreground, accountId, activity.session]));
 
-  const [filter, setFilter] = React.useState<FilterTab>('all');
-
-  const filtered = useMemo(() => {
-    if (filter === 'unread') {
-      return items.filter((n) => !n.isRead);
+  const readFailure = useCallback((error: Error) => showAppDialog({
+    title: "Read status wasn’t saved",
+    message: `We couldn’t confirm the update. Your activity will be checked again. ${error.message}`,
+    tone: "error",
+  }), []);
+  const markRead = useCallback((item: ActivityItem) => {
+    void controller.markRead(item.id).catch(readFailure);
+  }, [controller, readFailure]);
+  const openActor = useCallback((item: ActivityItem) => {
+    if (!item.actor || navigating.current) return;
+    markRead(item);
+    navigating.current = true;
+    router.push({ pathname: "/user/[username]", params: { username: item.actor.username } });
+  }, [markRead]);
+  const openItem = useCallback((item: ActivityItem) => {
+    if (navigating.current) return;
+    markRead(item);
+    const destination = activityDestination(item);
+    if (!destination) {
+      showAppDialog({ title: "Details unavailable", tone: "info",
+        message: !item.hydrated ? "We’re syncing this activity. Pull down to refresh and try again."
+          : item.type === "FOLLOW" ? "This account is no longer available."
+            : item.type === "MENTION" ? "This server doesn’t provide a destination for this mention."
+              : "This post may have been removed or is no longer available to you." });
+      return;
     }
-    return items;
-  }, [items, filter]);
-
-  const fetchNotifications = useCallback(async () => {
-    if (!token || !userId) return;
-    dispatch(setLoading(true));
-    dispatch(setError(null));
-    try {
-      const page = await notificationService.getNotifications(token);
-      dispatch(setNotifications(page.notifications));
-      dispatch(setUnreadCount(page.unreadCount));
-    } catch (err: any) {
-      dispatch(setError(err.message ?? 'Failed to load notifications'));
-    } finally {
-      dispatch(setLoading(false));
-    }
-  }, [token, userId, dispatch]);
-
-  useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
-
-  const onRefresh = useCallback(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
-
-  const handleMarkAllRead = useCallback(async () => {
-    if (!token) return;
-    try {
-      await notificationService.markAllRead(token);
-      dispatch(markAllRead());
-    } catch (err) {
-      console.error('Failed to mark all read:', err);
-    }
-  }, [token, dispatch]);
-
-  const handleItemPress = useCallback(
-    (item: Notification) => {
-      if (!item.isRead) {
-        notificationService.markRead(token ?? '', item.id).catch(() => {});
-        dispatch(markRead(item.id));
-      }
-      const actorUsername = item.user?.username;
-      if (actorUsername) {
-        router.push(`/user/${actorUsername}`);
-      } else if (item.resourceId && (item.type === 'COMMENT' || item.type === 'LIKE' || item.type === 'MENTION')) {
-        router.push(`/posts/${item.resourceId}/comments`);
-      } else if (item.type === 'MESSAGE') {
-        router.push('/(chatRoom)/messages');
-      }
-    },
-    [token, dispatch, router],
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: Notification }) => {
-      const iconName = ICON_MAP[item.type] || 'notifications';
-      const avatarColor = getAvatarColor(item.actorId);
-      const initial = getInitial(item.actorId);
-      const actorName = item.user?.displayName || item.user?.username || 'Someone';
-
-      return (
-        <Pressable
-          style={[styles.item, !item.isRead && styles.itemUnread]}
-          onPress={() => handleItemPress(item)}
-        >
-          <View style={styles.avatarContainer}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
-            <View style={[styles.iconBadge, { backgroundColor: theme.COLORS.bgWhite }]}>
-              <Ionicons name={iconName} size={14} color={theme.COLORS.primary} />
-            </View>
-          </View>
-
-          <View style={styles.content}>
-            <View style={styles.textRow}>
-              <Text style={styles.contentText}>
-                <Text style={styles.actorName}>{actorName}</Text>
-                <Text style={styles.contentSuffix}> {item.content}</Text>
-              </Text>
-            </View>
-            <Text style={styles.timestamp}>{formatTimestamp(new Date(item.createdAt))}</Text>
-          </View>
-
-          {!item.isRead && <View style={styles.unreadDot} />}
-        </Pressable>
-      );
-    },
-    [handleItemPress],
-  );
-
-  const renderEmpty = useCallback(() => {
-    return (
-      <View style={styles.emptyState}>
-        <Ionicons name="notifications-off-outline" size={48} color={theme.COLORS.textMuted} />
-        <Text style={styles.emptyTitle}>No notifications</Text>
-        <Text style={styles.emptySubtitle}>
-          {filter === 'unread'
-            ? "You're all caught up!"
-            : 'When you get notifications, they will show up here'}
-        </Text>
-      </View>
-    );
-  }, [filter]);
-
-  if (error && items.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <View style={{ width: 40 }} />
-          <Text style={styles.headerTitle}>Activity</Text>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable onPress={onRefresh}>
-            <Text style={{ color: theme.COLORS.primary }}>Retry</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
+    navigating.current = true;
+    if (destination.kind === "profile") router.push({ pathname: "/user/[username]", params: { username: destination.username } });
+    else if (destination.kind === "post") router.push({ pathname: "/posts/[id]", params: { id: destination.postId } });
+    else router.push("/(tabs)/messages");
+  }, [markRead]);
+  const refresh = useCallback(() => { void controller.refresh(); }, [controller]);
+  const renderItem = useCallback(({ item }: { item: ActivityItem }) => (
+    <ActivityRow item={item} now={now} onOpen={openItem} onActor={openActor} onRead={markRead} />
+  ), [now, openItem, openActor, markRead]);
+  const initialLoading = !activity.initialized && !activity.error;
+  const reading = Object.keys(activity.pendingReads).length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={{ width: 40 }} />
-        <Text style={styles.headerTitle}>Activity</Text>
-        {unreadCount > 0 ? (
-          <Pressable style={styles.markAllBtn} onPress={handleMarkAllRead}>
-            <Text style={styles.markAllText}>Mark all read</Text>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
+      <View style={styles.content}>
+        <View style={styles.header}>
+          <View style={styles.heading}>
+            <Text style={styles.eyebrow}>YOUR COMMUNITY</Text>
+            <Text style={styles.title}>Activity</Text>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Mark all activity as read"
+            accessibilityState={{ disabled: !activity.unreadCount || reading, busy: activity.readAllPending }}
+            disabled={!activity.unreadCount || reading || !activity.unreadKnown}
+            onPress={() => void controller.markAllRead().catch(readFailure)}
+            style={({ pressed }) => [styles.readAll, (!activity.unreadCount || reading) && styles.disabled, pressed && styles.pressed]}>
+            {activity.readAllPending ? <ActivityIndicator size="small" color={COLORS.primary} />
+              : <Ionicons name="checkmark-done-outline" size={17} color={COLORS.primary} />}
+            <Text style={styles.readAllText}>{activity.readAllPending ? "Saving…" : "Read all"}</Text>
           </Pressable>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-      </View>
-
-      <View style={styles.tabBar}>
-        <Pressable
-          style={[styles.tab, filter === 'all' && styles.tabActive]}
-          onPress={() => setFilter('all')}
-        >
-          <Text style={[styles.tabText, filter === 'all' && styles.tabTextActive]}>
-            All
-          </Text>
-          {filter === 'all' && <View style={styles.tabIndicator} />}
-        </Pressable>
-        <Pressable
-          style={[styles.tab, filter === 'unread' && styles.tabActive]}
-          onPress={() => setFilter('unread')}
-        >
-          <Text style={[styles.tabText, filter === 'unread' && styles.tabTextActive]}>
-            Unread
-          </Text>
-          {filter === 'unread' && unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount}</Text>
-            </View>
-          )}
-          {filter === 'unread' && <View style={styles.tabIndicator} />}
-        </Pressable>
-      </View>
-
-      {loading && items.length === 0 ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.COLORS.primary} />
         </View>
-      ) : (
+        <View style={styles.summary}>
+          <View style={styles.summaryIcon}><Ionicons name="heart-outline" size={19} color={COLORS.primary} /></View>
+          <View style={styles.summaryCopy}>
+            <Text style={styles.summaryTitle}>{activity.unreadCount
+              ? `${activity.unreadCount} unread ${activity.unreadCount === 1 ? "update" : "updates"}`
+              : activity.unreadKnown ? "You’re all caught up" : "A little closer to your people"}</Text>
+            <Text style={styles.summarySubtitle}>Your moments. Their reactions.</Text>
+          </View>
+          <View style={styles.connection}>
+            {activity.syncing ? <ActivityIndicator size="small" color={COLORS.primary} />
+              : <View style={[styles.statusDot, { backgroundColor: activity.connected ? COLORS.green : COLORS.textMuted }]} />}
+            <Text style={styles.connectionText}>{activity.syncing ? "Syncing" : activity.connected ? "Live" : "Reconnecting"}</Text>
+          </View>
+        </View>
         <FlatList
-          style={styles.list}
-          data={filtered}
-          keyExtractor={(item) => item.id}
+          key={accountId ?? "signed-out"}
+          data={activity.items}
           renderItem={renderItem}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          contentContainerStyle={filtered.length === 0 ? styles.emptyContent : styles.listContent}
-          ListEmptyComponent={renderEmpty}
-          refreshControl={
-            <RefreshControl
-              refreshing={loading}
-              onRefresh={onRefresh}
-              tintColor={theme.COLORS.primary}
-              colors={[theme.COLORS.primary]}
-            />
-          }
+          keyExtractor={item => item.id}
+          ItemSeparatorComponent={Separator}
+          contentContainerStyle={styles.list}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={activity.refreshing} onRefresh={refresh}
+            tintColor={COLORS.primary} colors={[COLORS.primary]} />}
+          onEndReached={() => { void controller.loadMore(); }}
+          onEndReachedThreshold={0.4}
+          ListHeaderComponent={activity.error && activity.items.length ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Retry activity refresh" onPress={refresh} style={styles.errorBanner}>
+              <Ionicons name="alert-circle-outline" size={20} color={COLORS.primaryDark} />
+              <Text style={styles.errorCopy}>{activity.error} Tap to retry.</Text>
+            </Pressable>
+          ) : null}
+          ListEmptyComponent={initialLoading ? <ActivitySkeleton /> : <EmptyActivity error={activity.error} retry={refresh} />}
+          ListFooterComponent={activity.items.length ? (
+            <View style={styles.footer}>
+              {activity.paginating ? <ActivityIndicator accessibilityLabel="Loading older activity" color={COLORS.primary} />
+                : activity.paginationError ? <Pressable accessibilityRole="button" onPress={() => void controller.loadMore(true)} style={styles.pageButton}>
+                  <Text style={styles.errorCopy}>{activity.paginationError}</Text>
+                  <Text style={styles.link}>Retry older activity</Text>
+                </Pressable>
+                  : activity.hasMore ? <Pressable accessibilityRole="button" disabled={activity.syncing || activity.refreshing}
+                    onPress={() => void controller.loadMore()} style={styles.pageButton}><Text style={styles.link}>Load older activity</Text></Pressable>
+                    : activity.initialized ? <Text style={styles.endCopy}>You’ve seen all your activity</Text> : null}
+            </View>
+          ) : null}
         />
-      )}
+      </View>
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
-  },
-  headerTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textPrimary,
-    letterSpacing: theme.TYPOGRAPHY.letterSpacing.xs,
-  },
-  markAllBtn: {
-    paddingVertical: theme.SPACING.xs,
-    paddingHorizontal: theme.SPACING.sm,
-  },
-  markAllText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.primary,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-  },
-  errorText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.danger,
-    marginBottom: theme.SPACING.md,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
-    paddingBottom: theme.SPACING.sm,
-    backgroundColor: theme.COLORS.bgLight,
-    ...theme.SHADOWS.xl,
-    zIndex: 10,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    borderBottomWidth: theme.BORDER.width.xs,
-    borderBottomColor: theme.COLORS.borderDivider,
-    backgroundColor: theme.COLORS.bgLight,
-  },
-  tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.SPACING.xs,
-    paddingVertical: theme.SPACING.md,
-    marginRight: theme.SPACING.xxl,
-    position: 'relative',
-  },
-  tabActive: {
-    // active state container
-  },
-  tabText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-    color: theme.COLORS.textMuted,
-  },
-  tabTextActive: {
-    color: theme.COLORS.primary,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: theme.COLORS.primary,
-    borderTopLeftRadius: 1,
-    borderTopRightRadius: 1,
-  },
-  badge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.SPACING.xs,
-  },
-  badgeText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textWhite,
-  },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    paddingVertical: theme.SPACING.sm,
-  },
-  emptyContent: {
-    flex: 1,
-  },
-  separator: {
-    height: theme.BORDER.width.xs,
-    backgroundColor: theme.COLORS.borderDivider,
-    marginLeft: theme.LAYOUT.contentPadding + theme.SIZING.avatarMd + theme.SPACING.md,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    backgroundColor: theme.COLORS.bgLight,
-  },
-  itemUnread: {
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: theme.SPACING.md,
-  },
-  avatar: {
-    width: theme.SIZING.avatarMd,
-    height: theme.SIZING.avatarMd,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    color: theme.COLORS.textWhite,
-  },
-  iconBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 22,
-    height: 22,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: theme.COLORS.bgLight,
-    ...theme.SHADOWS.sm,
-  },
-  content: {
-    flex: 1,
-  },
-  textRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  },
-  contentText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textSecondary,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
-  },
-  actorName: {
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-  },
-  contentSuffix: {
-    color: theme.COLORS.textSecondary,
-  },
-  timestamp: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textMuted,
-    marginTop: theme.SPACING.xs,
-  },
-  unreadDot: {
-    width: theme.SIZING.dot,
-    height: theme.SIZING.dot,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    marginLeft: theme.SPACING.sm,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.SPACING.xxxxxl * 2,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-  },
-  emptyTitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-    marginTop: theme.SPACING.md,
-  },
-  emptySubtitle: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textSecondary,
-    marginTop: theme.SPACING.xs,
-    textAlign: 'center',
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
-  },
+  screen: { flex: 1, backgroundColor: COLORS.bgMain },
+  content: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" },
+  header: { paddingHorizontal: LAYOUT.contentPadding, paddingTop: SPACING.xl, paddingBottom: SPACING.lg,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  heading: { flexShrink: 1 },
+  eyebrow: { fontSize: 10, fontWeight: "600", letterSpacing: 1.5, color: COLORS.textSecondary, marginBottom: 4 },
+  title: { fontSize: 31, lineHeight: 38, fontWeight: "700", color: COLORS.textPrimary, letterSpacing: -0.8 },
+  readAll: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, minHeight: 44,
+    paddingHorizontal: 12, borderRadius: 15, backgroundColor: COLORS.bgWhite },
+  readAllText: { color: COLORS.primaryDark, fontSize: 12, fontWeight: "600" },
+  disabled: { opacity: 0.45 }, pressed: { opacity: 0.7 },
+  summary: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: LAYOUT.contentPadding,
+    marginBottom: 18, padding: 12, borderRadius: 17, backgroundColor: COLORS.primaryGhost, flexWrap: "wrap" },
+  summaryIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.bgWhite, alignItems: "center", justifyContent: "center" },
+  summaryCopy: { flex: 1, minWidth: 125, gap: 3 },
+  summaryTitle: { color: COLORS.primaryDark, fontSize: 13, fontWeight: "600", lineHeight: 19 },
+  summarySubtitle: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 16 },
+  connection: { flexDirection: "row", alignItems: "center", gap: 4 },
+  connectionText: { fontSize: 10, color: COLORS.textSecondary },
+  statusDot: { width: 5, height: 5, borderRadius: 3 },
+  list: { paddingHorizontal: LAYOUT.contentPadding, paddingBottom: SPACING.xxxl, flexGrow: 1 },
+  separator: { height: 8 },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 20, paddingVertical: 52, gap: 14 },
+  emptyIcon: { width: 78, height: 78, borderRadius: 28, backgroundColor: COLORS.primaryGhost, justifyContent: "center", alignItems: "center", marginBottom: 5 },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: 21, fontWeight: "700", textAlign: "center" },
+  emptyCopy: { color: COLORS.textSecondary, textAlign: "center", fontSize: 14, lineHeight: 22, maxWidth: 330 },
+  emptyHint: { color: COLORS.textSecondary, fontSize: 12, textAlign: "center", marginTop: 4 },
+  retryButton: { minHeight: 44, backgroundColor: COLORS.primary, paddingHorizontal: 24, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  retryText: { color: COLORS.textOnPrimary, fontSize: 14, fontWeight: "600" },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 9, backgroundColor: COLORS.primaryGhost, padding: 12, borderRadius: 14, marginBottom: 12 },
+  errorCopy: { color: COLORS.textSecondary, fontSize: 12, lineHeight: 19, flexShrink: 1 },
+  footer: { alignItems: "center", paddingVertical: 20, gap: 12 },
+  pageButton: { minHeight: 44, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
+  link: { color: COLORS.primaryDark, fontSize: 13, fontWeight: "600" },
+  endCopy: { color: COLORS.textSecondary, fontSize: 11, textAlign: "center" },
 });

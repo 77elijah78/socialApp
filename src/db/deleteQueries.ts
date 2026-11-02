@@ -1,5 +1,5 @@
-import { db } from "./db";
-import { messages, rooms } from "./schema";
+import { db, withDatabaseTransaction } from "./db";
+import { messages, rooms, messageInvalidations } from "./schema";
 import { eq, and, lt, or } from "drizzle-orm";
 
 export class MessageDeleteQueries {
@@ -66,8 +66,11 @@ export class MessageDeleteQueries {
   }
 
   async deleteAll(): Promise<number> {
-    const rows = await db.delete(messages).returning();
-    return rows.length;
+    return withDatabaseTransaction(async (tx) => {
+      const rows = await tx.delete(messages).returning();
+      await tx.delete(messageInvalidations);
+      return rows.length;
+    });
   }
 }
 

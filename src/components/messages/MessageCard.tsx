@@ -1,388 +1,377 @@
-import { MessageCardProps } from "@/types";
-import theme from "@/constants/theme";
+import { isAuthenticatedMediaUrl } from "@/utils/mediaRequests";
+import { shareMediaFile } from "@/services/MediaSharing";
+import { getAuthGeneration } from "@/services/api";
+import { ChatReadVisibility } from "@/components/chat/ChatReadVisibility";
+import { displayMediaUrl } from "@/utils/mediaUrls";
+import type { MessageCardProps } from "@/types";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  LAYOUT,
+  OPACITY,
+  SIZING,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
 import {
   View,
   Text,
   StyleSheet,
   useWindowDimensions,
-  Image,
   TouchableOpacity,
   Linking,
 } from "react-native";
-import { useState, useMemo, useRef } from "react";
-import VoiceMessageBubble from "./VoiceMessage";
-import VideoPlayer from "./Videoplayer";
-import SharedPostCard from "./SharedPostCard";
-import SharedStoryCard from "./SharedStoryCard";
+import { memo, useMemo, useCallback, useRef, useContext } from "react";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
+import VoiceMessage from "./VoiceMessage";
+import VideoPlayer from "./Videoplayer";
+import ImageMessage from "./ImageMessage";
+import DocumentMessage from "./DocumentMessage";
+import ReplyPreview from "./ReplyPreview";
+import MessageMeta from "./MessageMeta";
+import SharedPostCard from "./SharedPostCard";
+import SharedStoryCard from "./SharedStoryCard";
+import { useOverlay } from "@/providers/OverlayProvider";
+import { showAppDialog } from "@/services/AppDialogService";
+import { fileNameFromUri } from "@/utils/messaging/presentation";
 
-function StatusCheckmarks({
-  status,
-  isSent,
-}: {
-  status: string;
-  isSent: boolean;
-}) {
-  if (!isSent) return null;
-
-  if (status === "READ") {
-    return (
-      <View style={{ flexDirection: "row", marginLeft: 4 }}>
-        <Ionicons name="checkmark-sharp" size={12} color="#2196F3" />
-        <Ionicons name="checkmark-sharp" size={12} color="#2196F3" style={{ marginLeft: -6 }} />
-      </View>
-    );
-  }
-
-  if (status === "DELIVERED") {
-    return (
-      <View style={{ flexDirection: "row", marginLeft: 4 }}>
-        <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
-        <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" style={{ marginLeft: -6 }} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ flexDirection: "row", marginLeft: 4 }}>
-      <Ionicons name="checkmark-sharp" size={12} color="#9E9E9E" />
-    </View>
-  );
+function kind(type: string) {
+  if (type.startsWith("image/") || type === "IMAGE") return "IMAGE";
+  if (type.startsWith("video/") || type === "VIDEO") return "VIDEO";
+  if (type.startsWith("audio/") || type === "AUDIO") return "AUDIO";
+  return type.toUpperCase() === "TEXT"
+    ? "TEXT"
+    : type.toUpperCase() === "DOCUMENT"
+      ? "DOCUMENT"
+      : type;
 }
-
-export default function MessageCard({
+function MessageCard({
   type,
   message,
   time,
   sender,
+  senderAvatar,
+  showAuthor,
   isSent,
-  isRead,
   status,
-  uri,
+  uri: rawUri,
+  onPress,
   onLongPress,
   repliedTo,
+  onReplyPress,
+  thumbnailUri: rawThumbnailUri,
+  playbackId,
+  duration,
+  onRetry,
+  ownerId = "local",
+  attachment,
 }: MessageCardProps) {
   const { width } = useWindowDimensions();
+  const pendingLocal = isSent && ["SENDING", "FAILED", "PENDING"].includes(status ?? "");
+  const uri = displayMediaUrl(rawUri, pendingLocal);
+  const thumbnailUri = displayMediaUrl(rawThumbnailUri, pendingLocal);
   const { openActionMenu } = useOverlay();
-  const maxContentWidth = width * 0.7;
-  const maxContentHeight = width * 0.55;
-  const [aspectRatio, setAspectRatio] = useState(1);
-  const downloadButtonRef = useRef<any>(null);
-
-  const safeTime = useMemo(() => {
-    if (time == null) return null;
-    const d = new Date(time);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }, [time]);
-
-  const handleDownload = () => {
-    const items: ActionMenuItem[] = [
-      { key: 'open', icon: 'open-outline', label: 'Open in browser', onPress: () => Linking.openURL(uri) },
-      { key: 'cancel', icon: 'close-outline', label: 'Cancel', onPress: () => {} },
-    ];
-    downloadButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-      openActionMenu(items, { x, y, width, height });
-    });
-  };
-
-  const sentBubble = {
-    backgroundColor: theme.COLORS.primary,
-    borderBottomRightRadius: theme.BORDER_RADIUS.sm,
-    borderBottomLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-  };
-
-  const receivedBubble = {
-    backgroundColor: theme.COLORS.bgWhite,
-    borderBottomLeftRadius: theme.BORDER_RADIUS.sm,
-    borderBottomRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    borderTopLeftRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-    borderTopRightRadius: theme.BORDER_RADIUS.xxxxxxxxxl,
-  };
-
-  const textColor = isSent ? theme.COLORS.textWhite : theme.COLORS.textPrimary;
-
-  const timeColor = isSent
-    ? theme.COLORS.voiceIndicator
-    : theme.COLORS.textTimeRead;
-
+  const sharing = useRef(false);
+  const coverReads = useContext(ChatReadVisibility);
+  const attachmentMenu = useCallback(
+    () =>
+      openActionMenu([
+        {
+          key: "open",
+          icon: "open-outline",
+          label: isAuthenticatedMediaUrl(uri) ? "Save / share file" : "Open in browser",
+          onPress: () => {
+            if (sharing.current) return;
+            sharing.current = true;
+            const generation = getAuthGeneration();
+            const release = coverReads();
+            const action = isAuthenticatedMediaUrl(uri)
+              ? shareMediaFile({ ownerId, id: playbackId ?? uri, uri, name: fileNameFromUri(uri) })
+              : Linking.openURL(uri);
+            void action.catch(() => {
+              if (generation !== getAuthGeneration()) return;
+              showAppDialog({
+                title: "Couldn’t open attachment",
+                message: "The original file may be unavailable.",
+                tone: "error",
+              });
+            }).finally(() => { sharing.current = false; release(); });
+          },
+        },
+        {
+          key: "cancel",
+          icon: "close-outline",
+          label: "Cancel",
+          onPress: () => {},
+        },
+      ]),
+    [uri, openActionMenu, ownerId, playbackId, coverReads],
+  );
+  const bubbleWidth = Math.min(SIZING.messageMaxImage + 24, width * 0.84);
+  const contentWidth = Math.max(1, bubbleWidth - SPACING.lg * 2 - 2);
+  const messageKind = kind(type);
+  const shared = useMemo(() => {
+    if (messageKind !== "SHARED_POST" && messageKind !== "SHARED_STORY")
+      return null;
+    try {
+      const parsed = JSON.parse(message || "{}");
+      return parsed && typeof parsed === "object"
+        ? (parsed as Record<string, string | null>)
+        : null;
+    } catch {
+      return null;
+    }
+  }, [message, messageKind]);
+  const media = messageKind !== "TEXT";
   return (
     <View
-      style={[
-        styles.container,
-        isSent ? styles.sentContainer : styles.receivedContainer,
-      ]}
+      style={[styles.container, isSent ? styles.outgoing : styles.incoming]}
     >
       <TouchableOpacity
-        activeOpacity={0.9}
+        onPress={
+          onPress ??
+          (repliedTo && onReplyPress
+            ? () => onReplyPress(repliedTo.id)
+            : undefined)
+        }
         onLongPress={onLongPress}
-        delayLongPress={200}
+        delayLongPress={300}
+        activeOpacity={OPACITY.subtle}
+        style={[
+          styles.bubble,
+          isSent ? styles.sent : styles.received,
+          { maxWidth: bubbleWidth },
+          (media || repliedTo) && { width: bubbleWidth },
+        ]}
       >
-        <View
-          style={[
-            styles.bubble,
-            isSent ? sentBubble : receivedBubble,
-            type === "text" && styles.textBubblePadding,
-          ]}
-        >
-          {repliedTo && (
-            <View style={styles.repliedPreview}>
-              <Text style={styles.repliedName}>
-                {repliedTo.sender?.username ?? "Message"}
-              </Text>
-              <Text style={styles.repliedText} numberOfLines={1}>
-                {repliedTo.content ?? "Media"}
-              </Text>
-            </View>
-          )}
-
-          {type === "text" && (
-            <Text style={[styles.text, { color: textColor }]}>{message}</Text>
-          )}
-
-          {type === "image/jpeg" && (
-            <View>
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(chatRoom)/imageViewer",
-                    params: {
-                      uri,
-                      name: sender || (isSent ? "Your photo" : "Received image"),
-                    },
-                  })
-                }
-              >
-                <View
-                  style={[
-                    styles.imageWrapper,
-                    {
-                      width: maxContentWidth,
-                      alignSelf: isSent ? "flex-end" : "flex-start",
-                    },
-                  ]}
-                >
-                  <Image
-                    source={{ uri }}
-                    style={[styles.thumbnail, { aspectRatio }]}
-                    resizeMode="contain"
-                    onLoad={(e) =>
-                      setAspectRatio(
-                        e.nativeEvent.source.width /
-                          e.nativeEvent.source.height,
-                      )
-                    }
-                  />
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                ref={downloadButtonRef}
-                style={styles.downloadButton}
-                onPress={handleDownload}
-              >
-                <Ionicons
-                  name="download-outline"
-                  size={18}
-                  color={theme.COLORS.textWhite}
-                />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === "video/mp4" && (
-            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-              <VideoPlayer
-                style={{}}
-                uri={uri}
-                thumbnail=""
-                borderRadius={theme.BORDER_RADIUS.lg}
-               />
-               <TouchableOpacity
-                 ref={downloadButtonRef}
-                 style={styles.downloadButtonOverlay}
-                 onPress={handleDownload}
-               >
-                <Ionicons
-                  name="download-outline"
-                  size={22}
-                  color={theme.COLORS.textWhite}
-                />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === "audio/mpeg" && (
-            <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth }]}>
-              <VoiceMessageBubble audioUri={uri} duration={30} isOwn={isSent} />
-              <TouchableOpacity
-                style={styles.downloadButtonOverlay}
-                onPress={handleDownload}
-              >
-                <Ionicons
-                  name="download-outline"
-                  size={22}
-                  color={theme.COLORS.textWhite}
-                />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === "SHARED_POST" && (() => {
-            try {
-              const parsed = JSON.parse(message || "{}");
-              return (
-                <SharedPostCard
-                  content={parsed.content ?? "Shared post"}
-                  authorName={parsed.authorName ?? "User"}
-                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
-                  imageUrl={parsed.imageUrl ?? null}
-                  onPress={() => parsed.postId && router.push(`/posts/${parsed.postId}/comments`)}
-                />
-              );
-            } catch {
-              return (
-                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
-                  <Text style={{ color: textColor }}>Shared post</Text>
-                </View>
-              );
-            }
-          })()}
-
-          {type === "SHARED_STORY" && (() => {
-            try {
-              const parsed = JSON.parse(message || "{}");
-              return (
-                <SharedStoryCard
-                  mediaUrl={parsed.mediaUrl ?? ""}
-                  mediaType={parsed.mediaType ?? "image"}
-                  caption={parsed.caption ?? null}
-                  authorName={parsed.authorName ?? "User"}
-                  authorAvatarUrl={parsed.authorAvatarUrl ?? null}
-                  onPress={() => parsed.storyId && router.push(`/stories/${parsed.storyId}`)}
-                />
-              );
-            } catch {
-              return (
-                <View style={[styles.mediaWrapper, { maxWidth: maxContentWidth, padding: theme.SPACING.md }]}>
-                  <Text style={{ color: textColor }}>Shared story</Text>
-                </View>
-              );
-            }
-          })()}
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              alignSelf: isSent ? "flex-end" : "flex-start",
-              marginTop: theme.SPACING.xs,
-            }}
-          >
-            {safeTime ? (
-              <Text style={[styles.time, { color: timeColor }]}>
-                {safeTime.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </Text>
+        {(showAuthor || repliedTo) && (
+          <View style={styles.author}>
+            {senderAvatar ? (
+              <Image
+                source={{ uri: senderAvatar }}
+                style={styles.avatar}
+                cachePolicy="memory-disk"
+                recyclingKey={senderAvatar}
+              />
             ) : (
-              <Text style={[styles.time, { color: timeColor }]} />
+              <View style={styles.avatarFallback}>
+                <Ionicons
+                  name="person-outline"
+                  size={13}
+                  color={COLORS.primaryDark}
+                />
+              </View>
             )}
-            <StatusCheckmarks status={status} isSent={isSent} />
+            <Text style={styles.authorName} numberOfLines={1}>
+              {sender}
+            </Text>
+            {isSent && sender !== "You" && <Text style={styles.you}>You</Text>}
           </View>
+        )}
+        {repliedTo && (
+          <ReplyPreview
+            message={repliedTo}
+            userId={ownerId}
+            onPress={onReplyPress}
+          />
+        )}
+        {messageKind === "TEXT" && <Text style={styles.text}>{message}</Text>}
+        {messageKind === "IMAGE" && (
+          <ImageMessage
+            key={uri}
+            uri={uri}
+            thumbnail={thumbnailUri}
+            name={sender}
+            maxWidth={contentWidth}
+            mediaWidth={attachment?.width}
+            mediaHeight={attachment?.height}
+            onLongPress={onLongPress}
+          />
+        )}
+        {messageKind === "VIDEO" && (
+          <VideoPlayer
+            playbackId={playbackId}
+            uri={uri}
+            width={contentWidth}
+            onLongPress={onLongPress}
+            thumbnail={thumbnailUri}
+            duration={duration}
+            mediaWidth={attachment?.width}
+            mediaHeight={attachment?.height}
+          />
+        )}
+        {messageKind === "AUDIO" && !!message && (
+          <Text style={styles.text} numberOfLines={1}>
+            {message}
+          </Text>
+        )}
+        {messageKind === "AUDIO" && (
+          <VoiceMessage
+            playbackId={playbackId}
+            audioUri={uri}
+            duration={duration ?? 0}
+            waveform={attachment?.waveform}
+            isOwn={isSent}
+            onLongPress={onLongPress}
+          />
+        )}
+        {messageKind === "DOCUMENT" && (
+          <DocumentMessage
+            key={uri}
+            id={playbackId || uri}
+            ownerId={ownerId}
+            uri={uri}
+            name={attachment?.name || message || fileNameFromUri(uri)}
+            size={attachment?.size}
+            localSource={isSent}
+            onLongPress={onLongPress}
+          />
+        )}
+        {(messageKind === "IMAGE" || messageKind === "VIDEO") && !!message && (
+          <Text style={styles.text}>{message}</Text>
+        )}
+        {messageKind === "SHARED_POST" &&
+          (shared ? (
+            <SharedPostCard
+              onLongPress={onLongPress}
+              content={shared.content ?? "Shared post"}
+              authorName={shared.authorName ?? "User"}
+              authorAvatarUrl={shared.authorAvatarUrl ?? null}
+              imageUrl={shared.imageUrl ?? null}
+              onPress={() => {
+                const id = shared.sharedPostId ?? shared.postId;
+                if (id) router.push(`/posts/${id}/comments`);
+              }}
+            />
+          ) : (
+            <Text style={styles.text}>Shared post unavailable</Text>
+          ))}
+        {messageKind === "SHARED_STORY" &&
+          (shared ? (
+            <SharedStoryCard
+              onLongPress={onLongPress}
+              mediaUrl={shared.mediaUrl ?? ""}
+              mediaType={shared.mediaType ?? "image"}
+              caption={shared.caption ?? null}
+              authorName={shared.authorName ?? "User"}
+              authorAvatarUrl={shared.authorAvatarUrl ?? null}
+              onPress={() => {
+                const id = shared.sharedStoryId ?? shared.storyId;
+                if (id)
+                  router.push(
+                    `/stories/viewer?storyId=${encodeURIComponent(id)}`,
+                  );
+              }}
+            />
+          ) : (
+            <Text style={styles.text}>Shared story unavailable</Text>
+          ))}
+        {![
+          "TEXT",
+          "IMAGE",
+          "VIDEO",
+          "AUDIO",
+          "DOCUMENT",
+          "SHARED_POST",
+          "SHARED_STORY",
+        ].includes(messageKind) && (
+          <Text style={styles.text}>{message || "Attachment unavailable"}</Text>
+        )}
+        <View style={styles.footer}>
+          {["IMAGE", "VIDEO", "AUDIO"].includes(messageKind) && !!uri && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              style={styles.options}
+              accessibilityLabel="Attachment options"
+              onPress={attachmentMenu}
+              onLongPress={onLongPress}
+            >
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={18}
+                color={COLORS.textGray}
+              />
+            </TouchableOpacity>
+          )}
+          <MessageMeta
+            time={time}
+            status={status}
+            isSent={isSent}
+            onRetry={onRetry}
+          />
         </View>
       </TouchableOpacity>
     </View>
   );
 }
-
+export default memo(MessageCard);
 const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-    marginVertical: theme.SPACING.xs,
-    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
-  },
-  sentContainer: {
-    alignItems: "flex-end",
-  },
-  receivedContainer: {
-    alignItems: "flex-start",
-  },
-  bubble: {
-    paddingHorizontal: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.md,
-    maxWidth: "100%",
-    ...theme.SHADOWS.sm,
-  },
-  textBubblePadding: {
-    paddingVertical: theme.SPACING.sm,
-  },
-  text: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
-  },
-  imageWrapper: {
-    borderRadius: theme.BORDER_RADIUS.xxxl,
-    overflow: "hidden",
-    backgroundColor: theme.COLORS.bgImageWrapper,
-    position: "relative",
-  },
-  thumbnail: {
-    width: "100%",
-  },
-  caption: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
-    padding: theme.SPACING.md,
-    color: theme.COLORS.textWhite,
-  },
-  mediaWrapper: {
-    borderRadius: theme.BORDER_RADIUS.xxxl,
-    overflow: "hidden",
-    position: "relative",
-  },
-  time: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    marginTop: theme.SPACING.xs,
-    marginHorizontal: theme.SPACING.sm,
-  },
-  repliedPreview: {
+  footer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: theme.SPACING.sm,
-    paddingLeft: theme.SPACING.md,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.COLORS.primaryGhostBorder,
+    justifyContent: "flex-end",
+    gap: SPACING.sm,
   },
-  repliedName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-    marginRight: theme.SPACING.sm,
+  options: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  repliedText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textMuted,
+  container: {
+    width: "100%",
+    marginVertical: SPACING.xs,
+    paddingHorizontal: LAYOUT.listPaddingHorizontal,
+  },
+  outgoing: { alignItems: "flex-end" },
+  incoming: { alignItems: "flex-start" },
+  bubble: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.xxxxxl,
+    borderWidth: 1,
+    gap: SPACING.sm,
+    overflow: "hidden",
+  },
+  sent: {
+    backgroundColor: COLORS.bubbleBg,
+    borderColor: COLORS.primaryGhostBorder,
+    borderBottomRightRadius: BORDER_RADIUS.sm,
+  },
+  received: {
+    backgroundColor: COLORS.bgWhite,
+    borderColor: COLORS.borderGray,
+    borderBottomLeftRadius: BORDER_RADIUS.sm,
+  },
+  text: {
+    fontSize: TYPOGRAPHY.fontSize.xxl,
+    lineHeight: TYPOGRAPHY.lineHeight.xl,
+    color: COLORS.textPrimary,
+    flexShrink: 1,
+  },
+  author: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    paddingBottom: SPACING.sm,
+  },
+  avatar: { width: 24, height: 24, borderRadius: BORDER_RADIUS.full },
+  avatarFallback: {
+    width: 24,
+    height: 24,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primaryGhost,
+  },
+  authorName: {
     flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: "600",
+    color: COLORS.primaryDark,
   },
-  downloadButton: {
-    position: "absolute",
-    bottom: 8,
-    right: 8,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: theme.BORDER_RADIUS.full,
-    padding: 6,
-  },
-  downloadButtonOverlay: {
-    position: "absolute",
-    bottom: 8,
-    right: 8,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: theme.BORDER_RADIUS.full,
-    padding: 8,
-  },
+  you: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.textGray },
 });

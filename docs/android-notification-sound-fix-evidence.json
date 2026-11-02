@@ -1,0 +1,90 @@
+{
+  "status": "sound-channel-argument-corrected-local-validation-passed",
+  "capturedAt": "2026-11-01T22:49:45.442987+00:00",
+  "baseline": "6e3a79bfa2c9115f86f41c4174fc0886decad367",
+  "sdkVersion": "56.0.26",
+  "rootCause": "Channel sound string default is checked as a custom raw resource in installed SDK; omit key for Android system default, not null silence.",
+  "channelId": "messages",
+  "channelDeletedOrRenamed": false,
+  "nativeAssetsAdded": false,
+  "beforeRegression": {
+    "tests": 10,
+    "pass": 9,
+    "fail": 1,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 767.19284,
+    "logSha256": "45d9f00567e6ded1f5b8ede33a3f3c3489307666badd10dd3dc8d7e2546f9541"
+  },
+  "targeted": {
+    "tests": 12,
+    "pass": 12,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 1304.900424,
+    "logSha256": "37754fb53d27d73e064445df3945a75ef27f75baf0757b1492eee227d054f97c"
+  },
+  "notifications": {
+    "tests": 135,
+    "pass": 135,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 16495.223877,
+    "logSha256": "c68794a1a551545395c4bb0bda9d95d7d08ecf52ff8ba044aef669fe4743accd"
+  },
+  "full": {
+    "tests": 588,
+    "pass": 588,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 99839.878039,
+    "logSha256": "1e37c5b1d5199cedd07ba0d8ab2f4be0a09d5dfb217a316419fc67e80a44b88e"
+  },
+  "typecheckPassed": true,
+  "typecheckLogSha256": "ab87a51fef194d38042db72eb2b577c59d2ad902e25f1dae43566f437231b36f",
+  "eslint": {
+    "files": 3,
+    "errors": 0,
+    "warnings": 0
+  },
+  "exports": {
+    "android": {
+      "passed": true,
+      "bundle": "_expo/static/js/android/entry-0c442b822c1d4807504d59590cdf416e.hbc",
+      "bytes": 6822357,
+      "sha256": "926625daba8952e2f3ca79e8ac92045e09d91fc6055c5c14c2a9a7078b40bc08"
+    },
+    "ios": {
+      "passed": true,
+      "bundle": "_expo/static/js/ios/entry-d3c74e7bd9719806e5a22259f2920741.hbc",
+      "bytes": 6633151,
+      "sha256": "7a0ee8dedcf245d1a63c1f8334a220f073ae7730c6c0eed2d32495c7b0669f7d"
+    }
+  },
+  "nativeSourceSha256": {
+    "src/setNotificationChannelAsync.android.ts": "fe9f4b6304630b384890b2c927a21c144c5e36a170ae240321a471259b23fa1b",
+    "android/src/main/java/expo/modules/notifications/notifications/channels/NotificationChannelManagerModule.kt": "409ed96f1a817a935b27802700d93ff5abd0dd0f14676fe2daebfb8d7b42fdc6",
+    "android/src/main/java/expo/modules/notifications/notifications/channels/managers/AndroidXNotificationsChannelManager.java": "dc072518282419369c8632220c2a203c728bcae80307fd5d37e3074e43989fe4",
+    "android/src/main/java/expo/modules/notifications/notifications/SoundResolver.kt": "9609e9787b7ad3a978e97b7cfff94329faecd98d77de403e4d49c1b6f305727d"
+  },
+  "changedCodeSha256": {
+    "src/services/notifications/NativeMessageNotifications.ts": "e30fd63536c987c77e32c0fc1a1e40f1e54e32108dc970d19f60c77e74da8fc9",
+    "test/notifications/native.test.cjs": "4335bce3074ef507a41c86514f1a8051262d8d2b3a0cd25bc35c3dfbb5b3912b",
+    "test/notifications/android-channel-contract.test.cjs": "2e2b3298a0a2b347d045596b60c91915ad280057498baaba1c34cfa211463a4f"
+  },
+  "unchangedConfigurationSha256": {
+    "package.json": "362ff429cc044c1aa16d9bf8ab81b6b73647b7a900851db33db717009f933994",
+    "package-lock.json": "b0317e6a3a50cd19d87ec7a0e6c5a03b8cc3133a3ce7f098e5be1a29bb1958b4",
+    "app.json": "943c3b943922dc6756e0f512e7afaec9cb05b3c57f55549a7b6e0c7088245e03",
+    "app.config.ts": "a6882c55b31437a71abdf2d1bf25cef9e4564cc679ad510b56dccc995cefd6db"
+  },
+  "unperformed": [
+    "Native Android execution / handset sound verification",
+    "Live Expo/FCM delivery or two-device tests",
+    "Native build/install, APK size/startup/FPS measurements",
+    "Backend changes / deployment / live DB mutation"
+  ]
+}

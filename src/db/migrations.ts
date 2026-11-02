@@ -1,15 +1,26 @@
-import { db } from "./db";
+import { db, withDatabaseTransaction } from "./db";
 import { sql } from "drizzle-orm";
 
-async function addColumn(table: string, column: string, definition: string): Promise<void> {
-  try {
-    await db.run(sql`ALTER TABLE ${sql.raw(table)} ADD COLUMN ${sql.raw(column)} ${sql.raw(definition)}`);
-  } catch {
-    // Column already exists or table doesn't exist yet — safe to ignore
-  }
+async function addColumn(
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
+  const columns = await db.values(sql.raw(`PRAGMA table_info(${table})`));
+  if (columns.some((row) => row[1] === column)) return;
+  await db.run(
+    sql`ALTER TABLE ${sql.raw(table)} ADD COLUMN ${sql.raw(column)} ${sql.raw(definition)}`,
+  );
 }
 
-export async function runMigrations(): Promise<void> {
+let migrations: Promise<void> | undefined;
+export function runMigrations(): Promise<void> {
+  return (migrations ??= migrate());
+}
+
+async function migrateV1(): Promise<void> {
+  const versions = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(versions[0]?.[0] ?? 0) >= 1) return;
   await db.run(sql`
     CREATE TABLE IF NOT EXISTS messages (
       local_id    TEXT PRIMARY KEY NOT NULL,
@@ -66,7 +77,11 @@ export async function runMigrations(): Promise<void> {
   await addColumn("messages", "updated_at", "TEXT");
 
   await addColumn("rooms", "receiver_id", "TEXT");
-  await addColumn("rooms", "last_message_status", "TEXT NOT NULL DEFAULT 'SENT'");
+  await addColumn(
+    "rooms",
+    "last_message_status",
+    "TEXT NOT NULL DEFAULT 'SENT'",
+  );
   await addColumn("rooms", "cached_at", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("rooms", "updated_at", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("rooms", "muted", "INTEGER NOT NULL DEFAULT 0");
@@ -109,4 +124,116 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_rooms_conversation_id
     ON rooms (conversation_id);
   `);
+  await db.run(sql`CREATE TABLE IF NOT EXISTS message_receipt_outbox (
+    key TEXT PRIMARY KEY NOT NULL, message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL, kind TEXT NOT NULL
+  )`);
+
+  await db.run(sql`CREATE TABLE IF NOT EXISTS message_sync_state (
+    conversation_id TEXT PRIMARY KEY NOT NULL, before_id TEXT, before_timestamp INTEGER,
+    target_id TEXT NOT NULL, target_timestamp INTEGER NOT NULL
+  )`);
+
+  // Repair historical sync duplicates before enforcing server identity. Prefer
+  // the original optimistic localId; aggregate receipts so READ never regresses.
+  await withDatabaseTransaction(async (tx) => {
+    const versions = await tx.values<[number]>(sql`PRAGMA user_version`);
+    if (Number(versions[0]?.[0] ?? 0) >= 1) return;
+    await tx.run(sql`UPDATE messages SET
+      status = CASE
+        WHEN EXISTS(SELECT 1 FROM messages AS d WHERE d.id = messages.id AND d.status = 'READ') THEN 'READ'
+        WHEN EXISTS(SELECT 1 FROM messages AS d WHERE d.id = messages.id AND d.status = 'DELIVERED') THEN 'DELIVERED'
+        ELSE status END,
+      is_read = CASE WHEN EXISTS(SELECT 1 FROM messages AS d WHERE d.id = messages.id AND (d.is_read = 1 OR d.status = 'READ')) THEN 1 ELSE is_read END,
+      content = (SELECT d.content FROM messages AS d WHERE d.id = messages.id ORDER BY (d.edited_at IS NOT NULL) DESC, d.edited_at DESC, d.timestamp DESC, d.local_id DESC LIMIT 1),
+      edited_at = (SELECT MAX(d.edited_at) FROM messages AS d WHERE d.id = messages.id),
+      deleted_at = (SELECT MAX(d.deleted_at) FROM messages AS d WHERE d.id = messages.id),
+      deleted_by = (SELECT d.deleted_by FROM messages AS d WHERE d.id = messages.id AND d.deleted_at IS NOT NULL ORDER BY d.deleted_at DESC LIMIT 1)
+      WHERE id IN (SELECT id FROM messages WHERE id IS NOT NULL GROUP BY id HAVING COUNT(*) > 1)`);
+    await tx.run(sql`DELETE FROM messages WHERE local_id IN (
+      SELECT local_id FROM (
+        SELECT local_id, ROW_NUMBER() OVER (
+          PARTITION BY id ORDER BY (local_id <> id) DESC, timestamp ASC, local_id ASC
+        ) AS duplicate_rank FROM messages WHERE id IS NOT NULL
+      ) WHERE duplicate_rank > 1
+    )`);
+    await tx.run(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_server_id_unique ON messages(id) WHERE id IS NOT NULL`,
+    );
+    await tx.run(
+      sql`CREATE INDEX IF NOT EXISTS idx_messages_conversation_order ON messages(conversation_id, timestamp, local_id)`,
+    );
+    await tx.run(
+      sql`DELETE FROM rooms WHERE rowid NOT IN (SELECT MAX(rowid) FROM rooms GROUP BY conversation_id)`,
+    );
+    await tx.run(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_rooms_conversation_unique ON rooms(conversation_id)`,
+    );
+    await tx.run(sql`PRAGMA user_version = 1`);
+  });
+}
+
+/** Additive v2 upgrade. An interrupted ALTER is safe to resume; never replace
+ * app.db or discard historical messages, queues, or account ownership. */
+async function migrateV2(): Promise<void> {
+  await migrateV1();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 2) return;
+  await addColumn("messages", "sender_data", "TEXT");
+  await addColumn("messages", "reply_data", "TEXT");
+  await addColumn("messages", "attachment_data", "TEXT");
+  await addColumn("rooms", "is_group", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("rooms", "participants_data", "TEXT");
+  await addColumn("message_receipt_outbox", "attempt_token", "TEXT");
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_reply_context
+      ON messages(conversation_id, replied_to_id, timestamp, local_id)`);
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_receipt_attempt
+      ON message_receipt_outbox(kind, attempt_token, key)`);
+    await tx.run(sql`PRAGMA user_version = 2`);
+  });
+}
+
+// v3 changes no message data: bound exact-ID recovery by the existing sender /
+// status / local-ID cursor, including receipts for old cached messages.
+async function migrateV3(): Promise<void> {
+  await migrateV2();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 3) return;
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_receipt_recovery ON messages(sender_id, status, local_id)`);
+    await tx.run(sql`PRAGMA user_version = 3`);
+  });
+}
+
+/** Additive v4; retain existing data/ownership and preserve legacy tombstones. */
+async function migrate(): Promise<void> {
+  await migrateV3();
+  const version = await db.values<[number]>(sql`PRAGMA user_version`);
+  if (Number(version[0]?.[0] ?? 0) >= 4) return;
+  await withDatabaseTransaction(async (tx) => {
+    await tx.run(sql`CREATE TABLE IF NOT EXISTS message_invalidations (
+      conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL, deleted_by TEXT, deletion_mode TEXT NOT NULL,
+      PRIMARY KEY (conversation_id, message_id)
+    )`);
+    await tx.run(sql`CREATE INDEX IF NOT EXISTS idx_message_invalidations_id
+      ON message_invalidations(message_id)`);
+    await tx.run(sql`INSERT INTO message_invalidations
+      (conversation_id, message_id, deleted_at, deleted_by, deletion_mode)
+      SELECT conversation_id, COALESCE(id, local_id), deleted_at, deleted_by, 'legacy'
+      FROM messages WHERE deleted_at IS NOT NULL
+      ON CONFLICT(conversation_id, message_id) DO NOTHING`);
+    await tx.run(sql`UPDATE messages SET content = NULL, media_url = NULL, thumbnail_url = NULL,
+      duration = NULL, attachment_data = NULL, reply_data = NULL WHERE deleted_at IS NOT NULL`);
+    await tx.run(sql`UPDATE messages SET reply_data = json_set(
+      CASE WHEN json_valid(reply_data) THEN reply_data ELSE json_object('id', replied_to_id, 'senderId', '', 'type', 'TEXT') END,
+      '$.deleted', json('true'), '$.content', '', '$.mediaUrl', NULL,
+      '$.thumbnailUrl', NULL, '$.attachment', NULL, '$.shared', NULL)
+      WHERE deleted_at IS NULL AND EXISTS (
+        SELECT 1 FROM message_invalidations AS d WHERE d.conversation_id = messages.conversation_id
+        AND d.message_id = messages.replied_to_id
+      )`);
+    await tx.run(sql`PRAGMA user_version = 4`);
+  });
 }

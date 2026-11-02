@@ -1,11 +1,15 @@
-import { Redirect, router } from "expo-router";
+import { Redirect } from "expo-router";
 import { useAppSelector } from "@/store/hooks";
 
 const Home = () => {
-  const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const isAuthenticated = useAppSelector(
+    (state) =>
+      state.auth.isAuthenticated &&
+      Boolean(state.auth.user?.id && state.auth.token),
+  );
 
   if (!isAuthenticated) {
-    return <Redirect href="/login" />;
+    return <Redirect href="/(auth)/login" />;
   }
   return <Redirect href="/(tabs)/home" />;
 };

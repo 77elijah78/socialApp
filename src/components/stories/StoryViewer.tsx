@@ -15,13 +15,18 @@ import { router } from "expo-router";
 
 import { api, getAccessToken } from "@/services/api";
 import { StoryItem } from "@/types";
-import theme from "@/constants/theme";
+import AuthenticatedImage from "@/components/common/AuthenticatedImage";
+import { useMediaSource } from "@/hooks/useMediaSource";
+import { useChatMediaPlayback, claimChatPlayback } from "@/hooks/useChatMediaPlayback";
+import { mediaRequestSource } from "@/utils/mediaRequests";
+import * as theme from "@/constants/theme";
 
 interface StoryMediaProps {
   story: StoryItem;
   paused: boolean;
   onVideoProgress?: (progress: number) => void;
   onVideoEnd?: () => void;
+  onReady: () => void;
 }
 
 function StoryProgress({
@@ -56,48 +61,66 @@ function StoryProgress({
   );
 }
 
-function StoryMedia({ story, paused, onVideoProgress, onVideoEnd }: StoryMediaProps) {
+function StoryMedia({ story, paused, onVideoProgress, onVideoEnd, onReady }: StoryMediaProps) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
-  const player = useVideoPlayer(
-    story.mediaType === "video" ? story.mediaUrl : null,
-    (videoPlayer) => {
-      if (story.mediaType === "video") {
-        videoPlayer.muted = true;
-        videoPlayer.timeUpdateEventInterval = 0.1;
+  const { isCurrent, retryAfterAuthError, ownerId, authenticated, scopeKey } = useMediaSource(story.mediaUrl);
+  const player = useVideoPlayer(null, videoPlayer => {
+    videoPlayer.muted = true;
+    videoPlayer.timeUpdateEventInterval = 0.1;
+  });
+  const canPlay = useChatMediaPlayback(player, !paused);
+  const loading = useRef(false);
+  const pendingError = useRef<unknown>(null);
+  const retryLoad = useRef<() => Promise<void>>(async () => {});
+  const recover = useCallback(async (error: unknown) => {
+    const retried = await retryAfterAuthError(error, () => { void retryLoad.current(); });
+    if (!retried && isCurrent()) { setLoaded(true); setFailed(true); }
+  }, [retryAfterAuthError, isCurrent]);
+  const load = useCallback(async () => {
+    if (loading.current || !isCurrent()) return;
+    loading.current = true;
+    pendingError.current = null;
+    setLoaded(false);
+    setFailed(false);
+    let failure: unknown;
+    try {
+      const source = mediaRequestSource(story.mediaUrl, ownerId ? getAccessToken() : null);
+      await player.replaceAsync({ ...source, useCaching: !authenticated });
+      if (isCurrent() && player.status !== "error") {
+        if (canPlay()) { claimChatPlayback(player); player.play(); }
       }
-    },
-  );
-
+    } catch (error) { failure = error; }
+    finally { loading.current = false; }
+    failure ??= pendingError.current;
+    if (failure) await recover(failure);
+  }, [story.mediaUrl, ownerId, authenticated, isCurrent, player, canPlay, recover]);
+  useEffect(() => { retryLoad.current = load; }, [load]);
   useEffect(() => {
     if (story.mediaType !== "video") return;
-    if (paused) player.pause();
-    else player.play();
-  }, [paused, player, story.mediaType]);
-
-  useEffect(() => {
-    if (story.mediaType !== "video") return;
-
-    const statusSubscription = player.addListener("statusChange", ({ status }) => {
-      if (status === "readyToPlay") setLoaded(true);
+    const statusSubscription = player.addListener("statusChange", ({ status, error }) => {
+      if (!isCurrent()) return;
+      if (status === "readyToPlay") { setLoaded(true); onReady(); }
       if (status === "error") {
-        setLoaded(true);
-        setFailed(true);
+        if (loading.current) pendingError.current = error ?? new Error("This story video couldn’t be loaded.");
+        else void recover(error);
       }
     });
     const timeSubscription = player.addListener("timeUpdate", () => {
-      const duration = player.duration;
-      const position = player.currentTime;
-      onVideoProgress?.(duration > 0 ? position / duration : 0);
+      if (!isCurrent()) return;
+      onVideoProgress?.(player.duration > 0 ? player.currentTime / player.duration : 0);
     });
-    const endSubscription = player.addListener("playToEnd", () => onVideoEnd?.());
-
-    return () => {
-      statusSubscription.remove();
-      timeSubscription.remove();
-      endSubscription.remove();
-    };
-  }, [player, onVideoProgress, onVideoEnd, story.mediaType]);
+    const endSubscription = player.addListener("playToEnd", () => { if (isCurrent()) onVideoEnd?.(); });
+    return () => { statusSubscription.remove(); timeSubscription.remove(); endSubscription.remove(); };
+  }, [player, onVideoProgress, onVideoEnd, story.mediaType, isCurrent, recover, onReady]);
+  useEffect(() => {
+    if (story.mediaType === "video") void retryLoad.current();
+  }, [story.mediaType, scopeKey]);
+  useEffect(() => {
+    if (story.mediaType !== "video") return;
+    if (paused || !canPlay()) player.pause();
+    else if (loaded && !failed && isCurrent()) { claimChatPlayback(player); player.play(); }
+  }, [paused, player, story.mediaType, loaded, failed, canPlay, isCurrent]);
 
   return (
     <View style={styles.mediaContainer}>
@@ -112,15 +135,12 @@ function StoryMedia({ story, paused, onVideoProgress, onVideoEnd }: StoryMediaPr
         story.mediaType === "video" ? (
           <VideoView player={player} style={styles.media} contentFit="cover" nativeControls={false} />
         ) : (
-          <Image
-            source={{ uri: story.mediaUrl }}
+          <AuthenticatedImage
+            uri={story.mediaUrl}
             style={styles.media}
-            resizeMode="cover"
-            onLoad={() => setLoaded(true)}
-            onError={() => {
-              setLoaded(true);
-              setFailed(true);
-            }}
+            contentFit="cover"
+            onLoad={() => { setLoaded(true); onReady(); }}
+            onError={() => { setLoaded(true); setFailed(true); }}
           />
         )
       ) : (
@@ -131,13 +151,11 @@ function StoryMedia({ story, paused, onVideoProgress, onVideoEnd }: StoryMediaPr
           <Text style={styles.mediaErrorText}>No media in this story</Text>
         </View>
       )}
-
       {!loaded && !failed && story.mediaUrl ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={theme.COLORS.white} />
         </View>
       ) : null}
-
       <LinearGradient
         pointerEvents="none"
         colors={["rgba(5,5,10,0.14)", "transparent", "rgba(5,5,10,0.46)"]}
@@ -172,6 +190,12 @@ export default function StoryViewer({
   const activeIndexRef = useRef(safeInitialIndex);
 
   const story = stories[activeIndex];
+  const storyId = story?.id;
+  const storyMediaType = story?.mediaType;
+  const mediaKey = story ? `${story.id}:${story.mediaUrl}` : "";
+  const [readyKey, setReadyKey] = useState("");
+  const ready = Boolean(mediaKey) && readyKey === mediaKey;
+  const handleMediaReady = useCallback(() => setReadyKey(mediaKey), [mediaKey]);
   const displayName = story?.displayName ?? story?.username ?? "Unknown";
 
   useEffect(() => {
@@ -179,7 +203,7 @@ export default function StoryViewer({
   }, [activeIndex]);
 
   useEffect(() => {
-    if (!story || story.id === "me") return;
+    if (!ready || !storyId || storyId === "me") return;
 
     let cancelled = false;
     const markViewed = async () => {
@@ -187,11 +211,11 @@ export default function StoryViewer({
         const token = getAccessToken();
         if (!token) return;
         await api.post<{ success: boolean; data?: { viewed: boolean } }>(
-          `/posts/stories/${story.id}/view`,
+          `/posts/stories/${storyId}/view`,
           {},
           token,
         );
-        if (!cancelled) onStoryViewed?.(story.id, true);
+        if (!cancelled) onStoryViewed?.(storyId, true);
       } catch (error) {
         if (!cancelled) console.warn("Could not mark story as viewed:", error);
       }
@@ -201,7 +225,7 @@ export default function StoryViewer({
     return () => {
       cancelled = true;
     };
-  }, [story?.id, onStoryViewed]);
+  }, [storyId, ready, onStoryViewed]);
 
   const goToNext = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -231,7 +255,7 @@ export default function StoryViewer({
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (!story || story.id === "me" || story.mediaType !== "image" || paused) return;
+    if (!ready || !storyId || storyId === "me" || storyMediaType !== "image" || paused) return;
 
     timerRef.current = setInterval(() => {
       setProgress((current) => {
@@ -247,7 +271,7 @@ export default function StoryViewer({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [activeIndex, story?.id, story?.mediaType, paused, goToNext]);
+  }, [activeIndex, storyId, storyMediaType, ready, paused, goToNext]);
 
   const handleVideoProgress = useCallback((videoProgress: number) => {
     setProgress(Math.min(1, Math.max(0, videoProgress)));
@@ -338,6 +362,7 @@ export default function StoryViewer({
           paused={paused}
           onVideoProgress={handleVideoProgress}
           onVideoEnd={handleVideoEnd}
+          onReady={handleMediaReady}
         />
         <View style={styles.tapZones} pointerEvents="box-none">
           <TouchableOpacity

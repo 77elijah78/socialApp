@@ -1,11 +1,14 @@
+import { apiUrl, API_ORIGIN } from "../config/api";
 import { LoginResponse, RegisterResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
 import { setCredentials } from "../store/slices/authSlice";
-import api, { setTokens } from "@/services/api";
+import { setTokens } from "@/services/api";
+import { prepareMessagingAccount } from "./MessagingCache";
+import { mediaService } from "./MediaService";
+import { revokePushBeforeLogout } from "./notifications/PushLogout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class AuthService {
-  private readonly baseUrl = `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1/auth`;
 
   private validate(email: string, password: string): void {
     if (!email || !password) {
@@ -24,7 +27,7 @@ export class AuthService {
       throw new Error("Email, username, and password are required.");
     }
 
-    const response = await fetch(`${this.baseUrl}/register`, {
+    const response = await fetch(apiUrl("/auth/register"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -39,6 +42,14 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await revokePushBeforeLogout(user.id).catch(() => {});
+    await prepareMessagingAccount(user.id);
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
+    }
+    // Activate the HTTP identity before Redux subscribers mount authenticated
+    // screens/socket providers. Nothing fallible remains after this commit.
+    setTokens(accessToken, refreshToken);
 
     dispatch(
       setCredentials({
@@ -54,18 +65,12 @@ export class AuthService {
         refreshToken,
       }),
     );
-
-    setTokens(accessToken, refreshToken);
-
-    if (refreshToken) {
-      await AsyncStorage.setItem("refreshToken", refreshToken);
-    }
   }
 
   async login(email: string, password: string, dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
     this.validate(email, password);
 
-    const response = await fetch(`${this.baseUrl}/login`, {
+    const response = await fetch(apiUrl("/auth/login"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -80,6 +85,14 @@ export class AuthService {
     }
 
     const { user, accessToken, refreshToken } = data.data;
+    await revokePushBeforeLogout(user.id).catch(() => {});
+    await prepareMessagingAccount(user.id);
+    if (refreshToken) {
+      await AsyncStorage.setItem("refreshToken", refreshToken);
+    }
+    // Activate the HTTP identity before Redux subscribers mount authenticated
+    // screens/socket providers. Nothing fallible remains after this commit.
+    setTokens(accessToken, refreshToken);
 
     dispatch(
       setCredentials({
@@ -95,36 +108,29 @@ export class AuthService {
         refreshToken,
       }),
     );
-
-    setTokens(accessToken, refreshToken);
-
-    if (refreshToken) {
-      await AsyncStorage.setItem("refreshToken", refreshToken);
-    }
   }
 
   async logout(): Promise<void> {
+    // Revoke while this account still owns the HTTP identity; local native
+    // unregister also prevents an offline logout from leaving FCM active.
+    await revokePushBeforeLogout().catch(() => {});
+    setTokens(null, null);
+    mediaService.message.resetSession();
+    mediaService.disconnectSocket();
+    await prepareMessagingAccount(null);
     const token = await AsyncStorage.getItem("refreshToken");
-    if (token) {
-      await fetch(`${this.baseUrl}/logout`, {
+    if (token && API_ORIGIN) {
+      await fetch(apiUrl("/auth/logout"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ refreshToken: token }),
       }).catch(() => {});
-      await AsyncStorage.removeItem("refreshToken");
     }
+    await AsyncStorage.removeItem("refreshToken");
     setTokens(null, null);
 
-    try {
-      const { messageStore } = await import("@/db/MessageStore");
-      const { roomStore } = await import("@/db/RoomStore");
-      await messageStore.deleteAll();
-      await roomStore.deleteAll();
-    } catch (err) {
-      console.warn("[AuthService] logout cache clear error:", err);
-    }
   }
 }
 

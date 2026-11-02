@@ -1,875 +1,724 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { FlatList } from "react-native";
+import { AppState } from "react-native";
+import { router } from "expo-router";
+import {
+  parseMetadata,
+  compactReplyPreview,
+  type ReplyPreviewModel,
+  type AttachmentInfo,
+  type MessageAuthorInfo,
+  replyPreview,
+} from "../utils/messaging/presentation";
+import { roomStore } from "../db/RoomStore";
+import { roomAuthors } from "../utils/messaging/roomAuthors";
 import { messageStore } from "../db/MessageStore";
-import { MessageRow } from "../db/schema";
+import type { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
 import { mediaService } from "../services/MediaService";
-import { router } from "expo-router";
 import {
   getRecentMessageCache,
   setRecentMessageCache,
-} from "@/utils/recentMessageCache";
-
-interface CurrentUser {
-  id: string;
-  token: string;
-}
+} from "../utils/recentMessageCache";
+import {
+  compareMessages,
+  cursorFor,
+  mergeMessageRows,
+} from "../utils/messaging/timeline";
 
 interface UseChatParams {
   roomId?: string;
   conversationId: string;
-  currentUser: CurrentUser;
+  currentUser: { id: string; token: string } & MessageAuthorInfo;
   isFocused?: boolean;
+  canRead?: () => boolean;
+}
+interface ChatState {
+  key: string;
+  messages: MessageRow[];
+  isSyncing: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  syncError: Error | null;
+  paginationError: Error | null;
+}
+interface Session {
+  key: string;
+  roomVersion: string;
+  cancelled: boolean;
+  rows: MessageRow[];
+  loadingMore: boolean;
+  hasMore: boolean;
+  historyBefore?: { anchor: string; cursor: { lastId: string; lastTimestamp: number } };
+  sync: Promise<void> | null;
+  lookup: Map<string, MessageRow>;
+  authors: Map<string, string>;
+  replyRefs: Map<string, Set<string>>;
+  reading: Set<string>;
+  readVisible: () => void;
+}
+const asError = (error: unknown) =>
+  error instanceof Error ? error : new Error(String(error));
+const PAGE_SIZE = 30;
+
+/** Hydrate only quote metadata from scoped local originals, not more timeline
+ * rows. One bounded lookup per page/new reply; never a query during render or
+ * an unconditional reload for receipt-only changes. */
+async function hydrateReplyPreviews(
+  rows: MessageRow[],
+  roomId: string,
+  session: Session,
+) {
+  const refs = [
+    ...new Set(
+      rows.flatMap((row) => (row.repliedToId ? [row.repliedToId] : [])),
+    ),
+  ];
+  if (!refs.length) return rows;
+  const parents = new Map<string, MessageRow>();
+  for (const row of [
+    ...rows,
+    ...refs.flatMap((id) =>
+      session.lookup.get(id) ? [session.lookup.get(id)!] : [],
+    ),
+  ]) {
+    parents.set(row.localId, row);
+    if (row.id) parents.set(row.id, row);
+  }
+  const missing = refs.filter((id) => !parents.has(id));
+  for (let offset = 0; offset < missing.length; offset += 200)
+    for (const row of await messageStore.getByIds(
+      roomId,
+      missing.slice(offset, offset + 200),
+    )) {
+      parents.set(row.localId, row);
+      if (row.id) parents.set(row.id, row);
+    }
+  return rows.map((row) => {
+    const original = row.repliedToId ? parents.get(row.repliedToId) : undefined;
+    if (!original) return row;
+    const local = replyPreview(
+      !original.senderData && session.authors.has(original.senderId)
+        ? { ...original, senderData: session.authors.get(original.senderId)! }
+        : original,
+    );
+    const remote = parseMetadata<ReplyPreviewModel>(row.replyData);
+    const snapshot = local.deleted
+      ? local
+      : {
+          ...local,
+          ...remote,
+          content: remote?.content || local.content,
+          sender: { ...local.sender, ...remote?.sender },
+          unavailable: false,
+        };
+    const replyData = JSON.stringify({
+      ...snapshot,
+      content: snapshot.deleted ? "" : snapshot.content.slice(0, 180),
+    });
+    return replyData === row.replyData ? row : { ...row, replyData };
+  });
 }
 
-interface UseChatReturn {
-  messages: MessageRow[];
-
-  send: (text: string, receiverId: string) => Promise<void>;
-
-  retry: (localId: string, receiverId: string) => Promise<void>;
-
-  deleteMsg: (messageId: string) => Promise<void>;
-
-  editMsg: (messageId: string, newText: string) => Promise<void>;
-
-  replyMsg: (
-    text: string,
-    repliedToId: string,
-    receiverId: string,
-  ) => Promise<void>;
-
-  loadMore: () => Promise<void>;
-
-  onTyping: () => void;
-
-  isTyping: boolean;
-  typingUserId: string | null;
-  isConnected: boolean;
-  isSyncing: boolean;
-  isOffline: boolean;
-  syncError: Error | null;
-  hasMore: boolean;
-
-  flatListRef: React.RefObject<FlatList | null>;
-
-  sendMedia: (
-    type: string,
-    mediaUrl: string | null,
-    receiverId: string,
-  ) => Promise<void>;
-
-  markVisibleRead: (visibleMessageIds: string[]) => void;
-  incomingMessageVersion: number;
-  initialSyncConversationId: string | null;
+function indexSession(session: Session) {
+  session.lookup.clear();
+  session.replyRefs.clear();
+  for (const row of session.rows) {
+    session.lookup.set(row.localId, row);
+    if (row.id) session.lookup.set(row.id, row);
+    if (row.repliedToId) {
+      const refs = session.replyRefs.get(row.repliedToId) ?? new Set<string>();
+      refs.add(row.localId);
+      session.replyRefs.set(row.repliedToId, refs);
+    }
+  }
 }
 
 export function useChat({
   conversationId,
   currentUser,
-  isFocused,
-}: UseChatParams): UseChatReturn {
-  const [messages, setMessages] = useState<MessageRow[]>(
-    () => getRecentMessageCache(conversationId)?.messages ?? [],
-  );
-  const [messagesConversationId, setMessagesConversationId] =
-    useState(conversationId);
-  const [isSyncing, setIsSyncing] = useState(true);
-  const isCurrentConversation = messagesConversationId === conversationId;
-  const visibleMessages = isCurrentConversation ? messages : [];
-  const visibleIsSyncing = isCurrentConversation ? isSyncing : true;
-  const [incomingMessageVersion, setIncomingMessageVersion] = useState(0);
-  const [initialSyncConversationId, setInitialSyncConversationId] =
-    useState<string | null>(null);
-  const [isConnected, setConnected] = useState(false);
-  const [isOffline, setIsOffline] = useState(false);
-  const [syncError, setSyncError] = useState<Error | null>(null);
-  const [typingUserId, setTyping] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-
-  const flatListRef = useRef<FlatList | null>(null);
-
-  /**
-   * ---------------------------------------------------------
-   * DEDUPE
-   * ---------------------------------------------------------
-   *
-   * This protects the React list from displaying the same
-   * database row more than once.
-   *
-   * Prefer serverId/messageId if your MessageRow has one.
-   * Otherwise fall back to id/localId.
-   */
-  const getMessageKey = useCallback((message: MessageRow): string => {
-    return (
-      (message as MessageRow & {
-        serverId?: string;
-        messageId?: string;
-        id?: string;
-        localId?: string;
-      }).serverId ??
-      (message as MessageRow & {
-        serverId?: string;
-        messageId?: string;
-        id?: string;
-        localId?: string;
-      }).messageId ??
-      message.id ??
-      message.localId ??
-      ""
-    );
-  }, []);
-
-  const dedupeMessages = useCallback((rows: MessageRow[]): MessageRow[] => {
-    const seen = new Set<string>();
-    const result: MessageRow[] = [];
-
-    for (const row of rows) {
-      const key = getMessageKey(row);
-
-      if (!key) {
-        result.push(row);
-        continue;
-      }
-
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      result.push(row);
-    }
-
-    return result;
-  }, [getMessageKey]);
-
-  const updateMessageStatus = useCallback(
-    (messageId: string, status: "DELIVERED" | "READ") => {
-      setMessages((previousMessages) =>
-        previousMessages.map((message) => {
-          const key = getMessageKey(message);
-
-          if (!key || key !== messageId) {
-            return message;
-          }
-
-          return {
-            ...message,
-            status,
-            ...(status === "READ" ? { isRead: true } : {}),
-          };
-        }),
-      );
-    },
-    [getMessageKey],
-  );
-
-  const updateAllOwnMessagesAsRead = useCallback(() => {
-    setMessages((previousMessages) =>
-      previousMessages.map((message) => {
-        if (message.senderId !== currentUserIdRef.current) {
-          return message;
-        }
-
-        return {
-          ...message,
-          status: "READ" as const,
-          isRead: true,
-        };
-      }),
-    );
-  }, []);
-
+  isFocused = false,
+  canRead,
+}: UseChatParams) {
+  const key = `${currentUser.id}:${conversationId}`;
+  const hasAuth = Boolean(currentUser.token);
+  const [state, setState] = useState<ChatState>(() => ({
+    key,
+    messages: getRecentMessageCache(conversationId)?.messages ?? [],
+    isSyncing: true,
+    isLoadingMore: false,
+    hasMore: true,
+    syncError: null,
+    paginationError: null,
+  }));
+  const [isConnected, setConnected] = useState(socketReceiver.isConnected);
+  const [typing, setTyping] = useState<{
+    conversationId: string;
+    userId: string;
+  } | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const focusedRef = useRef(isFocused);
+  const visibleSnapshot = useRef({ key, ids: new Set<string>() });
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const typingActiveRef = useRef(false);
-
-  /**
-   * Prevent old async work from updating the new screen.
-   */
-  const mountedRef = useRef(true);
-
-  /**
-   * Prevent duplicate initialization.
-   */
-  const initializingRef = useRef(false);
-
-  /**
-   * Prevent multiple loadMore calls at the same time.
-   */
-  const loadingMoreRef = useRef(false);
-
-  /**
-   * Keep current user available to socket callbacks
-   * without recreating all listeners.
-   */
-  const currentUserIdRef = useRef(currentUser.id);
+  const typingActive = useRef(false);
 
   useEffect(() => {
-    currentUserIdRef.current = currentUser.id;
-  }, [currentUser.id]);
+    focusedRef.current = isFocused;
+    if (isFocused && sessionRef.current?.key === key)
+      sessionRef.current.readVisible();
+  }, [isFocused, key]);
 
-  /**
-   * ---------------------------------------------------------
-   * RELOAD
-   * ---------------------------------------------------------
-   */
-  const reload = useCallback(
-    async (preserveExisting = false) => {
-      if (!conversationId) return;
+  useEffect(() => {
+    if (!conversationId || !currentUser.id) return;
+    const session: Session = {
+      key,
+      roomVersion: messageStore.getRoomVersion(conversationId),
+      cancelled: false,
+      rows: getRecentMessageCache(conversationId)?.messages ?? [],
+      loadingMore: false,
+      hasMore: true,
+      sync: null,
+      lookup: new Map(),
+      authors: new Map(),
+      replyRefs: new Map(),
+      reading: new Set(),
+      readVisible: () => {},
+    };
+    sessionRef.current = session;
+    if (visibleSnapshot.current.key !== key)
+      visibleSnapshot.current = { key, ids: new Set() };
+    indexSession(session);
+    session.readVisible = () => {
+      if (
+        session.cancelled ||
+        session.roomVersion !== messageStore.getRoomVersion(conversationId) ||
+        !focusedRef.current ||
+        AppState.currentState !== "active" ||
+        (canRead && !canRead()) ||
+        visibleSnapshot.current.key !== key
+      )
+        return;
+      const ids = new Set<string>();
+      for (const visibleId of visibleSnapshot.current.ids) {
+        const row = session.lookup.get(visibleId);
+        if (
+          row?.id &&
+          row.senderId !== currentUser.id &&
+          row.status !== "READ" &&
+          !row.isRead &&
+          !row.deletedAt &&
+          !session.reading.has(row.id)
+        )
+          ids.add(row.id);
+      }
+      if (!ids.size) return;
+      for (const id of ids) session.reading.add(id);
+      // FlatList already applies the product's visibility threshold. Persist and
+      // flush now; no second timer, touch, render, or unrelated send is required.
+      void messageStore
+        .markVisibleReadIds([...ids], conversationId, currentUser.id)
+        .then(() => {
+          if (!session.cancelled)
+            socketReceiver.emitMessageRead(conversationId, "");
+        })
+        .catch((error) => {
+          if (!session.cancelled) patch({ syncError: asError(error) });
+        })
+        .finally(() => {
+          for (const id of ids) session.reading.delete(id);
+        });
+    };
+    const patch = (patch: Partial<ChatState>) => {
+      if (!session.cancelled)
+        setState((previous) =>
+          previous.key === key ? { ...previous, ...patch } : previous,
+        );
+    };
+    const merge = (incoming: MessageRow[], sources = incoming) => {
+      if (
+        session.cancelled ||
+        session.roomVersion !== messageStore.getRoomVersion(conversationId)
+      )
+        return;
+      const rows = incoming.map((row) =>
+        !row.senderData && session.authors.has(row.senderId)
+          ? { ...row, senderData: session.authors.get(row.senderId)! }
+          : row,
+      );
+      // Edits/deletes of an unloaded original still invalidate its LOADED
+      // previews. Do not fetch or publish every reply body for a source change.
+      const previews: MessageRow[] = [];
+      for (const source of sources) {
+        const refs = new Set([
+          ...(session.replyRefs.get(source.localId) ?? []),
+          ...(source.id ? (session.replyRefs.get(source.id) ?? []) : []),
+        ]);
+        if (!refs.size) continue;
+        const data = JSON.stringify({
+          ...replyPreview(source),
+        });
+        for (const id of refs) {
+          const reply = session.lookup.get(id);
+          if (reply && reply.replyData !== data)
+            previews.push({ ...reply, replyData: data });
+        }
+      }
+      rows.push(...previews);
+      const next = mergeMessageRows(session.rows, rows);
+      if (next === session.rows) return;
+      session.rows = next;
+      for (const row of rows) {
+        const previous = session.lookup.get(row.localId);
+        if (
+          previous?.repliedToId &&
+          (row.deletedAt || previous.repliedToId !== row.repliedToId)
+        )
+          session.replyRefs.get(previous.repliedToId)?.delete(row.localId);
+        if (!row.deletedAt && row.repliedToId) {
+          const refs =
+            session.replyRefs.get(row.repliedToId) ?? new Set<string>();
+          refs.add(row.localId);
+          session.replyRefs.set(row.repliedToId, refs);
+        }
+        if (row.deletedAt) {
+          session.lookup.delete(row.localId);
+          if (row.id) session.lookup.delete(row.id);
+        } else {
+          session.lookup.set(row.localId, row);
+          if (row.id) session.lookup.set(row.id, row);
+        }
+      }
+      session.readVisible();
+      patch({ messages: session.rows });
+      setRecentMessageCache(conversationId, session.rows);
+    };
+    setState({
+      key,
+      messages: session.rows,
+      isSyncing: true,
+      isLoadingMore: false,
+      hasMore: true,
+      syncError: null,
+      paginationError: null,
+    });
 
-      const rows = await messageStore.getRecent(conversationId, 30);
+    // Register before any await. Every callback closes over its own cancellation
+    // token; a new room cannot make old async work "mounted" again.
+    const unsubscribeStore = messageStore.subscribe((change) => {
+      if (
+        session.cancelled ||
+        (change.conversationId && change.conversationId !== conversationId)
+      )
+        return;
+      if (change.type === "clear") {
+        session.rows = [];
+        session.lookup.clear();
+        patch({ messages: [] });
+      } else if (change.type === "invalidate") {
+        const previews: MessageRow[] = [];
+        for (const id of session.replyRefs.get(change.messageId) ?? []) {
+          const reply = session.lookup.get(id);
+          if (!reply) continue;
+          const previous = parseMetadata<ReplyPreviewModel>(reply.replyData);
+          previews.push({ ...reply, replyData: JSON.stringify(compactReplyPreview({
+            id: change.messageId, type: "TEXT", senderId: "", ...previous, content: "", deleted: true,
+          })) });
+        }
+        merge(previews);
+      } else {
+        const removed = new Set(change.rows.filter(row => row.deletedAt)
+          .flatMap(row => row.id ? [row.id, row.localId] : [row.localId]));
+        const oldest = removed.size ? session.rows.find(row =>
+          !removed.has(row.localId) && !(row.id && removed.has(row.id))) : session.rows[0];
+        const newReplies = change.rows.filter(
+          (row) =>
+            row.repliedToId &&
+            !session.lookup.has(row.localId) &&
+            !(row.id && session.lookup.has(row.id)) &&
+            (change.source === "live" || !oldest || compareMessages(row, oldest) >= 0),
+        );
+        merge(
+          change.rows.filter(
+            (row) =>
+              change.source === "live" ||
+              !oldest ||
+              session.lookup.has(row.localId) ||
+              Boolean(row.id && session.lookup.has(row.id)) ||
+              compareMessages(row, oldest) >= 0,
+          ),
+          change.rows,
+        );
+        if (newReplies.length)
+          void hydrateReplyPreviews(newReplies, conversationId, session)
+            .then((rows) =>
+              merge(
+                rows.flatMap((row) => {
+                  // Hydration may finish after a receipt, edit, deletion, or history
+                  // reclamation. Fill metadata on the STILL loaded current row only.
+                  const current = session.lookup.get(row.localId);
+                  if (!current || current.deletedAt) return [];
+                  const hydrated = parseMetadata<ReplyPreviewModel>(
+                    row.replyData,
+                  );
+                  const latest = parseMetadata<ReplyPreviewModel>(
+                    current.replyData,
+                  );
+                  const snapshot = {
+                    ...hydrated,
+                    ...latest,
+                    sender: { ...hydrated?.sender, ...latest?.sender },
+                    content: latest?.deleted
+                      ? ""
+                      : latest?.content || hydrated?.content || "",
+                  };
+                  return [{ ...current, replyData: JSON.stringify(snapshot) }];
+                }),
+              ),
+            )
+            .catch(() => {}); // Keep the server snapshot if optional cache hydration fails.
+      }
+    });
 
-      if (!mountedRef.current) return;
+    const synchronize = () => {
+      if (session.cancelled || session.sync || !hasAuth) return session.sync;
+      patch({ isSyncing: true, syncError: null });
+      const work = (async () => {
+        try {
+          await mediaService.message.syncLatest(
+            conversationId,
+            currentUser.id,
+            () => !session.cancelled,
+          );
+        } catch (error) {
+          patch({ syncError: asError(error) });
+        } finally {
+          session.sync = null;
+          patch({ isSyncing: false });
+        }
+      })();
+      session.sync = work;
+      return work;
+    };
+    const unsubs = [
+      unsubscribeStore,
+      socketReceiver.on("connect", () => {
+        if (session.cancelled) return;
+        setConnected(true);
+        session.readVisible();
+        void synchronize();
+      }),
+      socketReceiver.on("disconnect", () => {
+        if (!session.cancelled) setConnected(false);
+      }),
+      socketReceiver.on("error", () => {
+        if (!session.cancelled) setConnected(false);
+      }),
+      socketReceiver.on("sync:error", (error) => {
+        if (!session.cancelled) patch({ syncError: asError(error) });
+      }),
+      socketReceiver.on("typing:start", (payload) => {
+        if (
+          !session.cancelled &&
+          payload.conversationId === conversationId &&
+          payload.userId !== currentUser.id
+        )
+          setTyping(payload);
+      }),
+      socketReceiver.on("typing:stop", (payload) => {
+        if (!session.cancelled && payload.conversationId === conversationId)
+          setTyping(null);
+      }),
+      socketReceiver.on("conversation:deleted", (payload) => {
+        if (
+          !session.cancelled &&
+          focusedRef.current &&
+          payload.conversationId === conversationId
+        )
+          router.back();
+      }),
+    ];
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next === "active" && focusedRef.current) {
+        session.readVisible();
+        void synchronize();
+        void socketReceiver
+          .recoverReceipts()
+          .catch((error) => patch({ syncError: asError(error) }));
+        void socketReceiver
+          .flushReceipts()
+          .catch((error) => patch({ syncError: asError(error) }));
+      }
+    });
+    const releaseRoom = socketReceiver.retainRoom(conversationId);
+    setConnected(socketReceiver.isConnected);
+    session.readVisible();
+    void socketReceiver
+      .syncReceiptStatuses()
+      .catch((error) => patch({ syncError: asError(error) }));
+    void (async () => {
+      try {
+        const room = (await roomStore.findRoom(conversationId))[0];
+        if (session.cancelled) return;
+        session.authors = new Map(
+          [...roomAuthors(room)].map(([id, author]) => [
+            id,
+            JSON.stringify(author),
+          ]),
+        );
+        merge(
+          await hydrateReplyPreviews(
+            await messageStore.getRecent(conversationId, PAGE_SIZE),
+            conversationId,
+            session,
+          ),
+        );
+        if (session.cancelled) return;
+        await synchronize();
+      } catch (error) {
+        patch({ syncError: asError(error), isSyncing: false });
+      }
+    })();
 
-      setMessages((current) => {
-        const shouldMerge = preserveExisting || initializingRef.current;
-        const next = dedupeMessages(shouldMerge ? [...rows, ...current] : rows);
-        return shouldMerge
-          ? next.sort((a, b) => a.timestamp - b.timestamp)
-          : next;
-      });
+    return () => {
+      session.cancelled = true;
+      session.reading.clear();
+      session.lookup.clear();
+      session.authors.clear();
+      session.replyRefs.clear();
+      if (typingTimer.current) clearTimeout(typingTimer.current);
+      if (typingActive.current)
+        socketReceiver.emitTypingStop(conversationId, currentUser.id);
+      typingActive.current = false;
+      releaseRoom();
+      unsubs.forEach((unsubscribe) => unsubscribe());
+      appState.remove();
+    };
+  }, [conversationId, currentUser.id, hasAuth, key, canRead]);
+
+  const loadMore = useCallback(async () => {
+    const session = sessionRef.current;
+    if (
+      !session ||
+      session.cancelled ||
+      session.key !== key ||
+      session.roomVersion !== messageStore.getRoomVersion(conversationId) ||
+      session.loadingMore ||
+      !session.hasMore ||
+      !session.rows.length
+    )
+      return;
+    // Set synchronously, before the first await (React state alone isn't a lock).
+    session.loadingMore = true;
+    setState((previous) => ({
+      ...previous,
+      isLoadingMore: true,
+      paginationError: null,
+    }));
+    const oldest = session.rows[0];
+    try {
+      let older = await messageStore.getOlderThan(
+        conversationId,
+        cursorFor(oldest),
+        PAGE_SIZE,
+      );
+      if (
+        session.cancelled ||
+        session.roomVersion !== messageStore.getRoomVersion(conversationId)
+      )
+        return;
+      if (!older.length) {
+        // A page can contain only persisted tombstones/per-device hides.
+        // Their raw server cursor must advance even though no visible row was
+        // added. Retain progress on failure so Retry never loops on that page.
+        let remoteCursor = session.historyBefore?.anchor === oldest.localId
+          ? session.historyBefore.cursor
+          : oldest.id && oldest.status !== "FAILED" && oldest.status !== "SENDING"
+            ? { lastId: oldest.id, lastTimestamp: oldest.timestamp }
+            : { lastId: "", lastTimestamp: oldest.timestamp };
+        const visited = new Set<string>();
+        while (!session.cancelled && focusedRef.current) {
+          const page = await mediaService.message.syncFromServer(
+            conversationId, currentUser.id, remoteCursor, PAGE_SIZE,
+          );
+          if (session.cancelled || session.roomVersion !== messageStore.getRoomVersion(conversationId)) return;
+          older = page.filter(row => compareMessages(row, oldest) < 0);
+          if (!page.length) {
+            session.hasMore = false;
+            session.historyBefore = undefined;
+            break;
+          }
+          if (older.some(row => !row.deletedAt)) {
+            session.historyBefore = undefined;
+            break;
+          }
+          const next = mediaService.message.historyCursor(page);
+          if (!next?.lastId || next.lastId === remoteCursor.lastId || visited.has(next.lastId))
+            throw new Error("Server history cursor did not advance. Try again.");
+          visited.add(next.lastId);
+          remoteCursor = next;
+          session.historyBefore = { anchor: oldest.localId, cursor: next };
+        }
+      }
+      older = await hydrateReplyPreviews(older, conversationId, session);
+      if (
+        session.cancelled ||
+        session.roomVersion !== messageStore.getRoomVersion(conversationId)
+      )
+        return;
+      older = older.map((row) =>
+        !row.senderData && session.authors.has(row.senderId)
+          ? { ...row, senderData: session.authors.get(row.senderId)! }
+          : row,
+      );
+      session.rows = mergeMessageRows(session.rows, older);
+      indexSession(session);
+      session.readVisible();
+      setState((previous) =>
+        previous.key === key
+          ? { ...previous, messages: session.rows, hasMore: session.hasMore }
+          : previous,
+      );
+    } catch (error) {
+      if (!session.cancelled)
+        setState((previous) =>
+          previous.key === key
+            ? { ...previous, paginationError: asError(error) }
+            : previous,
+        );
+      // Keep only confirmed tombstone progress, never skip the failed page or
+      // declare an outage to be the end of history.
+    } finally {
+      session.loadingMore = false;
+      if (!session.cancelled)
+        setState((previous) =>
+          previous.key === key
+            ? { ...previous, isLoadingMore: false }
+            : previous,
+        );
+    }
+  }, [conversationId, currentUser.id, key]);
+
+  /** Read-only committed session lookup; queued gesture callbacks must not use
+   * an old rendered row after deletion/identity reconciliation or account clear. */
+  const getLoadedMessage = useCallback((id: string) => {
+    const session = sessionRef.current;
+    return session && !session.cancelled && session.key === key &&
+      session.roomVersion === messageStore.getRoomVersion(conversationId)
+      ? session.lookup.get(id) : undefined;
+  }, [key, conversationId]);
+
+  const markVisibleRead = useCallback(
+    (ids: string[]) => {
+      // Retain the actual viewport even before session/focus effects run. Replay
+      // on focus, foreground, and relevant committed rows fixes the lost callback.
+      visibleSnapshot.current = { key, ids: new Set(ids) };
+      const session = sessionRef.current;
+      if (session?.key === key && !session.cancelled) session.readVisible();
     },
-    [conversationId, dedupeMessages],
+    [key],
   );
 
-  /**
-   * ---------------------------------------------------------
-   * INITIALIZE CHAT
-   * ---------------------------------------------------------
-   */
-  useEffect(() => {
-    if (!conversationId || !currentUser.id) {
-      return;
-    }
-
-    mountedRef.current = true;
-    initializingRef.current = false;
-    loadingMoreRef.current = false;
-    const initialCache = getRecentMessageCache(conversationId);
-
-    /**
-     * Reset state for a new conversation. The hook's returned messages are
-     * keyed by conversationId, so the previous room is never painted while
-     * this effect starts.
-     */
-    setMessagesConversationId(conversationId);
-    setInitialSyncConversationId(null);
-    setHasMore(true);
-    setMessages(initialCache?.messages ?? []);
-    setIsSyncing(true);
-
-    /**
-     * Prevent callbacks from old screen instance.
-     */
-    let cancelled = false;
-
-    /**
-     * -------------------------------------------------------
-     * SOCKET HANDLERS
-     * -------------------------------------------------------
-     */
-
-    const handleConnect = () => {
-      if (cancelled || !mountedRef.current) return;
-
-      setConnected(true);
-
-      /**
-       * Rejoin if socket reconnects.
-       */
-      socketReceiver.joinRoom(conversationId);
-    };
-
-    const handleDisconnect = () => {
-      if (cancelled || !mountedRef.current) return;
-
-      setConnected(false);
-    };
-
-    const handleNewMessage = async (msg: MessageRow) => {
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      if (msg.conversationId !== conversationId) {
-        return;
-      }
-
-      /**
-       * Append directly to state instead of
-       * reloading all 30 messages from SQLite.
-       *
-       * SQLite has already been updated by
-       * SocketReceiver.
-       */
-      setMessages((prev) => {
-        const msgKey = getMessageKey(msg);
-        const exists = prev.some((m) => getMessageKey(m) === msgKey);
-
-        if (!exists) {
-          return [...prev, msg];
-        }
-
-        return prev.map((m) => {
-          if (getMessageKey(m) !== msgKey) {
-            return m;
-          }
-
-          return { ...m, ...msg };
-        });
-      });
-
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      // Let the focused room screen decide whether to scroll to the new row.
-      setIncomingMessageVersion((version) => version + 1);
-    };
-
-    const handleDelivered = async ({
-      messageId,
-      conversationId: cid,
-    }: {
-      messageId: string;
-      conversationId: string;
-    }) => {
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      if (cid !== conversationId) {
-        return;
-      }
-
-      if (!messageId) {
-        return;
-      }
-
-      console.log("[useChat] message:delivered received", {
-        messageId,
-        conversationId: cid,
-      });
-
-      try {
-        /**
-         * Persist first so a later reload() does not restore
-         * the previous status from SQLite.
-         */
-        await messageStore.markDelivered(messageId, conversationId);
-      } catch (error) {
-        console.warn("[useChat] failed to persist delivered status", {
-          messageId,
-          conversationId,
-          error,
-        });
-      }
-
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      /**
-       * Update the visible UI immediately.
-       */
-      updateMessageStatus(messageId, "DELIVERED");
-    };
-
-    const handleRead = async ({
-      conversationId: cid,
-      messageId,
-    }: {
-      conversationId: string;
-      messageId?: string;
-    }) => {
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      if (cid !== conversationId) {
-        return;
-      }
-
-      /**
-       * The backend sent a receipt for one specific message.
-       */
-      if (messageId) {
-        console.log("[useChat] message:read received", {
-          messageId,
-          conversationId: cid,
-        });
-
-        try {
-          /**
-           * Persist first so reload() keeps the new status.
-           */
-          await messageStore.markRead(messageId, conversationId);
-        } catch (error) {
-          console.warn("[useChat] failed to persist read status", {
-            messageId,
-            conversationId,
-            error,
-          });
-        }
-
-        if (cancelled || !mountedRef.current) {
-          return;
-        }
-
-        updateMessageStatus(messageId, "READ");
-        return;
-      }
-
-      /**
-       * No messageId means the backend considers all messages
-       * sent by the current user in this room as read.
-       */
-      console.log("[useChat] room read receipt received", {
-        conversationId: cid,
-      });
-
-      try {
-        await messageStore.markSentMessagesAsRead(
-          conversationId,
-          currentUserIdRef.current,
+  const loadReplyTarget = useCallback(
+    async (targetId: string, current: () => boolean) => {
+      const session = sessionRef.current;
+      if (!session || session.cancelled || session.key !== key)
+        throw new Error("Conversation closed.");
+      const active = () =>
+        !session.cancelled &&
+        session.key === key &&
+        session.roomVersion === messageStore.getRoomVersion(conversationId) &&
+        current();
+      const merge = (rows: MessageRow[]) => {
+        if (!active()) return;
+        session.rows = mergeMessageRows(
+          session.rows,
+          rows.map((row) =>
+            !row.senderData && session.authors.has(row.senderId)
+              ? { ...row, senderData: session.authors.get(row.senderId)! }
+              : row,
+          ),
         );
-      } catch (error) {
-        console.warn("[useChat] failed to persist room read status", {
-          conversationId,
-          error,
-        });
-      }
-
-      if (cancelled || !mountedRef.current) {
-        return;
-      }
-
-      updateAllOwnMessagesAsRead();
-    };
-
-    const handleDeleted = async ({
-      conversationId: cid,
-    }: {
-      conversationId: string;
-    }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (cid !== conversationId) return;
-
-      await reload();
-    };
-
-    const handleDeletedForMe = async ({
-      conversationId: cid,
-    }: {
-      conversationId: string;
-    }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (cid !== conversationId) return;
-
-      await reload();
-    };
-
-    const handleEdited = async ({
-      conversationId: cid,
-    }: {
-      conversationId: string;
-    }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (cid !== conversationId) return;
-
-      await reload();
-    };
-
-    const handleConversationDeleted = async ({
-      conversationId: cid,
-    }: {
-      conversationId: string;
-    }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (cid !== conversationId) return;
-
-      await reload();
-
-      if (!cancelled && mountedRef.current) {
-        router.back();
-      }
-    };
-
-    const handleTypingStart = ({ userId }: { userId: string }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (userId === currentUserIdRef.current) {
-        return;
-      }
-
-      setTyping(userId);
-    };
-
-    const handleTypingStop = ({ userId }: { userId: string }) => {
-      if (cancelled || !mountedRef.current) return;
-
-      if (userId === currentUserIdRef.current) {
-        return;
-      }
-
-      setTyping((current) => {
-        if (current === userId) {
-          return null;
-        }
-
-        return current;
-      });
-    };
-
-    /**
-     * -------------------------------------------------------
-     * REGISTER LISTENERS BEFORE ASYNC INITIALIZATION
-     * -------------------------------------------------------
-     *
-     * This is important.
-     *
-     * Your old code registered listeners AFTER several
-     * await calls. If the screen unmounted during those
-     * awaits, cleanup happened before listeners existed.
-     *
-     * That could leave old listeners alive.
-     */
-    const unsubs: Array<() => void> = [];
-
-    unsubs.push(socketReceiver.on("connect", handleConnect));
-
-    unsubs.push(socketReceiver.on("disconnect", handleDisconnect));
-
-    unsubs.push(socketReceiver.on("message:new", handleNewMessage));
-
-    unsubs.push(socketReceiver.on("message:delivered", handleDelivered));
-
-    unsubs.push(socketReceiver.on("message:read", handleRead));
-
-    unsubs.push(socketReceiver.on("message:deleted", handleDeleted));
-
-    unsubs.push(
-      socketReceiver.on("message:deleted-for-me", handleDeletedForMe),
-    );
-
-    unsubs.push(socketReceiver.on("message:edited", handleEdited));
-
-    unsubs.push(
-      socketReceiver.on("conversation:deleted", handleConversationDeleted),
-    );
-
-    unsubs.push(socketReceiver.on("typing:start", handleTypingStart));
-
-    unsubs.push(socketReceiver.on("typing:stop", handleTypingStop));
-
-    /**
-     * Join immediately.
-     */
-    socketReceiver.joinRoom(conversationId);
-
-    setConnected(socketReceiver.isConnected);
-
-    /**
-     * -------------------------------------------------------
-     * ASYNC INITIALIZATION
-     * -------------------------------------------------------
-     */
-    const initialize = async () => {
-      if (initializingRef.current) {
-        return;
-      }
-
-      initializingRef.current = true;
-
-      try {
-        /**
-         * 1. Use the list-screen prefetch immediately, or fall back to SQLite.
-         */
-        if (!initialCache || Date.now() - initialCache.cachedAt > 5000) {
-          await reload();
-        }
-
-        if (cancelled || !mountedRef.current) {
-          return;
-        }
-
-        // PrivateRoom owns the initial latest-page scroll so message loading
-        // and viewport positioning stay coordinated.
-
-        /**
-         * 2. Synchronize with server.
-         */
-        if (currentUser.token) {
-          try {
-            const synced = await mediaService.message.syncFromServer(
-              conversationId,
-              currentUser.id,
-            );
-
-            if (!cancelled && mountedRef.current && synced && Array.isArray(synced)) {
-              for (const msg of synced) {
-                const senderId = String(msg.senderId ?? "");
-                const status = String(msg.status ?? "").toUpperCase();
-                const messageId = String(msg.id ?? msg.localId ?? "");
-
-                if (
-                  senderId !== currentUser.id &&
-                  status === "SENT" &&
-                  messageId
-                ) {
-                  socketReceiver.emitMessageDelivered(conversationId, messageId);
-                }
-              }
-            }
-
-            if (cancelled || !mountedRef.current) {
-              return;
-            }
-
-            /**
-             * 3. Merge server results into the already-rendered cache snapshot.
-             * Keep the recent timeline stable while adding any newer server rows.
-             */
-            await reload(true);
-
-            if (cancelled || !mountedRef.current) {
-              return;
-            }
-          } catch (error) {
-            /**
-             * Offline mode:
-             * SQLite messages remain available.
-             */
-            console.warn("[useChat] sync failed:", error);
-          }
-        }
-
-        /**
-         * IMPORTANT:
-         *
-         * We no longer mark the conversation as read here.
-         * Read receipts are now visibility-based.
-         */
-      } finally {
-        initializingRef.current = false;
-
-        if (!cancelled && mountedRef.current) {
-          setIsSyncing(false);
-          setInitialSyncConversationId(conversationId);
-        }
-      }
-    };
-
-    initialize();
-
-    /**
-     * -------------------------------------------------------
-     * CLEANUP
-     * -------------------------------------------------------
-     */
-    return () => {
-      cancelled = true;
-      mountedRef.current = false;
-
-      socketReceiver.leaveRoom(conversationId);
-
-      for (const unsubscribe of unsubs) {
-        try {
-          unsubscribe();
-        } catch (error) {
-          console.warn("[useChat] unsubscribe failed:", error);
-        }
-      }
-
-      if (typingTimer.current) {
-        clearTimeout(typingTimer.current);
-        typingTimer.current = null;
-      }
-
-      typingActiveRef.current = false;
-
-      setTyping(null);
-    };
-  }, [
-    conversationId,
-    currentUser.id,
-    currentUser.token,
-    reload,
-    updateMessageStatus,
-    updateAllOwnMessagesAsRead,
-  ]);
-
-  useEffect(() => {
-    if (messagesConversationId !== conversationId || messages.length === 0) {
-      return;
-    }
-    setRecentMessageCache(conversationId, messages.slice(-30));
-  }, [conversationId, messages, messagesConversationId]);
-
-  /**
-   * ---------------------------------------------------------
-   * VISIBILITY-BASED READ RECEIPTS
-   * ---------------------------------------------------------
-   *
-   * We no longer mark the room as read simply because the
-   * screen is focused. Instead, we only mark messages as read
-   * when they are actually visible in the FlatList.
-   */
-  const pendingVisibleReadIdsRef = useRef<Set<string>>(new Set());
-  const visibleReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const markVisibleRead = useCallback((visibleMessageIds: string[]) => {
-    for (const id of visibleMessageIds) {
-      pendingVisibleReadIdsRef.current.add(id);
-    }
-
-    if (visibleReadTimerRef.current) {
-      clearTimeout(visibleReadTimerRef.current);
-    }
-
-    visibleReadTimerRef.current = setTimeout(async () => {
-      const ids = Array.from(pendingVisibleReadIdsRef.current);
-      pendingVisibleReadIdsRef.current.clear();
-
-      if (!conversationId || !currentUserIdRef.current || ids.length === 0) {
-        return;
-      }
-
-      const localMessages = await messageStore.getByRoom(conversationId);
-
-      const toRead = localMessages.filter((msg) => {
-        const msgId = String(msg.id ?? msg.localId ?? "");
-        const isVisible = ids.includes(msgId);
-        const isReceived = String(msg.senderId ?? "") !== currentUserIdRef.current;
-        const isUnread = !msg.isRead;
-        const hasId = Boolean(msg.id ?? msg.localId);
-        return isVisible && isReceived && isUnread && hasId;
-      });
-
-      if (toRead.length === 0) {
-        return;
-      }
-
-      const readIds = toRead.map((m) => m.id ?? m.localId!).filter(Boolean) as string[];
-
-      setMessages((prev) =>
-        prev.map((message) => {
-          const key = String(message.id ?? message.localId ?? "");
-          if (!readIds.includes(key)) {
-            return message;
-          }
-          return { ...message, status: "READ" as const, isRead: true };
-        }),
+        indexSession(session);
+        setState((previous) =>
+          previous.key === key
+            ? { ...previous, messages: session.rows }
+            : previous,
+        );
+      };
+      const cached = (
+        await messageStore.getByIds(conversationId, [targetId])
+      )[0];
+      if (cached && !cached.deletedAt && active())
+        merge(await messageStore.getFromMessage(conversationId, cached));
+      const result = await mediaService.message.loadReplyContext(
+        conversationId,
+        currentUser.id,
+        targetId,
+        active,
       );
+      merge(await hydrateReplyPreviews(result.rows, conversationId, session));
+      return result;
+    },
+    [conversationId, currentUser.id, key],
+  );
 
-      try {
-        await Promise.all(
-          toRead.map((m) => messageStore.markRead(m.id ?? m.localId!, conversationId)),
-        );
-
-        for (const m of toRead) {
-          socketReceiver.emitMessageRead(conversationId, m.id ?? m.localId!);
-        }
-      } catch (error) {
-        console.warn("[useChat] visibility read persist failed:", error);
-      }
-    }, 500);
-  }, [conversationId]);
-
-  /**
-   * ---------------------------------------------------------
-   * SEND MESSAGE
-   * ---------------------------------------------------------
-   */
   const send = useCallback(
     async (text: string, receiverId: string) => {
-      if (!text.trim()) {
-        return;
-      }
-
       await mediaService.message.send(text, {
         senderId: currentUser.id,
         receiverId,
         conversationId,
+        sender: {
+          id: currentUser.id,
+          username: currentUser.username,
+          displayName: currentUser.displayName,
+          avatarUrl: currentUser.avatarUrl,
+        },
       });
-
-      await reload();
     },
-    [currentUser.id, conversationId, reload],
+    [
+      conversationId,
+      currentUser.id,
+      currentUser.username,
+      currentUser.displayName,
+      currentUser.avatarUrl,
+    ],
   );
-
-  /**
-   * ---------------------------------------------------------
-   * SEND MEDIA
-   * ---------------------------------------------------------
-   */
   const sendMedia = useCallback(
-    async (type: string, mediaUrl: string | null, receiverId: string) => {
-      await mediaService.message.sendMediaRecord(type, mediaUrl, {
-        senderId: currentUser.id,
-        receiverId,
-        conversationId,
-      });
-
-      await reload();
+    async (
+      type: string,
+      uri: string | null,
+      receiverId: string,
+      duration?: number,
+      repliedToId?: string,
+      attachment?: AttachmentInfo,
+    ) => {
+      await mediaService.message.sendMediaRecord(
+        type,
+        uri,
+        {
+          senderId: currentUser.id,
+          receiverId,
+          conversationId,
+          sender: {
+            id: currentUser.id,
+            username: currentUser.username,
+            displayName: currentUser.displayName,
+            avatarUrl: currentUser.avatarUrl,
+          },
+        },
+        duration,
+        repliedToId,
+        attachment,
+      );
     },
-    [currentUser.id, conversationId, reload],
+    [
+      conversationId,
+      currentUser.id,
+      currentUser.username,
+      currentUser.displayName,
+      currentUser.avatarUrl,
+    ],
   );
-
-  /**
-   * ---------------------------------------------------------
-   * RETRY
-   * ---------------------------------------------------------
-   */
-  const retry = useCallback(
-    async (localId: string, receiverId: string) => {
-      await mediaService.message.retry(conversationId, localId, {
-        senderId: currentUser.id,
-        receiverId,
-      });
-
-      await reload();
-    },
-    [currentUser.id, conversationId, reload],
-  );
-
-  /**
-   * ---------------------------------------------------------
-   * DELETE
-   * ---------------------------------------------------------
-   */
-  const deleteMsg = useCallback(
-    async (messageId: string) => {
-      await mediaService.message.delete(messageId);
-
-      await reload();
-    },
-    [reload],
-  );
-
-  /**
-   * ---------------------------------------------------------
-   * EDIT
-   * ---------------------------------------------------------
-   */
-  const editMsg = useCallback(
-    async (messageId: string, newText: string) => {
-      await mediaService.message.edit(messageId, newText);
-
-      await reload();
-    },
-    [reload],
-  );
-
-  /**
-   * ---------------------------------------------------------
-   * REPLY
-   * ---------------------------------------------------------
-   */
   const replyMsg = useCallback(
     async (text: string, repliedToId: string, receiverId: string) => {
       await mediaService.message.replyMessage(
@@ -878,163 +727,126 @@ export function useChat({
           senderId: currentUser.id,
           receiverId,
           conversationId,
+          sender: {
+            id: currentUser.id,
+            username: currentUser.username,
+            displayName: currentUser.displayName,
+            avatarUrl: currentUser.avatarUrl,
+          },
         },
         repliedToId,
       );
-
-      await reload();
     },
-    [currentUser.id, conversationId, reload],
+    [
+      conversationId,
+      currentUser.id,
+      currentUser.username,
+      currentUser.displayName,
+      currentUser.avatarUrl,
+    ],
   );
+  const retry = useCallback(
+    async (localId: string, receiverId: string) => {
+      await mediaService.message.retry(conversationId, localId, {
+        senderId: currentUser.id,
+        receiverId,
+      });
+    },
+    [conversationId, currentUser.id],
+  );
+  const deleteMsg = useCallback(async (id: string) => {
+    await mediaService.message.delete(id);
+  }, []);
+  const editMsg = useCallback(async (id: string, text: string) => {
+    await mediaService.message.edit(id, text);
+  }, []);
 
-  /**
-   * ---------------------------------------------------------
-   * LOAD MORE
-   * ---------------------------------------------------------
-   */
-  const loadMore = useCallback(async () => {
-    if (
-      !hasMore ||
-      isSyncing ||
-      loadingMoreRef.current ||
-      messages.length === 0
-    ) {
-      return;
-    }
-
-    const oldestMessage = messages[0];
-    const oldestTimestamp = oldestMessage?.timestamp;
-
-    if (!oldestTimestamp) {
-      return;
-    }
-
-    loadingMoreRef.current = true;
-    setIsSyncing(true);
-    setSyncError(null);
-
-    try {
-      const older = await messageStore.getOlderThan(
-        conversationId,
-        oldestTimestamp,
-        20,
-      );
-
-      if (!mountedRef.current) {
-        return;
-      }
-
-      if (older.length > 0) {
-        setMessages((prev) => {
-          return dedupeMessages([...older, ...prev]);
-        });
-
-        return;
-      }
-
-      const oldestId = oldestMessage?.id ?? oldestMessage?.localId;
-      const serverOlder = await mediaService.message.syncFromServer(
-        conversationId,
-        currentUser.id,
-        oldestId ? { lastId: oldestId, lastTimestamp: oldestTimestamp } : undefined,
-      );
-
-      if (!mountedRef.current) {
-        return;
-      }
-
-      if (!serverOlder || serverOlder.length === 0) {
-        setHasMore(false);
-        return;
-      }
-
-      // Keep the fetched older page in the current list instead of replacing
-      // the timeline with only the latest 30 rows.
-      setMessages((previousMessages) =>
-        dedupeMessages([...serverOlder, ...previousMessages]).sort(
-          (a, b) => a.timestamp - b.timestamp,
-        ),
-      );
-    } catch (error) {
-      if (mountedRef.current) {
-        setSyncError(error instanceof Error ? error : new Error(String(error)));
-      }
-    } finally {
-      loadingMoreRef.current = false;
-
-      if (mountedRef.current) {
-        setIsSyncing(false);
-      }
-    }
-  }, [
-    conversationId,
-    currentUser.id,
-    dedupeMessages,
-    hasMore,
-    isSyncing,
-    messages,
-  ]);
-
-  /**
-   * ---------------------------------------------------------
-   * TYPING
-   * ---------------------------------------------------------
-   */
   const onTyping = useCallback(() => {
-    if (typingActiveRef.current) {
-      if (typingTimer.current) {
-        clearTimeout(typingTimer.current);
-      }
-
-      typingTimer.current = setTimeout(() => {
-        socketReceiver.emitTypingStop(conversationId, currentUser.id);
-        typingActiveRef.current = false;
-        typingTimer.current = null;
-      }, 2000);
-
-      return;
-    }
-
-    typingActiveRef.current = true;
-    socketReceiver.emitTypingStart(conversationId, currentUser.id);
-
-    if (typingTimer.current) {
-      clearTimeout(typingTimer.current);
-    }
-
+    if (!typingActive.current)
+      socketReceiver.emitTypingStart(conversationId, currentUser.id);
+    typingActive.current = true;
+    if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
       socketReceiver.emitTypingStop(conversationId, currentUser.id);
-      typingActiveRef.current = false;
+      typingActive.current = false;
       typingTimer.current = null;
     }, 2000);
   }, [conversationId, currentUser.id]);
 
-  return {
-    messages: visibleMessages,
+  const refresh = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session || session.cancelled || session.key !== key) return;
+    setState((previous) =>
+      previous.key === key
+        ? { ...previous, syncError: null, isSyncing: true }
+        : previous,
+    );
+    try {
+      session.readVisible();
+      await mediaService.message.syncLatest(conversationId, currentUser.id);
+      await socketReceiver.recoverReceipts();
+    } catch (error) {
+      if (!session.cancelled)
+        setState((previous) =>
+          previous.key === key
+            ? { ...previous, syncError: asError(error) }
+            : previous,
+        );
+    } finally {
+      if (!session.cancelled)
+        setState((previous) =>
+          previous.key === key ? { ...previous, isSyncing: false } : previous,
+        );
+    }
+  }, [conversationId, currentUser.id, key]);
 
+  // Reclaim history models only on an explicit return to latest. The full cache
+  // stays in SQLite and can be paged offline again, without evicting a reader.
+  const releaseHistory = useCallback(() => {
+    const session = sessionRef.current;
+    if (
+      !session ||
+      session.cancelled ||
+      session.key !== key ||
+      session.rows.length <= 300 ||
+      session.loadingMore
+    )
+      return;
+    session.rows = session.rows.slice(-90);
+    indexSession(session);
+    session.hasMore = true;
+    setState((previous) =>
+      previous.key === key
+        ? { ...previous, messages: session.rows, hasMore: true }
+        : previous,
+    );
+  }, [key]);
+
+  const active = state.key === key;
+  return {
+    messages: active ? state.messages : [],
     send,
+    sendMedia,
+    replyMsg,
     retry,
     deleteMsg,
     editMsg,
-    replyMsg,
     loadMore,
-    onTyping,
-
-    isTyping: !!typingUserId,
-    typingUserId,
-
-    isConnected,
-    isSyncing: visibleIsSyncing,
-    isOffline,
-    syncError: isCurrentConversation ? syncError : null,
-    hasMore: isCurrentConversation ? hasMore : true,
-
-    flatListRef,
-
-    sendMedia,
-
+    loadReplyTarget,
     markVisibleRead,
-    incomingMessageVersion,
-    initialSyncConversationId,
+    getLoadedMessage,
+    onTyping,
+    refresh,
+    releaseHistory,
+    isTyping: typing?.conversationId === conversationId,
+    typingUserId:
+      typing?.conversationId === conversationId ? typing.userId : null,
+    isConnected,
+    isOffline: !isConnected,
+    isSyncing: active ? state.isSyncing : true,
+    isLoadingMore: active && state.isLoadingMore,
+    hasMore: !active || state.hasMore,
+    syncError: active ? state.syncError : null,
+    paginationError: active ? state.paginationError : null,
   };
 }

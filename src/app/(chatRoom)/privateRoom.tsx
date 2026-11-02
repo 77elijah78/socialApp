@@ -1,721 +1,702 @@
-import { router, useLocalSearchParams } from "expo-router";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import {
   View,
+  AppState,
+  BackHandler,
   Text,
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  TextInput,
-  Pressable,
   Keyboard,
   Platform,
-  Animated,
+  ActivityIndicator,
+  type ListRenderItemInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type ViewToken,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { useFocusEffect } from "expo-router";
-import ChatHeader from "@/components/chat/ChatHeader";
-import MessageCard from "@/components/messages/MessageCard";
-import { MessageCardProps } from "@/types";
-import { Ionicons } from "@expo/vector-icons";
-import { useChat } from "@/hooks/useChat";
-import { useAppSelector } from "@/store/hooks";
-import theme from "@/constants/theme";
 import {
-  AudioModule,
-  RecordingPresets,
-  useAudioRecorder,
-  useAudioRecorderState,
-} from "expo-audio";
-import { PickedFile } from "@/types";
-import MediaPickerModal from "@/components/messages/MediaPickerModal";
-import { mediaService } from "@/services/MediaService";
-import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
-import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
-import { showAppDialog } from "@/services/AppDialogService";
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useLayoutEffect,
+} from "react";
 import {
   KeyboardAvoidingView,
   useKeyboardState,
+  useReanimatedKeyboardAnimation,
 } from "react-native-keyboard-controller";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import ChatHeader from "@/components/chat/ChatHeader";
+import ChatComposer from "@/components/chat/ChatComposer";
+import ChatMessageRow from "@/components/chat/ChatMessageRow";
+import { ChatGestureCoordinator } from "@/components/chat/ChatGestureCoordinator";
+import MessageSelectionBar from "@/components/chat/MessageSelectionBar";
+import ForwardMessagePicker from "@/components/chat/ForwardMessagePicker";
+import { useMessageSelection } from "@/hooks/useMessageSelection";
+import { canReplyToMessage } from "@/utils/messaging/actions";
+import { messageStore } from "@/db/MessageStore";
+import { roomStore } from "@/db/RoomStore";
+import { useChat } from "@/hooks/useChat";
+import { useAppSelector } from "@/store/hooks";
+import type { MessageRow } from "@/db/schema";
+import {
+  createListItemBuilder,
+  type ChatListItem,
+  type ReplyContextSelection,
+} from "@/utils/messaging/listItems";
+import {
+  setVisibleMedia,
+  clearVisibleMedia,
+} from "@/utils/messaging/mediaVisibility";
+import type {
+  AttachmentInfo,
+  MessageAuthorInfo,
+} from "@/utils/messaging/presentation";
+import {
+  ChatReadVisibility,
+  ChatMediaInteraction,
+} from "@/components/chat/ChatReadVisibility";
+import MeasuredMessageCell, {
+  MessageCellMeasurements,
+} from "@/components/chat/MeasuredMessageCell";
+import { ReplyNavigator } from "@/utils/messaging/replyNavigation";
+import { LatestViewport } from "@/utils/messaging/viewport";
+import {
+  BORDER_RADIUS,
+  COLORS,
+  SHADOWS,
+  SPACING,
+  TYPOGRAPHY,
+} from "@/constants/theme";
+import { mediaService } from "@/services/MediaService";
+import { useOverlay, useOverlayVisible } from "@/providers/OverlayProvider";
+import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
+import { showAppDialog } from "@/services/AppDialogService";
 
-function getMessageType(type: string): string {
-  switch (type) {
-    case "TEXT":
-      return "text";
-    case "IMAGE":
-      return "image/jpeg";
-    case "VIDEO":
-      return "video/mp4";
-    case "AUDIO":
-      return "audio/mpeg";
-    case "SHARED_POST":
-      return "SHARED_POST";
-    case "SHARED_STORY":
-      return "SHARED_STORY";
-    default:
-      return "text";
-  }
+interface RoomParams {
+  roomId: string;
+  receiverName: string;
+  receiverUsername?: string;
+  receiverAvatar?: string;
+  conversationId: string;
+  receiverId: string;
+  isGroup?: string;
 }
-
-function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-type MessageItem =
-  | { kind: "date"; id: string; date: string }
-  | { kind: "message"; id: string; data: any; index: number };
+const maintainPosition = { minIndexForVisible: 0 };
+const viewabilityConfig = {
+  // Whole small rows, or half the viewport for oversized text/media rows.
+  viewAreaCoveragePercentThreshold: 50,
+  waitForInteraction: false,
+  minimumViewTime: 300,
+};
+const mediaViewabilityConfig = {
+  itemVisiblePercentThreshold: 1,
+  waitForInteraction: false,
+};
+const keyExtractor = (item: ChatListItem) => item.id;
 
 export default function PrivateRoom() {
+  const params = useLocalSearchParams() as unknown as RoomParams;
+  const user = useAppSelector((state) => state.auth.user);
+  const userId = user?.id ?? "";
+  const token = useAppSelector((state) => state.auth.token) ?? "";
+  const author = useMemo(
+    () => ({
+      id: userId,
+      username: user?.username,
+      displayName: user?.displayName,
+      avatarUrl: user?.avatarUrl,
+    }),
+    [userId, user?.username, user?.displayName, user?.avatarUrl],
+  );
+  // Remount room-scoped layout/composer state when Router reuses this screen.
+  return (
+    <Conversation
+      key={`${userId}:${params.conversationId}`}
+      params={params}
+      userId={userId}
+      token={token}
+      author={author}
+    />
+  );
+}
+
+function Conversation({
+  params,
+  userId,
+  token,
+  author,
+}: {
+  params: RoomParams;
+  userId: string;
+  token: string;
+  author: MessageAuthorInfo;
+}) {
   const {
+    conversationId,
     roomId,
+    receiverId,
     receiverName,
     receiverUsername,
     receiverAvatar,
-    conversationId,
-    receiverId,
-  } = useLocalSearchParams<{
-    roomId: string;
-    receiverName: string;
-    receiverUsername?: string;
-    receiverAvatar?: string;
-    conversationId: string;
-    receiverId: string;
-  }>();
-
-  const [record, setRecord] = useState(true);
-  const [visible, setVisible] = useState(false);
-  const [inputText, setInputText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<any>(null);
-  const [showJumpToUnread, setShowJumpToUnread] = useState(true);
-  const [jumpButtonRoomKey, setJumpButtonRoomKey] = useState<string | null>(
-    null,
-  );
-  const [positionedRoomKey, setPositionedRoomKey] = useState<string | null>(
-    null,
-  );
-  const [composerHeight, setComposerHeight] = useState(0);
-  const composerHeightRef = useRef(0);
-  const currentRoomKey = String(conversationId || roomId || "");
-  const shouldShowJumpToUnread =
-    jumpButtonRoomKey === currentRoomKey ? showJumpToUnread : true;
-  const textInputRef = useRef<TextInput>(null);
-  const initialScrollRoomRef = useRef<string | null>(null);
-  const pendingLatestScrollRef = useRef(false);
-  const pendingLatestScrollAnimatedRef = useRef(false);
-  const handledIncomingVersionRef = useRef(0);
-  const nearBottomRef = useRef(true);
-  const userInteractedWithListRef = useRef(false);
-  const keyboardWasVisibleRef = useRef(false);
-  const stickToLatestOnKeyboardOpenRef = useRef(false);
-  const pendingScrollViewPositionRef = useRef(0.78);
-  const loadMoreInFlightRef = useRef(false);
-  const [keyboardHeight] = useState(() => new Animated.Value(0));
-  const [dateLabels] = useState(() => {
-    const today = new Date();
-    return {
-      today: today.toDateString(),
-      yesterday: new Date(today.getTime() - 86400000).toDateString(),
-    };
-  });
+  } = params;
+  const blockingOverlay = useOverlayVisible();
+  const overlayBlocksReads = useRef(blockingOverlay);
+  useLayoutEffect(() => { overlayBlocksReads.current = blockingOverlay; }, [blockingOverlay]);
+  const [isFocused, setFocused] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<MessageRow | null>(null);
+  const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
+  const [showJump, setShowJump] = useState(false);
+  // RN 0.85's MVCP increments pendingScrollUpdateCount when index 0 changes.
+  // At stationary offset 0 there may be no native scroll event to release that
+  // gate, so viewability waits until a touch. Native MVCP owns HISTORY only;
+  // measured latest-edge sticking owns offset 0, never both simultaneously.
+  const [anchorHistory, setAnchorHistory] = useState(false);
+  const unreadSnapshotTaken = useRef(false);
+  const list = useRef<FlatList<ChatListItem>>(null);
+  const [mediaOwner] = useState(() => Symbol("chat-media"));
+  const visibleIds = useRef<string[]>([]);
+  const mediaIds = useRef<string[]>([]);
+  const [replyContext, setReplyContext] =
+    useState<ReplyContextSelection | null>(null);
+  const contextActive = useRef(false);
+  const navigationRequest = useRef(0);
+  const manualDrag = useRef(false);
+  const listHeight = useRef(0);
+  const covered = useRef(0);
+  const canRead = useCallback(() => covered.current === 0 && !overlayBlocksReads.current, []);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<{
+    id: string;
+    token: number;
+  } | null>(null);
+  const rowsRef = useRef<MessageRow[]>([]);
+  const mounted = useRef(true);
+  const focusedRef = useRef(false);
+  const [viewport] = useState(() => new LatestViewport());
+  const [buildItems] = useState(createListItemBuilder);
   const insets = useSafeAreaInsets();
-  const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
-
-  useEffect(() => {
-    if (keyboardIsVisible && !keyboardWasVisibleRef.current) {
-      // Keep the latest message in view when the keyboard reduces the viewport,
-      // but preserve the reader's position if they were viewing older messages.
-      stickToLatestOnKeyboardOpenRef.current = nearBottomRef.current;
-    }
-    keyboardWasVisibleRef.current = keyboardIsVisible;
-    if (!keyboardIsVisible) {
-      stickToLatestOnKeyboardOpenRef.current = false;
-    }
-  }, [keyboardIsVisible]);
-
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const status = useAudioRecorderState(recorder);
-
-  const startRecording = async () => {
-    try {
-      const permission = await AudioModule.requestRecordingPermissionsAsync();
-
-      if (!permission.granted) {
-        showAppDialog({
-          title: "Microphone access needed",
-          message:
-            "Enable microphone access in your device settings to record a voice message.",
-          tone: "warning",
-        });
-        return;
-      }
-
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const stopRecording = async () => {
-    try {
-      if (recorder.isRecording) {
-        await recorder.stop();
-        const uri = recorder.uri;
-
-        if (uri) {
-          // send voice message here
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const currentUserId = useAppSelector((s) => s.auth.user?.id);
-  const currentUserToken = useAppSelector((s) => s.auth.token);
-  const [isFocused, setIsFocused] = useState(false);
-
+  const keyboardVisible = useKeyboardState((state) => state.isVisible);
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const composerSafeArea = useAnimatedStyle(() => ({
+    paddingBottom: insets.bottom * (1 - Math.min(1, Math.max(0, keyboardProgress.value))),
+  }), [insets.bottom]);
+  const { openActionMenu } = useOverlay();
   const {
     messages,
     send,
-    flatListRef,
-    onTyping,
+    replyMsg,
+    retry,
     sendMedia,
+    onTyping,
+    markVisibleRead,
+    getLoadedMessage,
     isTyping,
     isSyncing,
+    isLoadingMore,
     isOffline,
     syncError,
+    paginationError,
     loadMore,
+    loadReplyTarget,
     hasMore,
-    incomingMessageVersion,
-    replyMsg,
-    markVisibleRead,
+    refresh,
+    releaseHistory,
   } = useChat({
     roomId,
     conversationId,
+    currentUser: useMemo(
+      () => ({ ...author, id: userId, token }),
+      [author, userId, token],
+    ),
     isFocused,
-    currentUser: {
-      id: currentUserId ?? "",
-      token: currentUserToken ?? "",
-    },
+    canRead,
   });
-  const previousSyncingRef = useRef(isSyncing);
+  const selection = useMessageSelection(messages, userId);
+  const { ids: selectedIds, idsRef: selectedIdsRef, busyRef: selectionBusy,
+    toggle: onAction, cancel: cancelSelection, handleBack: selectionBack } = selection;
+  const selectionMode = selection.active || selection.busy;
+  const canReleaseHistory = useCallback(() => !selectedIdsRef.current.size && !selectionBusy.current,
+    [selectedIdsRef, selectionBusy]);
+  useEffect(() => {
+    if (!blockingOverlay && focusedRef.current) {
+      markVisibleRead(visibleIds.current);
+      list.current?.recordInteraction?.();
+    }
+  }, [blockingOverlay, markVisibleRead]);
 
-  const isReceivedUnread = useCallback(
-    (message: any) =>
-      message.senderId !== (currentUserId ?? "") &&
-      message.isRead !== true &&
-      String(message.status ?? "").toUpperCase() !== "READ",
-    [currentUserId],
+  const coverReads = useCallback(() => {
+    covered.current++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      covered.current = Math.max(0, covered.current - 1);
+      if (!covered.current && focusedRef.current) {
+        markVisibleRead(visibleIds.current);
+        list.current?.recordInteraction?.();
+      }
+    };
+  }, [markVisibleRead]);
+
+  const confirmMediaInteraction = useCallback(
+    (id?: string) => {
+      if (!id || !focusedRef.current) return;
+      mediaIds.current = [...new Set([...mediaIds.current, id])];
+      setVisibleMedia(mediaOwner, mediaIds.current);
+    },
+    [mediaOwner],
   );
 
-  const { firstUnreadIndex, lastUnreadIndex, unreadMessageCount } =
-    useMemo(() => {
-      let first = -1;
-      let last = -1;
-      let count = 0;
-
-      for (let index = 0; index < messages.length; index += 1) {
-        if (!isReceivedUnread(messages[index])) continue;
-        if (first === -1) first = index;
-        last = index;
-        count += 1;
-      }
-
-      return {
-        firstUnreadIndex: first,
-        lastUnreadIndex: last,
-        unreadMessageCount: count,
-      };
-    }, [messages, isReceivedUnread]);
-
-  // Keep this callback stable across message-count changes. Otherwise the focus
-  // effect is torn down and restarted for every new message.
-  const requestScrollToLatest = useCallback(
-    (animated = true) => {
-      nearBottomRef.current = true;
-      pendingLatestScrollAnimatedRef.current = animated;
-      pendingLatestScrollRef.current = true;
-
-      // The composer is absolutely positioned, so the list must not be marked
-      // ready until the composer has a real measured height. onLayout below
-      // retries this request as soon as that measurement exists.
-      if (composerHeightRef.current <= 0) return;
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
-            return;
-
-          flatListRef.current?.scrollToEnd({
-            animated: pendingLatestScrollAnimatedRef.current,
-          });
-
-          // Let React Native apply the new bottom inset/padding before the final
-          // non-animated correction. Do not reveal the list until this pass.
-          requestAnimationFrame(() => {
-            if (
-              !pendingLatestScrollRef.current ||
-              composerHeightRef.current <= 0
-            )
-              return;
-            flatListRef.current?.scrollToEnd({ animated: false });
-            pendingLatestScrollRef.current = false;
-            setPositionedRoomKey(currentRoomKey);
-          });
-        });
-      });
+  const [navigator] = useState(() => new ReplyNavigator());
+  useLayoutEffect(
+    () =>
+      navigator.configure({
+        list: () => list.current,
+        height: () => listHeight.current,
+        arrived: (id, serial) => setHighlight({ id, token: serial }),
+        failed: () =>
+          setNavigationError(
+            "Couldn’t locate the exact position. Tap the reply again to retry.",
+          ),
+      }),
+    [navigator],
+  );
+  const measurements = useMemo(
+    () => ({
+      measure: (id: string, index: number, y: number, height: number) =>
+        navigator.measure(id, index, y, height),
+      remove: (id: string) => navigator.unmeasure(id),
+    }),
+    [navigator],
+  );
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      navigationRequest.current++;
+      navigator.cancel();
     },
-    [currentRoomKey, flatListRef],
+    [navigator],
   );
 
   useFocusEffect(
     useCallback(() => {
-      setIsFocused(true);
-      requestScrollToLatest(false);
-      return () => setIsFocused(false);
-    }, [requestScrollToLatest]),
+      setFocused(true);
+      focusedRef.current = true;
+      setVisibleMedia(mediaOwner, mediaIds.current);
+      list.current?.recordInteraction?.();
+      // Focus never changes scroll position (e.g. returning from image viewer).
+      return () => {
+        focusedRef.current = false;
+        if (mounted.current) {
+          setFocused(false);
+          setReplyContext((previous) =>
+            previous?.status === "loading"
+              ? {
+                  ...previous,
+                  status: "cached",
+                  error: "Context check paused. Tap to check again.",
+                }
+              : previous,
+          );
+        }
+        clearVisibleMedia(mediaOwner);
+        navigationRequest.current++;
+        navigator.cancel();
+      };
+    }, [mediaOwner, navigator]),
   );
 
-  const handleBack = useCallback(() => {
-    router.back();
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && focusedRef.current)
+        list.current?.recordInteraction?.();
+    });
+    return () => subscription.remove();
   }, []);
 
-  const handleProfilePress = useCallback(() => {
-    if (keyboardIsVisible) {
-      Keyboard.dismiss();
-      textInputRef.current?.blur();
-      return;
-    }
-
-    const profileUsername = Array.isArray(receiverUsername)
-      ? receiverUsername[0]
-      : receiverUsername;
-    if (profileUsername) {
-      router.push(`/user/${profileUsername}`);
-    }
-  }, [keyboardIsVisible, receiverUsername]);
-
-  const { openActionMenu } = useOverlay();
-
-  const handleMenuPress = useCallback(
-    (anchor?: { x: number; y: number; width: number; height: number }) => {
-      const actions: ActionMenuItem[] = [
-        { key: "search", icon: "search", label: "Search", onPress: () => {} },
-        {
-          key: "mute",
-          icon: "notifications-off-outline",
-          label: "Mute notifications",
-          onPress: () => {},
-        },
-        {
-          key: "wallpaper",
-          icon: "image-outline",
-          label: "Wallpaper",
-          onPress: () => {},
-        },
-        {
-          key: "delete",
-          icon: "trash-outline",
-          label: "Delete conversation",
-          destructive: true,
-          onPress: async () => {
-            try {
-              await mediaService.message.deleteConversation(conversationId);
-              router.back();
-            } catch {
-              showAppDialog({
-                title: "Couldn’t delete conversation",
-                message: "Please try again in a moment.",
-                tone: "error",
-              });
-            }
-          },
-        },
-      ];
-      openActionMenu(actions, anchor);
-    },
-    [conversationId, router, openActionMenu],
-  );
-
-  const handleMessageAction = useCallback(
-    (message: any) => {
-      const isOwn = message.senderId === currentUserId;
-      const actions: ActionMenuItem[] = [
-        {
-          key: "reply",
-          icon: "arrow-undo-outline",
-          label: "Reply",
-          onPress: () => setReplyingTo(message),
-        },
-        isOwn
-          ? {
-              key: "delete",
-              icon: "trash-outline",
-              label: "Delete",
-              destructive: true,
-              onPress: async () => {
-                const deleteOptions: ActionMenuItem[] = [
-                  {
-                    key: "forme",
-                    icon: "close-circle-outline",
-                    label: "Delete for me",
-                    onPress: () => mediaService.message.delete(message.id),
-                  },
-                  {
-                    key: "everyone",
-                    icon: "people-outline",
-                    label: "Delete for everyone",
-                    destructive: true,
-                    onPress: () =>
-                      mediaService.message.delete(message.id, "everyone"),
-                  },
-                ];
-                openActionMenu(deleteOptions);
-              },
-            }
-          : {
-              key: "cannot",
-              icon: "lock-closed-outline",
-              label: "Cannot delete others messages",
-              onPress: () => {},
-            },
-      ];
-      openActionMenu(actions);
-    },
-    [currentUserId, openActionMenu],
-  );
-
-  const handleSend = useCallback(async () => {
-    const text = inputText.trim();
-    if (!text || sending) return;
-
-    requestScrollToLatest(false);
-    setInputText("");
-    setSending(true);
-
-    try {
-      if (replyingTo) {
-        await replyMsg(text, replyingTo.id, receiverId);
-        setReplyingTo(null);
-      } else {
-        await send(text, receiverId);
-      }
-      requestScrollToLatest(true);
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 300);
-    } finally {
-      setSending(false);
-    }
-  }, [
-    inputText,
-    sending,
-    send,
-    replyMsg,
-    receiverId,
-    replyingTo,
-    requestScrollToLatest,
-  ]);
-
-  const handleSendFiles = useCallback(
-    async (files: PickedFile[]) => {
-      requestScrollToLatest(false);
-      for (const file of files) {
-        await sendMedia(file.type, file.uri, receiverId);
-      }
-      requestScrollToLatest(true);
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 300);
-    },
-    [receiverId, sendMedia, requestScrollToLatest],
-  );
-
-  const handleInputChange = useCallback(
-    (t: string) => {
-      setRecord(t.length === 0);
-      setInputText(t);
-      onTyping();
-    },
-    [onTyping],
-  );
-
-  const handleScroll = useCallback(
-    (event: any) => {
-      const { layoutMeasurement, contentOffset, contentSize } =
-        event.nativeEvent;
-      const offset = Math.max(0, contentOffset.y);
-      const isNearBottom =
-        layoutMeasurement.height + offset >= contentSize.height - 120;
-      nearBottomRef.current = isNearBottom;
-      setJumpButtonRoomKey((previous) =>
-        previous === currentRoomKey ? previous : currentRoomKey,
+  useEffect(() => {
+    if (!unreadSnapshotTaken.current && messages.length) {
+      unreadSnapshotTaken.current = true;
+      setFirstUnreadId(
+        messages.find(
+          (row) =>
+            row.senderId !== userId && !row.isRead && row.status !== "READ",
+        )?.localId ?? null,
       );
-      const shouldShowJump = unreadMessageCount > 0 && !isNearBottom;
-      setShowJumpToUnread((previous) =>
-        previous === shouldShowJump ? previous : shouldShowJump,
-      );
+    }
+  }, [messages, userId]);
+  const unread = useMemo(
+    () =>
+      messages.filter(
+        (row) =>
+          row.senderId !== userId && !row.isRead && row.status !== "READ",
+      ),
+    [messages, userId],
+  );
+  const data = useMemo(
+    () => buildItems(messages, userId, firstUnreadId, new Date(), replyContext),
+    [buildItems, messages, userId, firstUnreadId, replyContext],
+  );
 
-      // Guard against repeated onScroll events starting overlapping page loads
-      // before the hook has updated isSyncing.
+  useEffect(() => {
+    if (isFocused && AppState.currentState === "active")
+      list.current?.recordInteraction?.();
+  }, [data, isFocused]);
+
+  useLayoutEffect(() => {
+    rowsRef.current = messages;
+    contextActive.current = replyContext !== null;
+    navigator.update(data);
+  }, [messages, replyContext, navigator, data]);
+  const goToMessage = useCallback(
+    (id: string, showContext = true) => {
+      const request = ++navigationRequest.current;
+      const current = () =>
+        request === navigationRequest.current && focusedRef.current;
+      manualDrag.current = false;
+      viewport.leaveLatest();
+      setAnchorHistory(true);
+      setShowJump(true);
+      setNavigationError(null);
+      setReplyContext(
+        showContext ? { parentId: id, page: 0, status: "loading" } : null,
+      );
+      navigator.request(id);
       if (
-        userInteractedWithListRef.current &&
-        offset <= 72 &&
-        initialScrollRoomRef.current === currentRoomKey &&
-        hasMore &&
-        !isSyncing &&
-        !loadMoreInFlightRef.current
-      ) {
-        loadMoreInFlightRef.current = true;
-        void (async () => {
-          try {
-            await loadMore();
-          } catch (error) {
-            console.error("Failed to load older chat messages:", error);
-          } finally {
-            loadMoreInFlightRef.current = false;
-          }
-        })();
-      }
+        !showContext &&
+        rowsRef.current.some((row) => row.id === id || row.localId === id)
+      )
+        return;
+      void loadReplyTarget(id, current)
+        .then((result) => {
+          if (!current()) return;
+          if (showContext)
+            setReplyContext((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    parentId: result.parent.id || result.parent.localId,
+                    status: result.complete ? "complete" : "cached",
+                    error: result.error,
+                  }
+                : previous,
+            );
+        })
+        .catch((error) => {
+          if (!current()) return;
+          navigator.cancel();
+          setNavigationError(
+            error instanceof Error
+              ? error.message
+              : "Couldn’t load the original message. Try again.",
+          );
+          setReplyContext((previous) =>
+            previous ? { ...previous, status: "error" } : previous,
+          );
+        });
     },
-    [currentRoomKey, hasMore, isSyncing, loadMore, unreadMessageCount],
+    [loadReplyTarget, navigator, viewport],
   );
-
-  const handleScrollBeginDrag = useCallback(() => {
-    userInteractedWithListRef.current = true;
-  }, []);
-
-  const viewabilityConfig = useMemo(
-    () => ({
-      itemVisiblePercentThreshold: 50,
-      minimumViewTime: 300,
-    }),
+  const closeContext = useCallback(() => {
+    navigationRequest.current++;
+    navigator.cancel();
+    setReplyContext(null);
+    setNavigationError(null);
+  }, [navigator]);
+  const contextPage = useCallback(
+    (page: number) =>
+      setReplyContext((previous) =>
+        previous ? { ...previous, page } : previous,
+      ),
     [],
   );
+  const refreshContext = useCallback(() => {
+    if (replyContext) goToMessage(replyContext.parentId);
+  }, [replyContext, goToMessage]);
 
-  const handleViewableItemsChanged = useCallback(
-    ({ changed }: { changed: any[] }) => {
-      const newlyVisibleMessageIds = changed
-        .filter(
-          (change) => change.isViewable && change.item?.kind === "message",
-        )
-        .map((change) => change.item.id as string);
-      if (newlyVisibleMessageIds.length > 0 && markVisibleRead) {
-        markVisibleRead(newlyVisibleMessageIds);
-      }
+  const scrollLatest = useCallback(
+    (animated = false) => {
+      closeContext();
+      manualDrag.current = false;
+      setAnchorHistory(false);
+      if (viewport.requestLatest())
+        list.current?.scrollToOffset({ offset: 0, animated });
+      setShowJump(false);
     },
-    [markVisibleRead],
+    [viewport, closeContext],
   );
-
-  const dismissKeyboard = useCallback(() => {
-    Keyboard.dismiss();
-    textInputRef.current?.blur();
-  }, []);
-
+  const handleSend = useCallback(
+    async (text: string, replyId?: string) => {
+      // A deliberate send is an explicit request to return to the latest message.
+      scrollLatest();
+      if (replyId) await replyMsg(text, replyId, receiverId);
+      else await send(text, receiverId);
+    },
+    [receiverId, replyMsg, send, scrollLatest],
+  );
+  const handleMedia = useCallback(
+    async (
+      type: string,
+      uri: string,
+      duration?: number,
+      replyId?: string,
+      attachment?: AttachmentInfo,
+    ) => {
+      scrollLatest();
+      await sendMedia(type, uri, receiverId, duration, replyId, attachment);
+    },
+    [receiverId, sendMedia, scrollLatest],
+  );
+  const cancelReply = useCallback(() => setReplyingTo(null), []);
+  const onRetry = useCallback(
+    (message: MessageRow) => {
+      void retry(message.localId, receiverId).catch(() =>
+        showAppDialog({
+          title: "Still couldn’t send",
+          message:
+            "The message remains saved. Try again when your messaging connection is available.",
+          tone: "error",
+        }),
+      );
+    },
+    [receiverId, retry],
+  );
+  const onReply = useCallback((message: MessageRow) => {
+    if (selectedIdsRef.current.size || selectionBusy.current) return;
+    const current = getLoadedMessage ? getLoadedMessage(message.localId)
+      : rowsRef.current.find(row => row.localId === message.localId);
+    if (!current || !canReplyToMessage(current)) return;
+    setReplyingTo(current);
+  }, [selectedIdsRef, selectionBusy, getLoadedMessage]);
+  const selectedReply = selection.replyTarget;
+  const replySelected = useCallback(() => {
+    if (selectedReply && cancelSelection()) onReply(selectedReply);
+  }, [selectedReply, cancelSelection, onReply]);
+  const selectedRetry = selection.retryTarget;
+  const retrySelected = useCallback(() => {
+    if (selectedRetry && cancelSelection()) onRetry(selectedRetry);
+  }, [selectedRetry, cancelSelection, onRetry]);
+  const replyLocalId = replyingTo?.localId;
+  const replyServerId = replyingTo?.id;
   useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      Animated.timing(keyboardHeight, {
-        toValue: e.endCoordinates.height,
-        duration: e.duration ?? 250,
-        useNativeDriver: true,
-      }).start();
-
-      if (Platform.OS === "android" && stickToLatestOnKeyboardOpenRef.current) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-          });
-        });
-      }
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, (e) => {
-      Animated.timing(keyboardHeight, {
-        toValue: 0,
-        duration: e.duration ?? 250,
-        useNativeDriver: true,
-      }).start();
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
+    if (!replyLocalId) return;
+    let active = true;
+    const clearRemovedReply = () => {
+      if (!active) return;
+      setReplyingTo(previous => previous?.localId === replyLocalId ? null : previous);
+      setNavigationError("The message you were replying to was removed. Your draft has been kept.");
     };
-  }, [flatListRef, keyboardHeight]);
-
-  const inputTranslateY = keyboardHeight.interpolate({
-    inputRange: [0, 400],
-    outputRange: [0, -420],
-    extrapolate: "clamp",
-  });
-
-  // Flatten messages + date headers into one list
-  const flatData = useMemo(() => {
-    const items: MessageItem[] = [];
-    const { today, yesterday } = dateLabels;
-    let lastDate = "";
-
-    const messageMap = new Map<string, any>();
-    messages.forEach((m) => {
-      if (m.id) messageMap.set(m.id, m);
-      if (m.localId) messageMap.set(m.localId, m);
+    const stop = messageStore.subscribe(change => {
+      if (change.conversationId && change.conversationId !== conversationId) return;
+      const changed = change.type === "upsert" ? change.rows.find(row =>
+        row.localId === replyLocalId || (replyServerId && row.id === replyServerId)) : undefined;
+      if (change.type === "clear" || changed?.deletedAt ||
+        (change.type === "invalidate" && (change.messageId === replyLocalId || change.messageId === replyServerId))) {
+        clearRemovedReply();
+      } else if (changed) setReplyingTo(previous => previous && previous.localId === replyLocalId && (
+        previous.content !== changed.content || previous.senderData !== changed.senderData ||
+        previous.mediaUrl !== changed.mediaUrl || previous.thumbnailUrl !== changed.thumbnailUrl ||
+        previous.duration !== changed.duration || previous.attachmentData !== changed.attachmentData
+      ) ? changed : previous);
     });
-
-    messages.forEach((m, idx) => {
-      const ts = new Date(m.timestamp).toDateString();
-      let label = ts;
-      if (ts === today) label = "Today";
-      else if (ts === yesterday) label = "Yesterday";
-
-      if (label !== lastDate) {
-        items.push({ kind: "date", id: `date-${ts}`, date: label });
-        lastDate = label;
-      }
-
-      let repliedTo: MessageCardProps["repliedTo"] | undefined;
-      if (m.repliedToId) {
-        const replied = messageMap.get(m.repliedToId);
-        if (replied) {
-          repliedTo = {
-            id: replied.id ?? replied.localId ?? m.repliedToId,
-            content: replied.content ?? "",
-            senderId: replied.senderId,
-            type: replied.type ?? "TEXT",
-            sender: replied.senderId
-              ? {
-                  username: replied.senderId === currentUserId ? "You" : "User",
-                  avatarUrl: "",
-                }
-              : undefined,
-          };
-        } else {
-          repliedTo = {
-            id: m.repliedToId,
-            content: "Message",
-            senderId: "",
-            type: "TEXT",
-          };
-        }
-      }
-
-      items.push({
-        kind: "message",
-        id:
-          m.localId ??
-          m.id ??
-          `msg-${String(m.timestamp ?? m.conversationId ?? "unknown")}-${String(m.senderId ?? "unknown")}-${String(m.type ?? "TEXT")}-${String(m.content ?? m.mediaUrl ?? "").slice(0, 32)}`,
-        // Preserve the original message object for rows that do not need a
-        // synthesized reply preview, reducing unnecessary row prop changes.
-        data: repliedTo ? { ...m, repliedTo } : m,
-        index: idx,
-      });
-    });
-
-    return items;
-  }, [dateLabels, messages, currentUserId]);
-
-  const handleInitialContentSizeChange = useCallback(() => {
-    if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
-      return;
-
-    nearBottomRef.current = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
-          return;
-
-        flatListRef.current?.scrollToEnd({
-          animated: pendingLatestScrollAnimatedRef.current,
-        });
-
-        requestAnimationFrame(() => {
-          if (!pendingLatestScrollRef.current || composerHeightRef.current <= 0)
-            return;
-          flatListRef.current?.scrollToEnd({ animated: false });
-          pendingLatestScrollRef.current = false;
-          setPositionedRoomKey(currentRoomKey);
-        });
-      });
-    });
-  }, [currentRoomKey, flatListRef]);
-
-  // Incoming messages should not drag the reader away from older history.
-  useEffect(() => {
-    if (incomingMessageVersion <= handledIncomingVersionRef.current) return;
-    handledIncomingVersionRef.current = incomingMessageVersion;
-    if (!isFocused || !nearBottomRef.current) return;
-
-    requestScrollToLatest(true);
-  }, [incomingMessageVersion, isFocused, requestScrollToLatest]);
-
-  const lastUnreadFlatIndex = useMemo(
-    () =>
-      flatData.findIndex(
-        (item) => item.kind === "message" && item.index === lastUnreadIndex,
-      ),
-    [flatData, lastUnreadIndex],
-  );
-
-  const scrollToLastUnread = useCallback(
-    (animated = true) => {
-      if (!flatListRef.current) return;
-      if (lastUnreadFlatIndex >= 0) {
-        pendingScrollViewPositionRef.current = 0.78;
-        flatListRef.current.scrollToIndex({
-          index: lastUnreadFlatIndex,
-          animated,
-          viewPosition: 0.78,
-        });
-      } else {
-        flatListRef.current.scrollToEnd({ animated });
-      }
+    void messageStore.getByLocalId(replyLocalId).then(row => {
+      if (active && (!row || row.deletedAt)) clearRemovedReply();
+    }).catch(() => {});
+    return () => { active = false; stop(); };
+  }, [conversationId, replyLocalId, replyServerId]);
+  const onMenu = useCallback(
+    async (anchor?: { x: number; y: number; width: number; height: number }) => {
+      const muted = (await roomStore.findRoom(conversationId).catch(() => []))[0]?.muted ?? false;
+      openActionMenu(
+        [
+          { key: "search", icon: "search", label: "Search", onPress: () => {} },
+          {
+            key: "mute",
+            icon: "notifications-off-outline",
+            label: muted ? "Unmute in-app banners" : "Mute in-app banners",
+            onPress: async () => {
+              try {
+                const room = (await roomStore.findRoom(conversationId))[0];
+                if (!room) throw new Error("Conversation metadata is unavailable");
+                await roomStore.setMuted(conversationId, !room.muted);
+                showAppDialog({ title: room.muted ? "Conversation unmuted" : "Conversation muted",
+                  message: room.muted ? "In-app message banners are enabled for this conversation."
+                    : "In-app message banners are muted for this conversation. Server push mute requires the compatible backend release." });
+              } catch {
+                showAppDialog({ title: "Couldn’t update notifications", message: "Please try again when the conversation is available.", tone: "error" });
+              }
+            },
+          },
+          {
+            key: "wallpaper",
+            icon: "image-outline",
+            label: "Wallpaper",
+            onPress: () => {},
+          },
+          {
+            key: "delete",
+            icon: "trash-outline",
+            label: "Delete conversation",
+            destructive: true,
+            onPress: async () => {
+              try {
+                await mediaService.message.deleteConversation(conversationId);
+                router.back();
+              } catch {
+                showAppDialog({
+                  title: "Couldn’t delete conversation",
+                  message: "Please try again in a moment.",
+                  tone: "error",
+                });
+              }
+            },
+          },
+        ],
+        anchor,
+      );
     },
-    [flatListRef, lastUnreadFlatIndex],
+    [conversationId, openActionMenu],
   );
-
+  const onProfile = useCallback(() => {
+    if (keyboardVisible) Keyboard.dismiss();
+    else if (receiverUsername) router.push(`/user/${receiverUsername}`);
+  }, [keyboardVisible, receiverUsername]);
+  const onBack = useCallback(() => { if (!selectionBack()) router.back(); }, [selectionBack]);
   useEffect(() => {
+    if (!isFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", selectionBack);
+    return () => subscription.remove();
+  }, [isFocused, selectionBack]);
+
+  const renderItem = useCallback(
+    ({ item }: ListRenderItemInfo<ChatListItem>) => (
+      <ChatMessageRow
+        item={item}
+        userId={userId}
+        receiverName={receiverName}
+        onAction={onAction}
+        onReply={onReply}
+        selectionMode={selectionMode}
+        selected={item.kind === "message" && selectedIds.has(item.message.localId)}
+        interactionDisabled={selection.busy}
+        onRetry={onRetry}
+        isGroup={params.isGroup === "true"}
+        onNavigate={goToMessage}
+        onContextClose={closeContext}
+        onContextPage={contextPage}
+        onContextRefresh={refreshContext}
+        highlight={
+          item.kind === "message" && item.message.localId === highlight?.id
+            ? highlight.token
+            : 0
+        }
+      />
+    ),
+    [
+      userId,
+      receiverName,
+      onAction,
+      onReply,
+      selectionMode,
+      selectedIds,
+      selection.busy,
+      onRetry,
+      params.isGroup,
+      goToMessage,
+      closeContext,
+      contextPage,
+      refreshContext,
+      highlight,
+    ],
+  );
+  const onViewable = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<ChatListItem>[] }) => {
+      visibleIds.current = viewableItems.flatMap(({ item }) =>
+        item.kind === "message" ? [item.message.localId] : [],
+      );
+      markVisibleRead(visibleIds.current);
+      navigator.viewable(visibleIds.current);
+    },
+    [markVisibleRead, navigator],
+  );
+  const onMediaViewable = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<ChatListItem>[] }) => {
+      mediaIds.current = viewableItems.flatMap(({ item }) =>
+        item.kind === "message" ? [item.message.localId] : [],
+      );
+      if (focusedRef.current) setVisibleMedia(mediaOwner, mediaIds.current);
+      navigator.progress(mediaIds.current);
+    },
+    [mediaOwner, navigator],
+  );
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      viewport.userScroll(event.nativeEvent.contentOffset.y);
+      const show = !viewport.atLatest;
+      if (show) setAnchorHistory(true);
+      setShowJump((previous) => (previous === show ? previous : show));
+    },
+    [viewport],
+  );
+  const onScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      viewport.endInteraction(event.nativeEvent.contentOffset.y);
+      navigator.settled();
+      setAnchorHistory(!viewport.atLatest || navigator.pending || contextActive.current);
+      if (!manualDrag.current && (navigator.pending || contextActive.current))
+        viewport.leaveLatest();
+      if (
+        event.nativeEvent.contentOffset.y <= 1 &&
+        !navigator.pending &&
+        !contextActive.current &&
+        canReleaseHistory()
+      )
+        releaseHistory();
+    },
+    [viewport, releaseHistory, navigator, canReleaseHistory],
+  );
+  const onOlder = useCallback(() => {
     if (
-      messages.length === 0 ||
-      initialScrollRoomRef.current === currentRoomKey
-    ) {
+      manualDrag.current &&
+      viewport.hasInteracted &&
+      hasMore &&
+      !isLoadingMore &&
+      !paginationError
+    )
+      void loadMore();
+  }, [viewport, hasMore, isLoadingMore, paginationError, loadMore]);
+
+  const pendingJump = useRef<number | null>(null);
+  const jumpAttempts = useRef(0);
+  const jumpUnread = useCallback(() => {
+    closeContext();
+    manualDrag.current = false;
+    if (!unread.length) {
+      scrollLatest(true);
       return;
     }
-
-    // New conversations always open at the latest cached page; older history
-    // is fetched only after the user scrolls to the top.
-    initialScrollRoomRef.current = currentRoomKey;
-    userInteractedWithListRef.current = false;
-    requestScrollToLatest(false);
-  }, [currentRoomKey, messages.length, requestScrollToLatest]);
-
-  useEffect(() => {
-    const initialSyncJustFinished = previousSyncingRef.current && !isSyncing;
-    previousSyncingRef.current = isSyncing;
-
-    if (
-      initialSyncJustFinished &&
-      initialScrollRoomRef.current === currentRoomKey &&
-      nearBottomRef.current
-    ) {
-      requestScrollToLatest(false);
-    }
-  }, [currentRoomKey, isSyncing, requestScrollToLatest]);
-
-  const handleScrollToIndexFailed = useCallback(
+    const id = unread[unread.length - 1].localId;
+    const index = data.findIndex(
+      (item) => item.kind === "message" && item.message.localId === id,
+    );
+    if (index < 0) return;
+    viewport.leaveLatest();
+    setAnchorHistory(true);
+    pendingJump.current = index;
+    jumpAttempts.current = 0;
+    list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
+  }, [unread, data, scrollLatest, viewport, closeContext]);
+  const onIndexFailed = useCallback(
     ({
       index,
       averageItemLength,
@@ -723,412 +704,343 @@ export default function PrivateRoom() {
       index: number;
       averageItemLength: number;
     }) => {
-      const list = flatListRef.current;
-      if (!list) return;
-      list.scrollToOffset({
-        offset: Math.max(0, averageItemLength * index),
+      if (navigator.indexFailed(averageItemLength)) return;
+      // One estimate, followed by a retry on actual viewability/layout progress.
+      // No fixed-height getItemLayout and no frame/timeout retry chain.
+      pendingJump.current = index;
+      if (jumpAttempts.current++ >= 2) {
+        pendingJump.current = null;
+        return;
+      }
+      list.current?.scrollToOffset({
+        offset: Math.max(0, index * averageItemLength),
         animated: false,
       });
-      requestAnimationFrame(() => {
-        list.scrollToIndex({
+    },
+    [navigator],
+  );
+  const onMeasuredViewable = useCallback(
+    (info: { viewableItems: ViewToken<ChatListItem>[] }) => {
+      onViewable(info);
+      if (
+        pendingJump.current !== null &&
+        info.viewableItems.some(
+          (item) => Math.abs((item.index ?? 0) - pendingJump.current!) <= 10,
+        )
+      ) {
+        const index = pendingJump.current;
+        pendingJump.current = null;
+        list.current?.scrollToIndex({
           index,
           animated: false,
-          viewPosition: pendingScrollViewPositionRef.current,
+          viewPosition: 0.2,
         });
-      });
-    },
-    [flatListRef],
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: MessageItem }) => {
-      if (item.kind === "date") {
-        return (
-          <View style={styles.dateHeader}>
-            <Text style={styles.dateHeaderText}>{item.date}</Text>
-          </View>
-        );
       }
-
-      const m = item.data;
-      const isSent = m.senderId === currentUserId;
-      const showUnreadDivider =
-        item.index === firstUnreadIndex && firstUnreadIndex >= 0;
-
-      return (
-        <View>
-          {showUnreadDivider && (
-            <View style={styles.unreadDivider}>
-              <View style={styles.unreadLine} />
-              <Text style={styles.unreadText}>New messages</Text>
-              <View style={styles.unreadLine} />
-            </View>
-          )}
-          <MessageCard
-            message={m.content}
-            time={m.timestamp}
-            sender={isSent ? "You" : String(receiverName ?? "Received image")}
-            isRead={m.isRead === true || m.status === "READ"}
-            isSent={isSent}
-            status={m.status ?? "SENT"}
-            type={getMessageType(m.type)}
-            uri={m.mediaUrl ?? ""}
-            onLongPress={() => handleMessageAction(m)}
-            repliedTo={m.repliedTo}
-          />
-        </View>
-      );
     },
-    [firstUnreadIndex, currentUserId, receiverName, handleMessageAction],
+    [onViewable],
   );
 
-  const keyExtractor = useCallback((item: MessageItem) => item.id, []);
+  const viewabilityPairs = useMemo(
+    () => [
+      { viewabilityConfig, onViewableItemsChanged: onMeasuredViewable },
+      {
+        viewabilityConfig: mediaViewabilityConfig,
+        onViewableItemsChanged: onMediaViewable,
+      },
+    ],
+    [onMeasuredViewable, onMediaViewable],
+  );
 
   return (
     <View style={styles.container}>
-      <OfflineBanner isOffline={isOffline} />
-
-      {/* HEADER */}
+      <OfflineBanner
+        isOffline={isOffline}
+        onRetry={() => {
+          void refresh();
+        }}
+        message="Messaging connection unavailable"
+      />
       <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
         <View style={styles.headerWrapper}>
-          <ChatHeader
-            receiverName={receiverName as string}
-            avatarUri={(receiverAvatar as string) || ""}
-            onBack={handleBack}
-            onProfilePress={handleProfilePress}
-            onMenuPress={handleMenuPress}
+          {selectionMode ? <MessageSelectionBar
+            count={selectedIds.size} busy={selection.busy}
+            canCopy={selection.canCopy} canDelete={selection.canDelete} canForward={selection.canForward}
+            canReply={Boolean(selectedReply)} canRetry={Boolean(selectedRetry)}
+            onCancel={cancelSelection} onCopy={selection.copy} onDelete={selection.requestDelete}
+            onForward={selection.openForward} onReply={replySelected} onRetry={retrySelected}
+          /> : <ChatHeader
+            receiverName={receiverName}
+            avatarUri={receiverAvatar ?? ""}
+            onBack={onBack}
+            onProfilePress={onProfile}
+            onMenuPress={onMenu}
             isTyping={isTyping}
-          />
+          />}
         </View>
       </SafeAreaView>
-
-      {/* UNREAD JUMP BUTTON */}
-      {shouldShowJumpToUnread && lastUnreadIndex >= 0 ? (
-        <TouchableOpacity
-          style={styles.jumpToUnreadTouchable}
-          onPress={() => {
-            nearBottomRef.current = false;
-            scrollToLastUnread(true);
-            setJumpButtonRoomKey(currentRoomKey);
-            setShowJumpToUnread(false);
-          }}
-          activeOpacity={0.9}
-          accessibilityRole="button"
-          accessibilityLabel={`Jump to ${unreadMessageCount} unread messages`}
-        >
-          <LinearGradient
-            colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.jumpToUnread}
+      {/* KeyboardProvider suppresses native Android IME resizing while active.
+        This ONE controller KAV therefore resizes list + composer on BOTH platforms. */}
+      <ChatReadVisibility.Provider value={coverReads}>
+        <ChatMediaInteraction.Provider value={confirmMediaInteraction}>
+          <KeyboardAvoidingView
+            style={styles.messageViewport}
+            behavior="padding"
+            enabled
+            automaticOffset
           >
-            <View style={styles.jumpDot} />
-            <View style={styles.jumpCopy}>
-              <Text style={styles.jumpEyebrow}>NEW MESSAGES</Text>
-              <Text style={styles.jumpText}>
-                {unreadMessageCount} unread{" "}
-                {unreadMessageCount === 1 ? "message" : "messages"}
-              </Text>
-            </View>
-            <View style={styles.jumpIconWrap}>
-              <Ionicons
-                name="arrow-down"
-                size={17}
-                color={theme.COLORS.primary}
-              />
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-      ) : null}
-
-      {/* Keep the message viewport above the keyboard without changing the input animation. */}
-      <KeyboardAvoidingView
-        style={styles.messageViewport}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        automaticOffset
-      >
-        {/* MESSAGES */}
-        <FlatList
-          ref={flatListRef}
-          style={[
-            styles.messageList,
-            messages.length > 0 && positionedRoomKey !== currentRoomKey
-              ? styles.messageListHidden
-              : null,
-          ]}
-          data={flatData}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          onContentSizeChange={handleInitialContentSizeChange}
-          keyExtractor={keyExtractor}
-          keyboardShouldPersistTaps="handled"
-          //keyboardDismissMode="on-drag"
-          contentContainerStyle={{
-            // The composer floats above the list, so reserve its measured height
-            // plus its bottom offset and a small visual gap. This prevents the
-            // final messages from sitting underneath the input on first open.
-            paddingBottom:
-              composerHeight + Math.max(insets.bottom, 8) + theme.SPACING.md,
-            paddingTop: theme.SPACING.md,
-          }}
-          renderItem={renderItem}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <>
-              {!isSyncing && messages.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyStateIcon}>
-                    <Ionicons
-                      name="chatbubble-ellipses-outline"
-                      size={28}
-                      color={theme.COLORS.primary}
-                    />
+            <View style={styles.listViewport} testID="chat-message-viewport">
+              <MessageCellMeasurements.Provider value={measurements}>
+                <ChatGestureCoordinator>
+                  <FlatList
+                    CellRendererComponent={MeasuredMessageCell}
+                    initialNumToRender={12}
+                    maxToRenderPerBatch={8}
+                    windowSize={9}
+                    ref={list}
+                    testID="chat-message-list"
+                    style={styles.messageList}
+                    data={data}
+                    extraData={selectedIds}
+                    inverted
+                    keyExtractor={keyExtractor}
+                    renderItem={renderItem}
+                    maintainVisibleContentPosition={anchorHistory ? maintainPosition : undefined}
+                    automaticallyAdjustKeyboardInsets={false}
+                    contentInsetAdjustmentBehavior="never"
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={
+                      Platform.OS === "ios" ? "interactive" : "on-drag"
+                    }
+                    contentContainerStyle={styles.listContent}
+                    onLayout={(event) => {
+                      listHeight.current = event.nativeEvent.layout.height;
+                      if (
+                        viewport.layout(listHeight.current) &&
+                        !navigator.pending &&
+                        !contextActive.current
+                      )
+                        list.current?.scrollToOffset({
+                          offset: 0,
+                          animated: false,
+                        });
+                      navigator.settled();
+                    }}
+                    onContentSizeChange={(_width, height) => {
+                      if (focusedRef.current) list.current?.recordInteraction?.();
+                      if (
+                        viewport.content(height) &&
+                        !navigator.pending &&
+                        !contextActive.current
+                      )
+                        list.current?.scrollToOffset({
+                          offset: 0,
+                          animated: false,
+                        });
+                      if (
+                        viewport.atLatest &&
+                        !viewport.interacting &&
+                        !navigator.pending &&
+                        !contextActive.current &&
+                        canReleaseHistory()
+                      )
+                        releaseHistory();
+                    }}
+                    onScrollBeginDrag={() => {
+                      manualDrag.current = true;
+                      setAnchorHistory(true);
+                      navigator.cancel();
+                      viewport.beginInteraction();
+                    }}
+                    onMomentumScrollBegin={() => {
+                      navigator.started();
+                      setAnchorHistory(true);
+                      viewport.beginInteraction();
+                    }}
+                    onScrollEndDrag={onScrollEnd}
+                    onMomentumScrollEnd={onScrollEnd}
+                    onScroll={onScroll}
+                    scrollEventThrottle={32}
+                    onEndReached={onOlder}
+                    onEndReachedThreshold={0.3}
+                    viewabilityConfigCallbackPairs={viewabilityPairs}
+                    onScrollToIndexFailed={onIndexFailed}
+                    showsVerticalScrollIndicator={false}
+                    ListEmptyComponent={
+                      isSyncing ? (
+                        <View style={styles.emptyLoading}>
+                          <ChatBubbleSkeleton isOwn={false} />
+                          <ChatBubbleSkeleton isOwn />
+                          <ChatBubbleSkeleton isOwn={false} />
+                        </View>
+                      ) : (
+                        <View style={styles.emptyState}>
+                          <View style={styles.emptyStateIcon}>
+                            <Ionicons
+                              name="chatbubble-ellipses-outline"
+                              size={28}
+                              color={COLORS.primary}
+                            />
+                          </View>
+                          <Text style={styles.emptyStateTitle}>
+                            A quiet little corner
+                          </Text>
+                          <Text style={styles.emptyStateText}>
+                            Send a message to start the conversation.
+                          </Text>
+                        </View>
+                      )
+                    }
+                  />
+                </ChatGestureCoordinator>
+              </MessageCellMeasurements.Provider>
+              {replyContext?.status === "loading" &&
+                !messages.some(
+                  (row) =>
+                    row.id === replyContext.parentId ||
+                    row.localId === replyContext.parentId,
+                ) && (
+                  <View style={styles.navigationNotice}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                    <Text style={styles.loadingMoreText}>
+                      Finding the original message and replies…
+                    </Text>
+                    <TouchableOpacity
+                      accessibilityLabel="Cancel reply lookup"
+                      onPress={closeContext}
+                      style={{ minHeight: 44, justifyContent: "center" }}
+                    >
+                      <Text style={styles.loadingMoreText}>Cancel</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.emptyStateTitle}>
-                    A quiet little corner
+                )}
+              {selection.notice && (
+                <TouchableOpacity style={styles.navigationNotice} onPress={selection.dismissNotice}
+                  testID="message-selection-notice" accessibilityLabel="Dismiss message action result">
+                  <Text style={styles.loadingMoreText} accessibilityRole="alert">{selection.notice}</Text>
+                </TouchableOpacity>
+              )}
+              {navigationError && !selection.notice && (
+                <TouchableOpacity
+                  style={styles.navigationNotice}
+                  accessibilityLabel="Dismiss reply navigation notice"
+                  onPress={() => setNavigationError(null)}
+                >
+                  <Text
+                    style={styles.loadingMoreText}
+                    accessibilityRole="alert"
+                  >
+                    {navigationError}
                   </Text>
-                  <Text style={styles.emptyStateText}>
-                    Send a message to start the conversation.
-                  </Text>
+                </TouchableOpacity>
+              )}
+              {/* Pagination feedback is overlayed, never inserted before the anchor. */}
+              {(isLoadingMore || paginationError || syncError) && (
+                <View style={styles.paginationStatus}>
+                  {isLoadingMore ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        void (paginationError ? loadMore() : refresh());
+                      }}
+                      accessibilityLabel="Retry loading messages"
+                    >
+                      <Text style={styles.loadingMoreText}>
+                        Couldn’t load messages · Tap to retry
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-              ) : null}
-            </>
-          }
-          ListFooterComponent={
-            isSyncing && messages.length === 0 ? (
-              <View style={{ paddingVertical: theme.SPACING.xl }}>
-                <ChatBubbleSkeleton isOwn={false} />
-                <ChatBubbleSkeleton isOwn={true} />
-                <ChatBubbleSkeleton isOwn={false} />
-              </View>
-            ) : null
-          }
-          onScrollToIndexFailed={handleScrollToIndexFailed}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          onViewableItemsChanged={handleViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-        />
-      </KeyboardAvoidingView>
-
-      {/* FLOATING INPUT */}
-      <Animated.View
-        onLayout={(event) => {
-          const nextHeight = event.nativeEvent.layout.height;
-          const heightChanged =
-            Math.abs(composerHeightRef.current - nextHeight) > 1;
-          composerHeightRef.current = nextHeight;
-          setComposerHeight((previous) =>
-            Math.abs(previous - nextHeight) > 1 ? nextHeight : previous,
-          );
-          // The first measured height is required before initial positioning.
-          // Later height changes only reposition if the reader was already at
-          // the bottom, so reading older messages is not interrupted.
-          if (
-            pendingLatestScrollRef.current ||
-            (heightChanged && nearBottomRef.current)
-          ) {
-            requestScrollToLatest(false);
-          }
-        }}
-        style={[
-          styles.floatingInputWrapper,
-          {
-            bottom: Math.max(insets.bottom, 8),
-            transform: [{ translateY: inputTranslateY }],
-            marginBottom: keyboardIsVisible ? -8 : 0,
-          },
-        ]}
-      >
-        {replyingTo && (
-          <View style={styles.replyPreview}>
-            <View style={styles.replyPreviewLine} />
-            <View style={styles.replyPreviewContent}>
-              <Text style={styles.replyPreviewName}>
-                {replyingTo.senderId === currentUserId
-                  ? "You"
-                  : (replyingTo.sender?.username ?? "Message")}
-              </Text>
-              <Text style={styles.replyPreviewText} numberOfLines={1}>
-                {replyingTo.content ??
-                  (replyingTo.type === "IMAGE"
-                    ? "Photo"
-                    : replyingTo.type === "VIDEO"
-                      ? "Video"
-                      : replyingTo.type === "AUDIO"
-                        ? "Voice message"
-                        : "Message")}
-              </Text>
+              )}
+              {showJump && (
+                <TouchableOpacity
+                  style={styles.jumpToUnreadTouchable}
+                  onPress={jumpUnread}
+                  accessibilityLabel={
+                    unread.length
+                      ? `Jump to ${unread.length} unread messages`
+                      : "Jump to latest message"
+                  }
+                >
+                  <LinearGradient
+                    colors={[COLORS.primary, COLORS.accentPurple]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.jumpToUnread}
+                  >
+                    <Text style={styles.jumpText}>
+                      {unread.length
+                        ? `${unread.length} unread ${unread.length === 1 ? "message" : "messages"}`
+                        : "Latest messages"}
+                    </Text>
+                    <Ionicons
+                      name="arrow-down"
+                      size={17}
+                      color={COLORS.white}
+                    />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
-            <TouchableOpacity
-              onPress={() => setReplyingTo(null)}
-              style={styles.replyPreviewClose}
-            >
-              <Ionicons name="close" size={18} color={theme.COLORS.textMuted} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <View style={styles.inputRow}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Attach media"
-            onPress={() => setVisible(true)}
-            style={styles.attachButton}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="add" size={22} color={theme.COLORS.primary} />
-          </TouchableOpacity>
-
-          <View style={styles.textInputWrapper}>
-            <TextInput
-              ref={textInputRef}
-              placeholder={replyingTo ? "Reply..." : "Message..."}
-              placeholderTextColor={theme.COLORS.textMuted}
-              style={styles.textInput}
-              multiline
-              value={inputText}
-              onChangeText={handleInputChange}
-              maxLength={5000}
-              returnKeyType="default"
-              blurOnSubmit={false}
-            />
-          </View>
-
-          {record ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.sendButton,
-                (pressed || status.isRecording) && styles.micButtonActive,
-              ]}
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
-            >
-              <Ionicons
-                name={status.isRecording ? "radio-button-on" : "mic-outline"}
-                size={20}
-                color={theme.COLORS.white}
+            <Animated.View style={[styles.composerSafeArea, composerSafeArea]}>
+              <ChatComposer
+                replyingTo={replyingTo}
+                disabled={selectionMode}
+                userId={userId}
+                onCancelReply={cancelReply}
+                onTyping={onTyping}
+                onSend={handleSend}
+                onSendMedia={handleMedia}
+                onReplyPress={goToMessage}
               />
-            </Pressable>
-          ) : (
-            <TouchableOpacity
-              style={styles.sendButton}
-              onPress={handleSend}
-              disabled={sending}
-            >
-              <Ionicons name="arrow-up" size={21} color={theme.COLORS.white} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </Animated.View>
-
-      <MediaPickerModal
-        visible={visible}
-        onClose={() => setVisible(false)}
-        onSend={handleSendFiles}
-      />
+            </Animated.View>
+          </KeyboardAvoidingView>
+          {selection.forwardOpen && <ForwardMessagePicker
+            count={selectedIds.size} busy={selection.busy} error={selection.forwardError}
+            onClose={selection.closeForward} onForward={selection.forward}
+          />}
+        </ChatMediaInteraction.Provider>
+      </ChatReadVisibility.Provider>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.COLORS.bgMain,
+  navigationNotice: {
+    position: "absolute",
+    top: SPACING.lg,
+    left: SPACING.xl,
+    right: SPACING.xl,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.bgWhite,
+    borderRadius: BORDER_RADIUS.xxl,
+    borderWidth: 1,
+    borderColor: COLORS.primaryGhostBorder,
+    zIndex: 4,
   },
-  headerSafeArea: {
-    backgroundColor: theme.COLORS.bgWhite,
-  },
+  container: { flex: 1, backgroundColor: COLORS.bgMain },
+  composerSafeArea: { backgroundColor: "#F7F6FB" },
+  headerSafeArea: { backgroundColor: COLORS.bgWhite },
   headerWrapper: {
     zIndex: 10,
     elevation: 5,
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: COLORS.bgWhite,
   },
-  messageViewport: {
-    flex: 1,
-  },
-  messageList: {
-    flex: 1,
-    backgroundColor: "#F7F6FB",
-  },
-  messageListHidden: {
-    opacity: 0,
-  },
-  jumpToUnreadTouchable: {
-    position: "absolute",
-    top: theme.SIZING.headerHeight + theme.SPACING.xxxxxl,
-    left: theme.LAYOUT.contentPadding,
-    right: theme.LAYOUT.contentPadding,
-    borderRadius: 18,
-    zIndex: 10,
-    ...theme.SHADOWS.md,
-  },
-  jumpToUnread: {
-    paddingVertical: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.md,
-    borderRadius: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.md,
-    overflow: "hidden",
-  },
-  jumpDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: theme.COLORS.white,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.45)",
-  },
-  jumpCopy: {
-    flex: 1,
-  },
-  jumpEyebrow: {
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 9,
-    lineHeight: 12,
-    letterSpacing: 0.8,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  jumpText: {
-    color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    marginTop: 1,
-  },
-  jumpIconWrap: {
-    width: 31,
-    height: 31,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.white,
-  },
-  dateHeader: {
-    alignItems: "center",
-    paddingVertical: theme.SPACING.xs,
-    marginVertical: theme.SPACING.xs,
-  },
-  dateHeaderText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textSecondary,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: "#ECEAF4",
-    paddingHorizontal: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.sm,
-    borderRadius: theme.BORDER_RADIUS.full,
-  },
-  messageSeparator: {
-    height: theme.SPACING.xs,
+  messageViewport: { flex: 1 },
+  listViewport: { flex: 1, minHeight: 0 },
+  messageList: { flex: 1, backgroundColor: "#F7F6FB" },
+  listContent: { paddingVertical: SPACING.md },
+  emptyLoading: {
+    paddingVertical: SPACING.xl,
+    transform: [{ scaleY: -1 }],
   },
   emptyState: {
     minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: theme.SPACING.xxxxxl,
-    paddingVertical: theme.SPACING.xxxxl,
+    paddingHorizontal: SPACING.xxxxxl,
+    paddingVertical: SPACING.xxxxl,
+    transform: [{ scaleY: -1 }],
   },
   emptyStateIcon: {
     width: 66,
@@ -1137,137 +1049,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#EEEAFE",
-    marginBottom: theme.SPACING.lg,
+    marginBottom: SPACING.lg,
   },
   emptyStateTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    marginBottom: theme.SPACING.xs,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xl4,
+    fontWeight: "700",
+    marginBottom: SPACING.xs,
   },
   emptyStateText: {
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    color: COLORS.textSecondary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
     lineHeight: 20,
     textAlign: "center",
   },
-  loadingMore: {
-    paddingVertical: theme.SPACING.md,
-    alignItems: "center",
+  paginationStatus: {
+    position: "absolute",
+    top: 8,
+    alignSelf: "center",
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: COLORS.bgWhite,
   },
   loadingMoreText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
-  floatingInputWrapper: {
+  jumpToUnreadTouchable: {
     position: "absolute",
-    left: theme.SPACING.md,
-    right: theme.SPACING.md,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: "#EAE8F1",
-    ...theme.SHADOWS.md,
-    paddingHorizontal: theme.SPACING.sm,
-    paddingVertical: theme.SPACING.sm,
-    flexDirection: "column",
-    zIndex: 20,
+    bottom: 12,
+    alignSelf: "center",
+    borderRadius: 18,
+    zIndex: 10,
+    ...SHADOWS.md,
   },
-  replyPreview: {
+  jumpToUnread: {
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.md,
-    backgroundColor: "#F7F6FB",
-    borderRadius: 14,
-    paddingVertical: theme.SPACING.sm,
+    gap: SPACING.md,
+    overflow: "hidden",
   },
-  replyPreviewLine: {
-    width: 3,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-    marginRight: theme.SPACING.sm,
-    alignSelf: "stretch",
-  },
-  replyPreviewContent: {
-    flex: 1,
-  },
-  replyPreviewName: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textPrimary,
-  },
-  replyPreviewText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    color: theme.COLORS.textMuted,
-  },
-  replyPreviewClose: {
-    padding: theme.SPACING.xs,
-    marginLeft: theme.SPACING.sm,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: theme.SPACING.sm,
-  },
-  attachButton: {
-    width: 43,
-    height: 43,
-    borderRadius: 15,
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textInputWrapper: {
-    flex: 1,
-    backgroundColor: "#F7F6FB",
-    borderRadius: 17,
-    paddingHorizontal: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.sm,
-    borderWidth: 1,
-    borderColor: "#ECEAF4",
-    minHeight: 43,
-    justifyContent: "center",
-  },
-  textInput: {
-    fontSize: theme.TYPOGRAPHY.fontSize.xxl,
-    color: theme.COLORS.textPrimary,
-    maxHeight: 120,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.lg,
-    paddingVertical: 0,
-    textAlignVertical: "center",
-  },
-  sendButton: {
-    width: 43,
-    height: 43,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primary,
-    ...theme.SHADOWS.primary,
-  },
-  micButtonActive: {
-    transform: [{ scale: 1.2 }],
-  },
-  unreadDivider: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: theme.SPACING.lg,
-    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
-    gap: theme.SPACING.md,
-  },
-  unreadLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: theme.COLORS.primaryGhostBorder,
-  },
-  unreadText: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.primary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+  jumpText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: "600",
   },
 });

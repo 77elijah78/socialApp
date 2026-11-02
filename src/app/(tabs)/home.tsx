@@ -17,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import PostCard from "@/components/feed/PostCard";
 import StoriesBar from "@/components/feed/StoriesBar";
 import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { usePosts } from "@/hooks/usePosts";
 import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
@@ -136,17 +136,11 @@ export default function FeedScreen() {
       <View style={styles.feedItem}>
         <PostCard
           post={item}
-          onLike={(postId, liked) => {
-            if (liked) like(postId);
-            else unlike(postId);
-          }}
+          onLike={(postId, liked) => liked ? like(postId) : unlike(postId)}
           onComment={openComments}
           onShare={handleShare}
           onUserPress={(username) => router.push(`/user/${username}`)}
-          onBookmark={(postId, bookmarked) => {
-            if (bookmarked) save(postId);
-            else unsave(postId);
-          }}
+          onBookmark={(postId, bookmarked) => bookmarked ? save(postId) : unsave(postId)}
           onMenuPress={(postId, anchor) => {
             const isOwnPost = item.author.id === currentUserId;
             const actions: ActionMenuItem[] = [

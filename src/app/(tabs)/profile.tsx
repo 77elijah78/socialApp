@@ -1,3 +1,5 @@
+import { usePosts } from "@/hooks/usePosts";
+import { authorFeedParams } from "@/utils/postContracts";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,15 +17,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import theme from "@/constants/theme";
+import * as theme from "@/constants/theme";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
-import { PostResponse, SocialPost } from "@/types";
+import { SocialPost } from "@/types";
 
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
-
-type ProfileTab = "posts" | "likes";
 
 interface ProfileData {
   id: string;
@@ -36,47 +36,49 @@ interface ProfileData {
 }
 
 function formatCount(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  if (count >= 1_000_000)
+    return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000)
+    return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
   return String(count);
-}
-
-function mapPostResponse(post: PostResponse): SocialPost {
-  return {
-    ...post,
-    timestamp: new Date(post.createdAt).toISOString(),
-    imageUrl: post.imageUrls?.[0] ?? "",
-    tags: [],
-    likeCount: post._count?.likes ?? 0,
-    commentCount: post._count?.comments ?? 0,
-    shareCount: post.shareCount ?? 0,
-    isLiked: post.isLiked ?? false,
-    isBookmarked: post.isSaved ?? false,
-  };
 }
 
 export default function ProfileScreen() {
   const user = useAppSelector((state) => state.auth.user);
   const token = useAppSelector((state) => state.auth.token);
   const { width: screenWidth } = useWindowDimensions();
-  const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
-  const [posts, setPosts] = useState<SocialPost[]>([]);
-  const [likedPosts, setLikedPosts] = useState<SocialPost[]>([]);
+  const {
+    posts,
+    refreshing,
+    refresh: refreshPosts,
+    loadMore,
+    hasMore,
+    paginating,
+    error: postsError,
+    paginationError,
+  } = usePosts({ source: "author", username: user?.username });
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   const currentUsername = user?.username ?? "";
   const displayName =
-    profileData?.displayName || user?.displayName || user?.username || "Your profile";
+    profileData?.displayName ||
+    user?.displayName ||
+    user?.username ||
+    "Your profile";
   const username = profileData?.username || user?.username || "";
   const avatarUrl = profileData?.avatarUrl ?? user?.avatarUrl ?? null;
   const bio = profileData?.bio ?? user?.bio ?? null;
   const initial = displayName.charAt(0).toUpperCase() || "Y";
-  const counts = profileData?._count ?? { posts: posts.length, followers: 0, following: 0 };
-  const currentPosts = activeTab === "posts" ? posts : likedPosts;
+  const counts = profileData?._count ?? {
+    posts: posts.length,
+    followers: 0,
+    following: 0,
+  };
   const gridItemSize =
-    (screenWidth - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
+    (screenWidth -
+      theme.LAYOUT.listPaddingHorizontal * 2 -
+      GRID_GAP * (GRID_COLUMNS - 1)) /
     GRID_COLUMNS;
 
   const fetchProfile = useCallback(async () => {
@@ -92,36 +94,6 @@ export default function ProfileScreen() {
     }
   }, [token, currentUsername]);
 
-  const fetchPosts = useCallback(async () => {
-    if (!token || !currentUsername) return;
-    try {
-      const response = await api.get<{
-        success: boolean;
-        data: { user: ProfileData; posts: PostResponse[]; total: number };
-      }>(`/posts/user/${currentUsername}?page=1&limit=50`, token);
-      setProfileData((previous) => ({
-        ...(previous ?? response.data.user),
-        ...response.data.user,
-      }));
-      setPosts((response.data.posts ?? []).map(mapPostResponse));
-    } catch (error) {
-      console.warn("Failed to load profile posts:", error);
-    }
-  }, [token, currentUsername]);
-
-  const fetchLikedPosts = useCallback(async () => {
-    if (!token) return;
-    try {
-      const response = await api.get<{
-        success: boolean;
-        data: { posts: PostResponse[]; total: number };
-      }>("/posts/liked?page=1&limit=50", token);
-      setLikedPosts((response.data.posts ?? []).map(mapPostResponse));
-    } catch (error) {
-      console.warn("Failed to load liked posts:", error);
-    }
-  }, [token]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -132,7 +104,7 @@ export default function ProfileScreen() {
       }
 
       setLoading(true);
-      await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
+      await fetchProfile();
       if (!cancelled) setLoading(false);
     };
 
@@ -140,154 +112,166 @@ export default function ProfileScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, currentUsername, fetchProfile, fetchPosts, fetchLikedPosts]);
+  }, [token, currentUsername, fetchProfile]);
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await Promise.all([fetchProfile(), fetchPosts(), fetchLikedPosts()]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchProfile, fetchPosts, fetchLikedPosts]);
+    await Promise.all([fetchProfile(), refreshPosts()]);
+  }, [fetchProfile, refreshPosts]);
 
-  const renderProfileHeader = useCallback(() => (
-    <View>
-      <View style={styles.profileCard}>
-        <LinearGradient
-          colors={[theme.COLORS.primary, theme.COLORS.accentPurple, "#8B74E8"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.cover}
-        >
-          <View style={styles.coverOrbLarge} />
-          <View style={styles.coverOrbSmall} />
-          <View style={styles.coverLabel}>
-            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
-            <Text style={styles.coverLabelText}>YOUR CREATOR SPACE</Text>
-          </View>
-          <Ionicons name="aperture-outline" size={24} color="rgba(255,255,255,0.8)" />
-        </LinearGradient>
+  const renderProfileHeader = useCallback(
+    () => (
+      <View>
+        <View style={styles.profileCard}>
+          <LinearGradient
+            colors={[
+              theme.COLORS.primary,
+              theme.COLORS.accentPurple,
+              "#8B74E8",
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.cover}
+          >
+            <View style={styles.coverOrbLarge} />
+            <View style={styles.coverOrbSmall} />
+            <View style={styles.coverLabel}>
+              <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
+              <Text style={styles.coverLabelText}>YOUR CREATOR SPACE</Text>
+            </View>
+            <Ionicons
+              name="aperture-outline"
+              size={24}
+              color="rgba(255,255,255,0.8)"
+            />
+          </LinearGradient>
 
-        <View style={styles.profileContent}>
-          <View style={styles.avatarOverlapRow}>
-            <View style={styles.avatarShell}>
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, styles.avatarFallback]}>
-                  <Text style={styles.avatarInitial}>{initial}</Text>
-                </View>
-              )}
+          <View style={styles.profileContent}>
+            <View style={styles.avatarOverlapRow}>
+              <View style={styles.avatarShell}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarFallback]}>
+                    <Text style={styles.avatarInitial}>{initial}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              {profileData?.isVerified ? (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={theme.COLORS.primary}
+                />
+              ) : null}
+            </View>
+            {username ? <Text style={styles.username}>@{username}</Text> : null}
+            {bio ? <Text style={styles.bio}>{bio}</Text> : null}
+
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {formatCount(counts.posts ?? posts.length)}
+                </Text>
+                <Text style={styles.statLabel}>Posts</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {formatCount(counts.followers ?? 0)}
+                </Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {formatCount(counts.following ?? 0)}
+                </Text>
+                <Text style={styles.statLabel}>Following</Text>
+              </View>
+            </View>
+
+            <View style={styles.actionsRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/editProfile")}
+                style={({ pressed }) => [
+                  styles.primaryAction,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={17}
+                  color={theme.COLORS.white}
+                />
+                <Text style={styles.primaryActionText}>Edit profile</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/posts/create")}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="add" size={19} color={theme.COLORS.primary} />
+                <Text style={styles.secondaryActionText}>New post</Text>
+              </Pressable>
             </View>
           </View>
+        </View>
 
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName} numberOfLines={1}>{displayName}</Text>
-            {profileData?.isVerified ? (
-              <Ionicons name="checkmark-circle" size={18} color={theme.COLORS.primary} />
-            ) : null}
-          </View>
-          {username ? <Text style={styles.username}>@{username}</Text> : null}
-          {bio ? <Text style={styles.bio}>{bio}</Text> : null}
-
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(counts.posts ?? posts.length)}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(counts.followers ?? 0)}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCount(counts.following ?? 0)}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
-          </View>
-
-          <View style={styles.actionsRow}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push("/editProfile")}
-              style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}
-            >
-              <Ionicons name="create-outline" size={17} color={theme.COLORS.white} />
-              <Text style={styles.primaryActionText}>Edit profile</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push("/posts/create")}
-              style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}
-            >
-              <Ionicons name="add" size={19} color={theme.COLORS.primary} />
-              <Text style={styles.secondaryActionText}>New post</Text>
-            </Pressable>
+        <View style={styles.tabsSection}>
+          <View style={[styles.profileTab, styles.profileTabActive]}>
+            <Ionicons
+              name="grid-outline"
+              size={17}
+              color={theme.COLORS.primary}
+            />
+            <Text style={[styles.profileTabText, styles.profileTabTextActive]}>
+              Posts
+            </Text>
+            <Text style={[styles.profileTabCount, styles.profileTabTextActive]}>
+              {formatCount(counts.posts)}
+            </Text>
           </View>
         </View>
       </View>
-
-      <View style={styles.tabsSection}>
-        <Pressable
-          accessibilityRole="tab"
-          accessibilityState={{ selected: activeTab === "posts" }}
-          style={[styles.profileTab, activeTab === "posts" && styles.profileTabActive]}
-          onPress={() => setActiveTab("posts")}
-        >
-          <Ionicons
-            name="grid-outline"
-            size={17}
-            color={activeTab === "posts" ? theme.COLORS.primary : theme.COLORS.textMuted}
-          />
-          <Text style={[styles.profileTabText, activeTab === "posts" && styles.profileTabTextActive]}>Posts</Text>
-          <Text style={[styles.profileTabCount, activeTab === "posts" && styles.profileTabTextActive]}>
-            {formatCount(posts.length)}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="tab"
-          accessibilityState={{ selected: activeTab === "likes" }}
-          style={[styles.profileTab, activeTab === "likes" && styles.profileTabActive]}
-          onPress={() => setActiveTab("likes")}
-        >
-          <Ionicons
-            name="heart-outline"
-            size={17}
-            color={activeTab === "likes" ? theme.COLORS.primary : theme.COLORS.textMuted}
-          />
-          <Text style={[styles.profileTabText, activeTab === "likes" && styles.profileTabTextActive]}>Liked</Text>
-          <Text style={[styles.profileTabCount, activeTab === "likes" && styles.profileTabTextActive]}>
-            {formatCount(likedPosts.length)}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  ), [
-    avatarUrl,
-    initial,
-    displayName,
-    profileData?.isVerified,
-    username,
-    bio,
-    counts.posts,
-    counts.followers,
-    counts.following,
-    posts.length,
-    likedPosts.length,
-    activeTab,
-  ]);
+    ),
+    [
+      avatarUrl,
+      initial,
+      displayName,
+      profileData?.isVerified,
+      username,
+      bio,
+      counts.posts,
+      counts.followers,
+      counts.following,
+      posts.length,
+    ],
+  );
 
   const renderGridItem = useCallback(
-    ({ item }: { item: SocialPost }) => {
+    ({ item, index }: { item: SocialPost; index: number }) => {
       const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? "";
       return (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Open post by ${item.author.displayName ?? item.author.username}`}
-          style={[styles.gridItem, { width: gridItemSize, height: gridItemSize }]}
-          onPress={() => router.push(`/posts/${item.id}/comments`)}
+          style={[
+            styles.gridItem,
+            { width: gridItemSize, height: gridItemSize },
+          ]}
+          onPress={() =>
+            router.push(authorFeedParams(username, item.id, index))
+          }
         >
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.gridImage} />
@@ -296,58 +280,64 @@ export default function ProfileScreen() {
               colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
               style={styles.textPostTile}
             >
-              <Ionicons name="chatbubble-ellipses-outline" size={19} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.textPostContent} numberOfLines={5}>{item.content}</Text>
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={19}
+                color="rgba(255,255,255,0.85)"
+              />
+              <Text style={styles.textPostContent} numberOfLines={5}>
+                {item.content}
+              </Text>
             </LinearGradient>
           )}
           {imageUrl ? <View style={styles.gridScrim} /> : null}
           <View style={styles.gridStats}>
             <View style={styles.gridStat}>
               <Ionicons
-                name={activeTab === "likes" ? "heart" : "chatbubble"}
+                name="chatbubble"
                 size={12}
                 color={theme.COLORS.white}
               />
               <Text style={styles.gridStatText}>
-                {formatCount(activeTab === "likes" ? item.likeCount ?? 0 : item.commentCount ?? 0)}
+                {formatCount(item.commentCount ?? 0)}
               </Text>
             </View>
           </View>
         </Pressable>
       );
     },
-    [activeTab, gridItemSize],
+    [gridItemSize, username],
   );
 
-  const renderEmptyState = useCallback(() => (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIcon}>
-        <Ionicons
-          name={activeTab === "likes" ? "heart-outline" : "images-outline"}
-          size={25}
-          color={theme.COLORS.primary}
-        />
-      </View>
-      <Text style={styles.emptyTitle}>
-        {activeTab === "likes" ? "No likes yet" : "Your first post starts here"}
-      </Text>
-      <Text style={styles.emptySubtitle}>
-        {activeTab === "likes"
-          ? "Posts you like will be collected here."
-          : "Share your first post and make this space yours."}
-      </Text>
-      {activeTab === "posts" ? (
+  const renderEmptyState = useCallback(
+    () => (
+      <View style={styles.emptyState}>
+        <View style={styles.emptyIcon}>
+          <Ionicons
+            name="images-outline"
+            size={25}
+            color={theme.COLORS.primary}
+          />
+        </View>
+        <Text style={styles.emptyTitle}>Your first post starts here</Text>
+        <Text style={styles.emptySubtitle}>
+          Share your first post and make this space yours.
+        </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push("/posts/create")}
-          style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.emptyButton,
+            pressed && styles.pressed,
+          ]}
         >
           <Ionicons name="add" size={17} color={theme.COLORS.white} />
           <Text style={styles.emptyButtonText}>Create a post</Text>
         </Pressable>
-      ) : null}
-    </View>
-  ), [activeTab]);
+      </View>
+    ),
+    [],
+  );
 
   if (loading) {
     return (
@@ -378,26 +368,59 @@ export default function ProfileScreen() {
             accessibilityRole="button"
             accessibilityLabel="Bookmarks"
             onPress={() => router.push("/bookmarks")}
-            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.headerIconButton,
+              pressed && styles.pressed,
+            ]}
           >
-            <Ionicons name="bookmark-outline" size={20} color={theme.COLORS.textPrimary} />
+            <Ionicons
+              name="bookmark-outline"
+              size={20}
+              color={theme.COLORS.textPrimary}
+            />
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Settings"
             onPress={() => router.push("/settings")}
-            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.headerIconButton,
+              pressed && styles.pressed,
+            ]}
           >
-            <Ionicons name="settings-outline" size={20} color={theme.COLORS.textPrimary} />
+            <Ionicons
+              name="settings-outline"
+              size={20}
+              color={theme.COLORS.textPrimary}
+            />
           </Pressable>
         </View>
       </View>
 
       <FlatList
         style={styles.list}
-        data={currentPosts}
+        data={posts}
         ListHeaderComponent={renderProfileHeader}
-        ListFooterComponent={<View style={styles.footerSpace} />}
+        onEndReached={() => {
+          if (hasMore) void loadMore();
+        }}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          <View style={styles.footerSpace}>
+            {paginating ? (
+              <ActivityIndicator color={theme.COLORS.primary} />
+            ) : null}
+            {postsError || paginationError ? (
+              <Pressable
+                onPress={() => void (postsError ? refreshPosts() : loadMore())}
+              >
+                <Text style={styles.emptySubtitle}>
+                  {(postsError || paginationError)?.message} · Retry
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
         contentContainerStyle={styles.listContent}
         renderItem={renderGridItem}
         keyExtractor={(item) => item.id}

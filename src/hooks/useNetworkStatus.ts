@@ -1,3 +1,4 @@
+import { requireApiOrigin } from "@/config/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, AppStateStatus } from "react-native";
 
@@ -30,15 +31,14 @@ export function useNetworkStatus() {
   }, []);
 
   const checkNetwork = useCallback(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      const response = await fetch("https://www.google.com/favicon.ico", {
+      const response = await fetch(`${requireApiOrigin()}/health`, {
         method: "HEAD",
         cache: "no-store",
         signal: controller.signal,
       });
-      clearTimeout(timeout);
       if (response.ok) {
         markOnline();
       } else {
@@ -46,11 +46,15 @@ export function useNetworkStatus() {
       }
     } catch {
       markOffline();
+    } finally {
+      clearTimeout(timeout);
     }
   }, [markOffline, markOnline]);
 
   useEffect(() => {
-    checkNetwork();
+    // Start the existing external health poll; no new startup fetch owner.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void checkNetwork();
 
     const interval = setInterval(checkNetwork, 15000);
 

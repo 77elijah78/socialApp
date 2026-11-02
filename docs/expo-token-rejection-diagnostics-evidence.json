@@ -1,0 +1,87 @@
+{
+  "status": "safe-expo-response-and-runtime-project-diagnostics-implemented-handset-cause-unverified",
+  "capturedAt": "2026-11-02T00:26:52.671271+00:00",
+  "baseline": "0bc75e4d0f2e95a52dcff22ba1dd473ed7829f64",
+  "reportedCliProject": {
+    "fullName": "@elijah77/social",
+    "id": "fa49de58-e64b-450a-9401-1f29da85af02",
+    "matchesSource": true,
+    "independentlyVerifiedOnDevice": false
+  },
+  "providerHttpStatusOnUserPhone": null,
+  "handsetCauseDetermined": false,
+  "beforeRegression": {
+    "tests": 25,
+    "pass": 24,
+    "fail": 1,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 2134.45398,
+    "logSha256": "9f070db1996b7c038094530a4e1b6b09de315204bdb9542b897a89e51d51cb41"
+  },
+  "focused": {
+    "tests": 186,
+    "pass": 186,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 12167.784952,
+    "logSha256": "ab5a7331444a914ddb00b6bc021f5bd2616d9bef8f5c596ec1a5f0a58d411951"
+  },
+  "full": {
+    "tests": 639,
+    "pass": 639,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 82935.713023,
+    "logSha256": "cf923f3632505197a46bb02cda89bc79c61fea52b75ac9e714f6de9b5f82ea8a"
+  },
+  "typecheck": {
+    "passed": true,
+    "logSha256": "ab87a51fef194d38042db72eb2b577c59d2ad902e25f1dae43566f437231b36f"
+  },
+  "eslint": {
+    "files": 6,
+    "errors": 0,
+    "warnings": 0
+  },
+  "exports": {
+    "android": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JS, not native binary",
+      "bundle": "_expo/static/js/android/entry-2625cff10d3ed8ab0bf4c6d16d277ef0.hbc",
+      "bytes": 6837244,
+      "sha256": "a21ed38f8e70c0e957e1e52bdd90be449836e30469af0ce7077619e3e58cd3e4"
+    },
+    "ios": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JS, not native binary",
+      "bundle": "_expo/static/js/ios/entry-9c8f8d5f4d89c14d64ab992c0b4d24fb.hbc",
+      "bytes": 6652101,
+      "sha256": "cd67c2a2d2966ba6aca381e6632ce25ab28ddb552f14fb57e2fa7dd0ba49e701"
+    }
+  },
+  "codeAndTestsSha256": {
+    "src/services/notifications/PushSetupDiagnostics.ts": "4e2a74f255423a594446cf1c92430c8316c4e7406c81cd1ba72778d72066b847",
+    "src/services/notifications/NativeMessageNotifications.ts": "f8192b411c34e9bc3f5303c6fc5239dc49774e9fae7c695cca65694f1fc586ff",
+    "src/components/notifications/PushNotificationSettings.tsx": "5fac501d6d22196ab6892fe3fbf73e823f8a493d97b8ca14544be9480c6f1d19",
+    "test/notifications/push-diagnostics.test.cjs": "bb6e4c58cc25423e476d5f1e0fc2d2ee4fdd4e1dd237b5086006ee386f431c60",
+    "test/notifications/native.test.cjs": "e030ec5d21ce8f085ec0e7be11145cbc054fe9d706666bd553226e94a0b13c0e",
+    "test/notifications/runtime.test.cjs": "994def3f0cac9f156724f210ef0e4c730b023f33fb0cc6d8b328e81a0f95a313"
+  },
+  "unchangedNativeConfigurationAndDependencies": {
+    "package.json": "362ff429cc044c1aa16d9bf8ab81b6b73647b7a900851db33db717009f933994",
+    "package-lock.json": "b0317e6a3a50cd19d87ec7a0e6c5a03b8cc3133a3ce7f098e5be1a29bb1958b4",
+    "app.json": "943c3b943922dc6756e0f512e7afaec9cb05b3c57f55549a7b6e0c7088245e03",
+    "app.config.ts": "a6882c55b31437a71abdf2d1bf25cef9e4564cc679ad510b56dccc995cefd6db"
+  },
+  "privacy": "Only whitelisted HTTP status/provider codes/request FIELD NAMES and UUID-validated public EAS IDs. No response/body/token/value/secret echo or logs. Response parsing bounded to 8192 chars, eight errors/details and 2048-char error text.",
+  "unperformed": [
+    "Actual Expo/FCM token exchange or handset inspection",
+    "Native build/install and credentials verification",
+    "Two-device/background/terminated delivery tests",
+    "Native size/startup/FPS measurements",
+    "Backend changes/merge/deployment/live DB mutations"
+  ]
+}

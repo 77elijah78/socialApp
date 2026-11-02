@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
 import { Comment } from "@/types";
@@ -91,14 +90,10 @@ export function CommentThread({
   depth = 0,
 }: CommentThreadProps) {
   const { comment, replies, replyCount } = node;
-  const [liked, setLiked] = useState(Boolean(comment.isLiked));
-  const [likeCount, setLikeCount] = useState(
-    Math.max(0, comment.likeCount ?? comment._count?.likes ?? 0),
-  );
   const authorName =
     comment.author?.username ?? comment.author?.displayName ?? "Unknown";
   const username = comment.author?.username;
-  const isOwn = Boolean(currentUserId && comment.authorId === currentUserId);
+  const isOwn = Boolean(currentUserId && (comment.authorId || comment.author?.id) === currentUserId);
   const timeLabel = formatCommentTime(comment.createdAt);
   const canShowReplies = replyCount > 0 || replies.length > 0;
   const [repliesExpanded, setRepliesExpanded] = useState(false);
@@ -112,11 +107,6 @@ export function CommentThread({
     onProfilePress(username);
   };
 
-  const toggleLike = () => {
-    const nextLiked = !liked;
-    setLiked(nextLiked);
-    setLikeCount((current) => Math.max(0, current + (nextLiked ? 1 : -1)));
-  };
 
   return (
     <View style={[styles.thread, depth > 0 && styles.replyThread]}>
@@ -155,31 +145,12 @@ export function CommentThread({
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaText}>{timeLabel}</Text>
-            <TouchableOpacity onPress={toggleLike} activeOpacity={0.7}>
-              <Text style={[styles.metaAction, liked && styles.metaActionLiked]}>
-                {liked ? "Liked" : "Like"}
-              </Text>
-            </TouchableOpacity>
             <TouchableOpacity onPress={() => onReply(comment)} activeOpacity={0.7}>
               <Text style={styles.metaAction}>Reply</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={liked ? "Unlike comment" : "Like comment"}
-          onPress={toggleLike}
-          activeOpacity={0.75}
-          style={styles.likeButton}
-        >
-          <Ionicons
-            name={liked ? "heart" : "heart-outline"}
-            size={17}
-            color={liked ? COLORS.secondary : COLORS.textMuted}
-          />
-          {likeCount > 0 ? <Text style={[styles.likeCount, liked && styles.likeCountLiked]}>{likeCount}</Text> : null}
-        </TouchableOpacity>
       </View>
 
       {canShowReplies ? (

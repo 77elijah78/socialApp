@@ -13,12 +13,13 @@ import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import theme from "@/constants/theme";
+import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from "@/constants/theme";
 import { showAppDialog } from "@/services/AppDialogService";
 import { authService } from "@/services/AuthService";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logout } from "@/store/slices/authSlice";
 import { toggleNotifications } from "@/store/slices/appSlice";
+import PushNotificationSettings from "@/components/notifications/PushNotificationSettings";
 
 interface SettingRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -51,7 +52,7 @@ function SettingRow({
         <Ionicons
           name={icon}
           size={19}
-          color={danger ? theme.COLORS.danger : theme.COLORS.primary}
+          color={danger ? COLORS.danger : COLORS.primary}
         />
       </View>
       <View style={styles.rowCopy}>
@@ -60,7 +61,7 @@ function SettingRow({
       </View>
       {right ?? (
         onPress ? (
-          <Ionicons name="chevron-forward" size={18} color={theme.COLORS.textMuted} />
+          <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
         ) : null
       )}
     </TouchableOpacity>
@@ -136,14 +137,14 @@ export default function SettingsScreen() {
           style={styles.backButton}
           activeOpacity={0.75}
         >
-          <Ionicons name="arrow-back" size={21} color={theme.COLORS.textPrimary} />
+          <Ionicons name="arrow-back" size={21} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
           <Text style={styles.headerEyebrow}>MAKE IT YOURS</Text>
           <Text style={styles.headerTitle}>Settings</Text>
         </View>
         <View style={styles.headerMark}>
-          <Ionicons name="options-outline" size={19} color={theme.COLORS.primary} />
+          <Ionicons name="options-outline" size={19} color={COLORS.primary} />
         </View>
       </View>
 
@@ -194,7 +195,7 @@ export default function SettingsScreen() {
         <SettingsSection title="Preferences">
           <View style={[styles.settingRow, styles.settingRowLast]}>
             <View style={styles.rowIconWrap}>
-              <Ionicons name="notifications-outline" size={19} color={theme.COLORS.primary} />
+              <Ionicons name="notifications-outline" size={19} color={COLORS.primary} />
             </View>
             <View style={styles.rowCopy}>
               <Text style={styles.rowLabel}>Notifications</Text>
@@ -207,12 +208,13 @@ export default function SettingsScreen() {
               }}
               trackColor={{
                 false: "#D8D6E2",
-                true: theme.COLORS.primaryLight,
+                true: COLORS.primaryLight,
               }}
-              thumbColor={notificationsEnabled ? theme.COLORS.primary : "#FFFFFF"}
+              thumbColor={notificationsEnabled ? COLORS.primary : "#FFFFFF"}
               ios_backgroundColor="#D8D6E2"
             />
           </View>
+          <PushNotificationSettings />
         </SettingsSection>
 
         <SettingsSection title="Support">
@@ -238,15 +240,15 @@ export default function SettingsScreen() {
           activeOpacity={0.78}
         >
           <View style={styles.logoutIcon}>
-            <Ionicons name="log-out-outline" size={19} color={theme.COLORS.danger} />
+            <Ionicons name="log-out-outline" size={19} color={COLORS.danger} />
           </View>
           <Text style={styles.logoutText}>Sign out</Text>
-          <Ionicons name="chevron-forward" size={18} color={theme.COLORS.danger} />
+          <Ionicons name="chevron-forward" size={18} color={COLORS.danger} />
         </TouchableOpacity>
 
         <View style={styles.footer}>
           <View style={styles.footerMark}>
-            <Ionicons name="sparkles" size={13} color={theme.COLORS.primary} />
+            <Ionicons name="sparkles" size={13} color={COLORS.primary} />
           </View>
           <Text style={styles.footerText}>SocialApp · Version 1.0.0</Text>
         </View>
@@ -258,14 +260,14 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgMain,
+    backgroundColor: COLORS.bgMain,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.SPACING.xxl,
-    paddingTop: theme.SPACING.sm,
-    paddingBottom: theme.SPACING.md,
+    paddingHorizontal: SPACING.xxl,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
   },
   backButton: {
     width: 44,
@@ -273,31 +275,31 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.white,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: "#ECEAF4",
   },
   headerCopy: {
     flex: 1,
-    marginLeft: theme.SPACING.md,
+    marginLeft: SPACING.md,
   },
   headerEyebrow: {
-    color: theme.COLORS.textMuted,
+    color: COLORS.textMuted,
     fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
     letterSpacing: 1.1,
   },
   headerTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xl5,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
     marginTop: 2,
   },
   headerMark: {
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -305,22 +307,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: theme.SPACING.xxl,
-    paddingTop: theme.SPACING.md,
-    paddingBottom: theme.SPACING.xxxxxxl,
+    paddingHorizontal: SPACING.xxl,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.xxxxxxl,
   },
   accountCard: {
     flexDirection: "row",
     alignItems: "center",
     position: "relative",
     overflow: "hidden",
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: COLORS.bgWhite,
     borderRadius: 23,
-    padding: theme.SPACING.lg,
-    marginBottom: theme.SPACING.xxl,
+    padding: SPACING.lg,
+    marginBottom: SPACING.xxl,
     borderWidth: 1,
     borderColor: "#ECEAF4",
-    ...theme.SHADOWS.sm,
+    ...SHADOWS.sm,
   },
   accountCardGlow: {
     position: "absolute",
@@ -336,7 +338,7 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 19,
     overflow: "hidden",
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -345,52 +347,52 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   profileInitial: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.primary,
+    fontSize: TYPOGRAPHY.fontSize.xl5,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   profileCopy: {
     flex: 1,
-    marginLeft: theme.SPACING.md,
+    marginLeft: SPACING.md,
   },
   profileName: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   profileUsername: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.md,
     marginTop: 3,
   },
   section: {
-    marginBottom: theme.SPACING.xxl,
+    marginBottom: SPACING.xxl,
   },
   sectionTitle: {
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.textSecondary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: theme.SPACING.sm,
-    marginLeft: theme.SPACING.xs,
+    marginBottom: SPACING.sm,
+    marginLeft: SPACING.xs,
   },
   sectionCard: {
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: COLORS.bgWhite,
     borderRadius: 21,
-    paddingHorizontal: theme.SPACING.lg,
+    paddingHorizontal: SPACING.lg,
     borderWidth: 1,
     borderColor: "#ECEAF4",
-    ...theme.SHADOWS.sm,
+    ...SHADOWS.sm,
   },
   settingRow: {
     minHeight: 76,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: theme.SPACING.md,
+    paddingVertical: SPACING.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#ECEAF4",
-    gap: theme.SPACING.md,
+    gap: SPACING.md,
   },
   settingRowLast: {
     borderBottomWidth: 0,
@@ -401,35 +403,35 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: COLORS.primaryGhost,
   },
   rowCopy: {
     flex: 1,
   },
   rowLabel: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
   },
   rowDescription: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.sm,
     lineHeight: 16,
     marginTop: 4,
   },
   rowDanger: {
-    color: theme.COLORS.danger,
+    color: COLORS.danger,
   },
   logoutButton: {
     minHeight: 60,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.SPACING.lg,
-    backgroundColor: theme.COLORS.dangerLight,
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: COLORS.dangerLight,
     borderWidth: 1,
     borderColor: "rgba(255,71,87,0.12)",
     borderRadius: 18,
-    gap: theme.SPACING.md,
+    gap: SPACING.md,
   },
   logoutIcon: {
     width: 35,
@@ -441,27 +443,27 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     flex: 1,
-    color: theme.COLORS.danger,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.danger,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
   },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: theme.SPACING.xxxl,
-    gap: theme.SPACING.sm,
+    marginTop: SPACING.xxxl,
+    gap: SPACING.sm,
   },
   footerMark: {
     width: 24,
     height: 24,
     borderRadius: 9,
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: COLORS.primaryGhost,
     alignItems: "center",
     justifyContent: "center",
   },
   footerText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.sm,
   },
 });

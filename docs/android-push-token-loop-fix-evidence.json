@@ -1,0 +1,110 @@
+{
+  "status": "confirmed-token-feedback-loop-corrected-local-validation-passed",
+  "capturedAt": "2026-11-01T23:29:36.124394+00:00",
+  "branch": "arena/e4dfc24a-socialapp",
+  "baseline": "458a473a690ad20aa1f7ffe940518c67f5446a2a",
+  "sdkVersion": "56.0.26",
+  "before": {
+    "tests": 2,
+    "pass": 1,
+    "fail": 1,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 1001.830459,
+    "logSha256": "484f148000a3ba2426b405128a462e5210bb2b660781f0d400b0e5ac8b3af891"
+  },
+  "installedSdkRegression": {
+    "tests": 2,
+    "pass": 2,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 1092.901356,
+    "logSha256": "d12bfa006744503f8d0fd61b7e5180797159839eea545d667461222bda9f4542"
+  },
+  "notificationTests": {
+    "tests": 148,
+    "pass": 148,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 9841.396005,
+    "logSha256": "80866aab1f7b8eea16ac904632cee1e4a40664871eb4fffa6d06d41573bfc6d8"
+  },
+  "fullTests": {
+    "tests": 601,
+    "pass": 601,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 70175.238152,
+    "logSha256": "2503145b6d1ef2631519b85cf0761062c23a32a9cd44389f358dbf6c47c0d239"
+  },
+  "typecheck": {
+    "passed": true,
+    "logSha256": "ab87a51fef194d38042db72eb2b577c59d2ad902e25f1dae43566f437231b36f"
+  },
+  "eslint": {
+    "files": 8,
+    "errors": 0,
+    "warnings": 0
+  },
+  "regressionAssertions": {
+    "appBootstrapNativeLookups": 1,
+    "bootstrapExpoExchanges": 1,
+    "bootstrapBackendRegistrations": 1,
+    "nativeLookupsAfterTrueRollover": 1,
+    "rolloverExchangesTotal": 2,
+    "duplicateEventsStartNoExtraWork": true,
+    "settledState": "ready"
+  },
+  "regressionBoundary": "Actual mounted host/controller/helpers and installed SDK token getter/emitter/Expo exchange; native events and HTTP mocked; SDK auto-registration control stubbed. No live device/provider proof.",
+  "sdkSourceSha256": {
+    "src/TokenEmitter.ts": "70f6ee78312bbfe13296bad0eb7079de20f7529d30acf435d5873483375f9875",
+    "src/getDevicePushTokenAsync.ts": "595c4fbf3e66dcb4b40cf7a7d480f26494b76aed79f3f4ff71c6c94724c3dd83",
+    "src/getExpoPushTokenAsync.ts": "efaa142bc2a669fd71330d1396b3ddb55597f20c340d4f06b35833bdcea50e58",
+    "android/src/main/java/expo/modules/notifications/tokens/PushTokenModule.kt": "102a9274962904a40090e945f2dfc22bc3f63abf5f1fc8f6dc9c8ba5fc2998f2"
+  },
+  "changedCodeSha256": {
+    "src/components/notifications/MessageNotificationsHost.tsx": "fafdac73836e9db9de62872f77653ee5ef0b404c9b8dda84f0c0789c4392cc06",
+    "src/services/notifications/PushTokenCoordinator.ts": "c1c834e7230db5a1a6ed7bebb4aec15d39044a744eaf8da591d0ebeaf2dcb53a",
+    "src/services/notifications/NativeMessageNotifications.ts": "3ff6c5c1cb959b44f86be0389c5834797a9f0897a46ccfa2afae784a2df7351a",
+    "src/services/notifications/MessageNotifications.ts": "0dffd4498221c67ca416b11499a8f8d38f7bbf6d3bb4b43a0328ec0cd36a6d47",
+    "test/notifications/token-refresh-loop.test.cjs": "7bc6b3bcf022fe6af5d79cdc3cd93fa5a70a7154bddd959f145c13f0642b468c",
+    "test/notifications/push-lifecycle.test.cjs": "7d1450e998b6177a12fb98430080bf0334fcbf8c8790c0aefe37b24188a5b936",
+    "test/notifications/native.test.cjs": "d5eed3c86e5808dd002929ccfed826022e3a3af712ad2a2c07bb592a103ee8ae",
+    "test/notifications/runtime.test.cjs": "4dd3cd0fed9dc7e5e1983c8741ccc4929113bb34dbf2a199d5fc79fb8098b540"
+  },
+  "unchangedDependencyAndNativeConfigSha256": {
+    "package.json": "362ff429cc044c1aa16d9bf8ab81b6b73647b7a900851db33db717009f933994",
+    "package-lock.json": "b0317e6a3a50cd19d87ec7a0e6c5a03b8cc3133a3ce7f098e5be1a29bb1958b4",
+    "app.json": "943c3b943922dc6756e0f512e7afaec9cb05b3c57f55549a7b6e0c7088245e03",
+    "app.config.ts": "a6882c55b31437a71abdf2d1bf25cef9e4564cc679ad510b56dccc995cefd6db"
+  },
+  "exports": {
+    "android": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JavaScript, not native binary",
+      "bundle": "_expo/static/js/android/entry-7cd39e009f2b3a5364fc7ea53a95ca0b.hbc",
+      "bytes": 6826143,
+      "sha256": "7da3dabccb4a7d4ebf085941c60095dc06dcb7198a9dfcb306534fed20424636",
+      "assetCount": 46
+    },
+    "ios": {
+      "passed": true,
+      "kind": "production-mode Expo/Hermes JavaScript, not native binary",
+      "bundle": "_expo/static/js/ios/entry-3e95ad8a8003861f88224b93025ddc1c.hbc",
+      "bytes": 6636521,
+      "sha256": "992e49486c2e98642bdd877690c50be1b136447253ff10addd7b42ca960dfe24",
+      "assetCount": 43
+    }
+  },
+  "noAdditionalNativeBuildForThisJsFix": true,
+  "noNewDependencies": true,
+  "unperformed": [
+    "Real handset/Expo/FCM delivery and two-device scenarios",
+    "Native build/install and Firebase credentials verification",
+    "Native APK size/startup/FPS/memory measurements",
+    "Backend changes/merge/deployment/live DB mutations"
+  ]
+}

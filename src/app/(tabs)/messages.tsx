@@ -111,7 +111,7 @@ export default function Messages() {
       // room screen joins this same request instead of issuing another one.
       if (currentUserId) {
         void mediaService.message
-          .syncFromServer(item.conversationId, currentUserId)
+          .syncLatest(item.conversationId, currentUserId)
           .then(async () => {
             const latest = await messageStore.getRecent(item.conversationId, 30);
             setRecentMessageCache(item.conversationId, latest);
@@ -134,6 +134,7 @@ export default function Messages() {
         params: {
           conversationId: item.conversationId,
           roomId: item.id,
+          isGroup: item.isGroup ? "true" : "false",
           receiverName: item.name,
           receiverUsername: item.receiverUsername ?? "",
           receiverAvatar: item.avatarUrl,

@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import NetInfo from "@react-native-community/netinfo";
-
-const DEBOUNCE_MS = 2500;
+import { useNetworkStatus } from "./useNetworkStatus";
 
 export type ScreenState = "initial" | "cached" | "offlineWithCache" | "offlineWithoutCache" | "failureWithCache" | "failureWithoutCache" | "ready";
 
@@ -33,11 +31,13 @@ export function useScreenState<T>(options: UseScreenStateOptions<T>): UseScreenS
     staleTimeMs = 60_000,
   } = options;
 
+  const queryIdentity = JSON.stringify(queryKey);
   const [data, setData] = useState<T | null>(() => getCachedData());
   const [state, setState] = useState<ScreenState>(() => (getCachedData() ? "cached" : "initial"));
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isOffline, setIsOffline] = useState(false);
+  const { isConnected } = useNetworkStatus();
+  const isOffline = isConnected === false;
 
   const mountedRef = useRef(true);
   const fetchingRef = useRef(false);
@@ -93,6 +93,8 @@ export function useScreenState<T>(options: UseScreenStateOptions<T>): UseScreenS
     mountedRef.current = true;
     const cached = getCachedData();
     if (cached) {
+      // Sync this legacy hook to a new external query/cache identity.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setData(cached);
       setState("cached");
       fetchData();
@@ -103,37 +105,21 @@ export function useScreenState<T>(options: UseScreenStateOptions<T>): UseScreenS
     return () => {
       mountedRef.current = false;
     };
-  }, [JSON.stringify(queryKey)]);
-
-  const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
-    const connected = state.isConnected ?? state.isInternetReachable ?? false;
-    setIsOffline(!connected);
-
-    if (connected) {
-      const cached = getCachedData();
-      if (error) {
-        setState(cached ? "failureWithCache" : "ready");
-      } else if (cached && data) {
-        setState("cached");
-      }
-      if (Date.now() - lastFetchSuccessRef.current > staleTimeMs) {
-        fetchData();
-      }
-    } else {
-      const cached = getCachedData();
-      if (cached) {
-        setState("offlineWithCache");
-      } else {
-        setState("offlineWithoutCache");
-      }
-    }
-  });
+  // Query identity, rather than unstable caller callbacks, owns a cache session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryIdentity]);
 
   useEffect(() => {
-    return () => {
-      unsubscribeNetInfo();
-    };
-  }, [unsubscribeNetInfo]);
+    if (isConnected === null) return;
+    const cached = getCachedData();
+    if (!isConnected) {
+      // Connectivity is an external event from the existing shared hook.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setState(cached ? "offlineWithCache" : "offlineWithoutCache");
+    } else if (Date.now() - lastFetchSuccessRef.current > staleTimeMs) {
+      void fetchData();
+    }
+  }, [isConnected, getCachedData, staleTimeMs, fetchData]);
 
   const retry = useCallback(() => {
     setError(null);

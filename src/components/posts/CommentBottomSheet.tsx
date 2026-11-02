@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useKeyboardState } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
@@ -20,11 +21,15 @@ import {
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 
-import { api } from "@/services/api";
+import { usePostComments } from "@/hooks/usePostComments";
 import { useAppSelector } from "@/store/hooks";
 import { router } from "expo-router";
-import { Comment, PostOneResponse } from "@/types";
-import { CommentThread, buildCommentThreads, CommentThreadNode } from "@/components/posts/CommentThread";
+import { Comment } from "@/types";
+import {
+  CommentThread,
+  buildCommentThreads,
+  CommentThreadNode,
+} from "@/components/posts/CommentThread";
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
 
 export interface CommentBottomSheetRef {
@@ -32,47 +37,228 @@ export interface CommentBottomSheetRef {
   close: () => void;
 }
 
-function countThreadNodes(nodes: CommentThreadNode[]): number {
-  return nodes.reduce(
-    (total, node) => total + 1 + countThreadNodes(node.replies),
-    0,
-  );
+const MIN_INPUT_HEIGHT = 44;
+const MAX_INPUT_HEIGHT = 88;
+
+interface CommentSheetComposerRef {
+  replyTo: (comment: Comment) => void;
+  reset: () => void;
 }
+
+interface CommentSheetComposerProps {
+  onSend: (content: string, repliedToId: string | null) => Promise<void>;
+}
+
+// Keep the draft isolated from the comment list and the native input mounted
+// through keyboard/reply changes; only its former positioning owner is restored.
+const CommentSheetComposer = React.forwardRef<
+  CommentSheetComposerRef,
+  CommentSheetComposerProps
+>(({ onSend }, ref) => {
+  const { width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isCompact = screenWidth < 375;
+  const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const currentUserAvatarUrl = currentUser?.avatarUrl;
+  const currentUserInitial = (
+    currentUser?.displayName ||
+    currentUser?.username ||
+    "You"
+  )
+    .charAt(0)
+    .toUpperCase();
+  const [input, setInput] = useState("");
+  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+  const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const sendingRef = useRef(false);
+  const draftSession = useRef(0);
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      replyTo: setReplyingTo,
+      reset: () => {
+        draftSession.current += 1;
+        sendingRef.current = false;
+        setSendError(null);
+        setInput("");
+        setInputHeight(MIN_INPUT_HEIGHT);
+        setReplyingTo(null);
+        setSending(false);
+      },
+    }),
+    [],
+  );
+
+  const handleSend = useCallback(async () => {
+    const content = input.trim();
+    if (!content || sendingRef.current) return;
+    sendingRef.current = true;
+    const session = draftSession.current;
+    const repliedToId = replyingTo?.id ?? null;
+    setSendError(null);
+    setSending(true);
+    try {
+      await onSend(content, repliedToId);
+      if (session === draftSession.current) {
+        setInput("");
+        setInputHeight(MIN_INPUT_HEIGHT);
+        setReplyingTo(null);
+      }
+    } catch (error) {
+      if (session === draftSession.current)
+        setSendError(
+          error instanceof Error
+            ? error.message
+            : "Could not send comment. Try again.",
+        );
+    } finally {
+      if (session === draftSession.current) {
+        sendingRef.current = false;
+        setSending(false);
+      }
+    }
+  }, [input, replyingTo, onSend]);
+
+  return (
+    <View style={styles.footer}>
+      {sendError ? (
+        <Text accessibilityRole="alert" style={styles.stateSubtext}>
+          {sendError} Your draft is kept; tap Send to retry.
+        </Text>
+      ) : null}
+      <View
+        style={[
+          styles.inputContainer,
+          {
+            paddingLeft: horizontalPadding + insets.left,
+            paddingRight: horizontalPadding + insets.right,
+          },
+        ]}
+      >
+        {replyingTo ? (
+          <View style={styles.replyingPreview}>
+            <View style={styles.replyingPreviewCopy}>
+              <Text style={styles.replyingPreviewTitle} numberOfLines={1}>
+                Replying to @{replyingTo.author?.username ?? "comment"}
+              </Text>
+              <Text style={styles.replyingPreviewText} numberOfLines={1}>
+                {replyingTo.content}
+              </Text>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Cancel reply"
+              onPress={() => setReplyingTo(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color={COLORS.textMuted}
+              />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <View style={styles.inputRow}>
+          <View style={styles.userAvatar}>
+            {currentUserAvatarUrl ? (
+              <Image
+                source={{ uri: currentUserAvatarUrl }}
+                style={styles.userAvatarImage}
+              />
+            ) : (
+              <Text style={styles.userAvatarText}>{currentUserInitial}</Text>
+            )}
+          </View>
+
+          <BottomSheetTextInput
+            style={[
+              styles.input,
+              isCompact && styles.inputCompact,
+              { height: inputHeight },
+            ]}
+            placeholder={replyingTo ? "Write a reply..." : "Add a comment..."}
+            placeholderTextColor={COLORS.textMuted}
+            value={input}
+            onChangeText={setInput}
+            onContentSizeChange={(event) => {
+              const nextHeight = Math.min(
+                MAX_INPUT_HEIGHT,
+                Math.max(
+                  MIN_INPUT_HEIGHT,
+                  event.nativeEvent.contentSize.height,
+                ),
+              );
+              setInputHeight(nextHeight);
+            }}
+            onSubmitEditing={() => void handleSend()}
+            returnKeyType="send"
+            editable={!sending}
+            multiline
+            maxLength={1000}
+            textAlignVertical="center"
+            blurOnSubmit={false}
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.postButton,
+              (!input.trim() || sending) && styles.postButtonDisabled,
+            ]}
+            onPress={() => void handleSend()}
+            disabled={!input.trim() || sending}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={replyingTo ? "Post reply" : "Post comment"}
+          >
+            {sending ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <Ionicons name="send" size={18} color={COLORS.primary} />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+CommentSheetComposer.displayName = "CommentSheetComposer";
 
 export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
   (_, ref) => {
     const { width: screenWidth } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
     const isCompact = screenWidth < 375;
     const horizontalPadding = Math.max(14, Math.min(24, screenWidth * 0.045));
 
     const [postId, setPostId] = useState<string | null>(null);
-    const [comments, setComments] = useState<Comment[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [input, setInput] = useState("");
-    const [inputHeight, setInputHeight] = useState(44);
-    const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
-    const [sending, setSending] = useState(false);
-    const [fetchError, setFetchError] = useState<string | null>(null);
-    const [commentCount, setCommentCount] = useState(0);
+    const [openSequence, setOpenSequence] = useState(0);
+    const {
+      comments,
+      loading,
+      error: fetchError,
+      total: commentCount,
+      refresh: fetchComments,
+      send: handleSend,
+    } = usePostComments(postId, openSequence);
     const [currentSnapIndex, setCurrentSnapIndex] = useState(0);
 
-    const token = useAppSelector((s) => s.auth.token);
     const currentUser = useAppSelector((s) => s.auth.user);
     const currentUserId = currentUser?.id;
-    const currentUserAvatarUrl = currentUser?.avatarUrl;
-    const currentUserInitial = (
-      currentUser?.displayName ||
-      currentUser?.username ||
-      "You"
-    )
-      .charAt(0)
-      .toUpperCase();
-
     const bottomSheetRef = useRef<BottomSheetModal>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
+    const composerRef = useRef<CommentSheetComposerRef>(null);
     const pendingProfileNavigationRef = useRef<string | null>(null);
-    const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
+    const commentThreads = useMemo(
+      () => buildCommentThreads(comments),
+      [comments],
+    );
     const [keyboardHeight] = useState(() => new Animated.Value(0));
 
     React.useEffect(() => {
@@ -109,8 +295,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       extrapolate: "clamp",
     });
 
-    // Keep the sheet at its current detent while typing; the composer moves
-    // above the keyboard without expanding the sheet to a larger snap point.
+    // Restore the pre-43ecbcc detent guard and translation as a compatibility
+    // rollback. Do not tune new offsets or combine this with a registered footer.
     const allSnapPoints = useMemo(() => ["66%", "92%"], []);
     const snapPoints = useMemo(
       () =>
@@ -120,100 +306,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       [allSnapPoints, currentSnapIndex, keyboardIsVisible],
     );
 
-    const fetchComments = useCallback(
-      async (pid: string) => {
-        if (!token) return;
-
-        abortControllerRef.current?.abort();
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
-        setLoading(true);
-        setFetchError(null);
-
-        try {
-          const resp = await api.get<{
-            success: boolean;
-            data: PostOneResponse;
-          }>(`/posts/${pid}`, token, {
-            signal: controller.signal,
-          });
-
-          const fetched = resp.data.comments ?? [];
-          setComments(fetched);
-          setCommentCount(countThreadNodes(buildCommentThreads(fetched)));
-        } catch (err) {
-          if ((err as Error)?.name !== "AbortError") {
-            setFetchError(
-              err instanceof Error ? err.message : "Failed to load comments",
-            );
-          }
-        } finally {
-          if (abortControllerRef.current === controller) {
-            abortControllerRef.current = null;
-            setLoading(false);
-          }
-        }
-      },
-      [token],
-    );
-
-    const handleSend = useCallback(async () => {
-      const trimmed = input.trim();
-      if (!trimmed || !postId || sending) return;
-
-      const temporaryId = `local-comment-${Date.now()}`;
-      const optimisticComment: Comment = {
-        id: temporaryId,
-        content: trimmed,
-        authorId: currentUserId ?? "",
-        postId,
-        createdAt: new Date(),
-        repliedToId: replyingTo?.id ?? null,
-        author: currentUser ?? undefined,
-      };
-
-      setComments((previous) => [...previous, optimisticComment]);
-      setCommentCount((previous) => previous + 1);
-      setInput("");
-      setInputHeight(44);
-      setReplyingTo(null);
-
-      if (!token) return;
-
-      setSending(true);
-      try {
-        const resp = await api.post<{
-          success: boolean;
-          data: Comment;
-        }>(
-          `/posts/${postId}/comments`,
-          { content: trimmed, repliedToId: optimisticComment.repliedToId },
-          token,
-        );
-
-        setComments((previous) =>
-          previous.map((comment) =>
-            comment.id === temporaryId
-              ? {
-                  ...optimisticComment,
-                  ...resp.data,
-                  author: resp.data.author ?? optimisticComment.author,
-                  repliedToId: resp.data.repliedToId ?? optimisticComment.repliedToId,
-                }
-              : comment,
-          ),
-        );
-      } catch (err) {
-        // Keep the local optimistic comment so replies remain testable without a backend.
-        console.warn("Comment saved locally; API request failed:", err);
-      } finally {
-        setSending(false);
-      }
-    }, [input, token, postId, sending, currentUserId, currentUser, replyingTo]);
-
     const handleReply = useCallback((comment: Comment) => {
-      setReplyingTo(comment);
+      composerRef.current?.replyTo(comment);
     }, []);
 
     const handleSheetChange = useCallback(
@@ -223,27 +317,17 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       [keyboardIsVisible],
     );
 
-    const open = useCallback(
-      (pid: string) => {
-        pendingProfileNavigationRef.current = null;
-        setPostId(pid);
-        setComments([]);
-        setCommentCount(0);
-        setInput("");
-        setInputHeight(44);
-        setReplyingTo(null);
-        setSending(false);
-        setCurrentSnapIndex(0);
-        setFetchError(null);
+    const open = useCallback((pid: string) => {
+      pendingProfileNavigationRef.current = null;
+      composerRef.current?.reset();
+      setPostId(pid);
+      setOpenSequence((previous) => previous + 1);
+      setCurrentSnapIndex(0);
 
-        bottomSheetRef.current?.present();
-        void fetchComments(pid);
-      },
-      [fetchComments],
-    );
+      bottomSheetRef.current?.present();
+    }, []);
 
     const close = useCallback(() => {
-      abortControllerRef.current?.abort();
       Keyboard.dismiss();
       bottomSheetRef.current?.dismiss();
     }, []);
@@ -309,7 +393,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             />
             <Text style={styles.stateText}>{fetchError}</Text>
             <TouchableOpacity
-              onPress={() => postId && void fetchComments(postId)}
+              onPress={() => postId && void fetchComments()}
               style={styles.retryButton}
             >
               <Text style={styles.retryButtonText}>Retry</Text>
@@ -360,16 +444,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         android_keyboardInputMode="adjustResize"
         bottomInset={0}
         onDismiss={() => {
-          abortControllerRef.current?.abort();
-          setComments([]);
-          setCommentCount(0);
-          setInput("");
-          setInputHeight(44);
-          setReplyingTo(null);
-          setSending(false);
           setCurrentSnapIndex(0);
-          setFetchError(null);
-          setLoading(false);
           setPostId(null);
 
           const username = pendingProfileNavigationRef.current;
@@ -380,7 +455,15 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         }}
       >
         <View style={styles.sheetContent}>
-          <View style={styles.header}>
+          <View
+            style={[
+              styles.header,
+              {
+                paddingLeft: SPACING.md + insets.left,
+                paddingRight: SPACING.md + insets.right,
+              },
+            ]}
+          >
             <View style={styles.headerCenter}>
               <Text
                 style={[
@@ -412,112 +495,39 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             keyExtractor={(item) => item.comment.id}
             renderItem={renderItem}
             ListEmptyComponent={ListEmptyComponent}
+            ListFooterComponent={
+              commentCount > comments.length ? (
+                <Text style={styles.stateSubtext}>
+                  Showing {comments.length} of {commentCount} comments. More
+                  comments are not yet available from this server.
+                </Text>
+              ) : null
+            }
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={false}
+            contentInsetAdjustmentBehavior="never"
             style={styles.listWrapper}
-            contentContainerStyle={
+            contentContainerStyle={[
               commentThreads.length === 0
-                ? [
-                    styles.emptyListContent,
-                    { paddingHorizontal: horizontalPadding },
-                  ]
-                : [styles.listContent, { paddingHorizontal: horizontalPadding }]
-            }
+                ? styles.emptyListContent
+                : styles.listContent,
+              {
+                paddingLeft: horizontalPadding + insets.left,
+                paddingRight: horizontalPadding + insets.right,
+              },
+            ]}
           />
 
           <Animated.View
-            style={[
-              styles.footer,
-              { transform: [{ translateY: inputTranslateY }] },
-            ]}
+            style={{ transform: [{ translateY: inputTranslateY }] }}
           >
-            <View
-              style={[
-                styles.inputContainer,
-                { paddingHorizontal: horizontalPadding },
-              ]}
-            >
-              {replyingTo ? (
-                <View style={styles.replyingPreview}>
-                  <View style={styles.replyingPreviewCopy}>
-                    <Text style={styles.replyingPreviewTitle} numberOfLines={1}>
-                      Replying to @{replyingTo.author?.username ?? "comment"}
-                    </Text>
-                    <Text style={styles.replyingPreviewText} numberOfLines={1}>
-                      {replyingTo.content}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel reply"
-                    onPress={() => setReplyingTo(null)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-
-              <View style={styles.inputRow}>
-                <View style={styles.userAvatar}>
-                  {currentUserAvatarUrl ? (
-                    <Image
-                      source={{ uri: currentUserAvatarUrl }}
-                      style={styles.userAvatarImage}
-                    />
-                  ) : (
-                    <Text style={styles.userAvatarText}>
-                      {currentUserInitial}
-                    </Text>
-                  )}
-                </View>
-
-                <BottomSheetTextInput
-                  style={[
-                    styles.input,
-                    isCompact && styles.inputCompact,
-                    { height: inputHeight },
-                  ]}
-                  placeholder={replyingTo ? "Write a reply..." : "Add a comment..."}
-                  placeholderTextColor={COLORS.textMuted}
-                  value={input}
-                  onChangeText={setInput}
-                  onContentSizeChange={(event) => {
-                    const nextHeight = Math.min(
-                      88,
-                      Math.max(44, event.nativeEvent.contentSize.height),
-                    );
-                    setInputHeight(nextHeight);
-                  }}
-                  onSubmitEditing={() => void handleSend()}
-                  returnKeyType="send"
-                  editable={!sending}
-                  multiline
-                  maxLength={1000}
-                  textAlignVertical="center"
-                  blurOnSubmit={false}
-                />
-
-                <TouchableOpacity
-                  style={[
-                    styles.postButton,
-                    (!input.trim() || sending) && styles.postButtonDisabled,
-                  ]}
-                  onPress={() => void handleSend()}
-                  disabled={!input.trim() || sending}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={replyingTo ? "Post reply" : "Post comment"}
-                >
-                  {sending ? (
-                    <ActivityIndicator size="small" color={COLORS.primary} />
-                  ) : (
-                    <Ionicons name="send" size={18} color={COLORS.primary} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
+            <CommentSheetComposer
+              key={currentUserId ?? "signed-out"}
+              ref={composerRef}
+              onSend={handleSend}
+            />
           </Animated.View>
         </View>
       </BottomSheetModal>

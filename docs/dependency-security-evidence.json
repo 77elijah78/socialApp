@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 1,
+  "observedLocalDate": "2026-10-31",
+  "baselineCommit": "24a5b31a24a8826acff77e79c283175c934b4eeb",
+  "branch": "arena/e4dfc24a-socialapp",
+  "baselineLockSha256": "17c07af68f24ae1e39a49c091efb4ba3cf05220128706b5033c136d304d605cd",
+  "remediatedLockSha256": "78d5e9ccdebdfb7c0237df802291ab970d8a18f6aab79ace1f5263cfa566d012",
+  "dependencyBoundary": {
+    "transitiveLockRecordsChanged": 20,
+    "packagesAddedOrRemoved": 0,
+    "runtimeDependenciesAdded": 0,
+    "directDependencyRangesChanged": false,
+    "directResolvedVersionsChanged": false,
+    "overridesOrForksAdded": false,
+    "unchangedDirectResolvedVersions": {
+      "@expo/vector-icons": "15.1.1",
+      "@gorhom/bottom-sheet": "5.2.14",
+      "@react-native-async-storage/async-storage": "2.2.0",
+      "@reduxjs/toolkit": "2.12.0",
+      "@umit-turk/react-native-num-pad": "1.0.7",
+      "dotenv": "17.4.2",
+      "drizzle-orm": "0.45.2",
+      "expo": "56.0.11",
+      "expo-audio": "56.0.12",
+      "expo-blur": "56.0.4",
+      "expo-build-properties": "56.0.18",
+      "expo-constants": "56.0.18",
+      "expo-dev-client": "56.0.20",
+      "expo-document-picker": "56.0.4",
+      "expo-file-system": "56.0.8",
+      "expo-font": "56.0.6",
+      "expo-haptics": "56.0.3",
+      "expo-image": "56.0.11",
+      "expo-image-picker": "56.0.18",
+      "expo-linear-gradient": "56.0.4",
+      "expo-linking": "56.0.14",
+      "expo-router": "56.2.10",
+      "expo-screen-orientation": "56.0.5",
+      "expo-secure-store": "56.0.4",
+      "expo-sharing": "56.0.17",
+      "expo-splash-screen": "56.0.10",
+      "expo-sqlite": "56.0.5",
+      "expo-status-bar": "56.0.4",
+      "expo-symbols": "56.0.6",
+      "expo-system-ui": "56.0.5",
+      "expo-updates": "56.0.19",
+      "expo-video": "56.1.3",
+      "expo-web-browser": "56.0.5",
+      "lottie-react-native": "7.3.8",
+      "react": "19.2.3",
+      "react-dom": "19.2.3",
+      "react-native": "0.85.3",
+      "react-native-element-dropdown": "2.12.4",
+      "react-native-gesture-handler": "2.31.2",
+      "react-native-keyboard-controller": "1.21.13",
+      "react-native-modal": "14.0.0-rc.1",
+      "react-native-paper": "5.15.3",
+      "react-native-reanimated": "4.3.1",
+      "react-native-redash": "18.1.5",
+      "react-native-safe-area-context": "5.7.0",
+      "react-native-screens": "4.25.2",
+      "react-native-swiper": "1.6.0",
+      "react-native-web": "0.21.2",
+      "react-native-worklets": "0.8.3",
+      "react-redux": "9.3.0",
+      "redux-persist": "6.0.0",
+      "socket.io-client": "4.8.3",
+      "weather-icons-react": "1.2.0",
+      "@types/react": "19.2.17",
+      "drizzle-kit": "0.31.10",
+      "eslint": "9.39.4",
+      "eslint-config-expo": "56.0.4",
+      "react-test-renderer": "19.2.3",
+      "typescript": "6.0.3"
+    }
+  },
+  "versionChanges": [
+    {
+      "path": "node_modules/@expo/fingerprint/node_modules/brace-expansion",
+      "before": "5.0.6",
+      "after": "5.0.12"
+    },
+    {
+      "path": "node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion",
+      "before": "5.0.6",
+      "after": "5.0.12"
+    },
+    {
+      "path": "node_modules/@xmldom/xmldom",
+      "before": "0.8.13",
+      "after": "0.8.15"
+    },
+    {
+      "path": "node_modules/baseline-browser-mapping",
+      "before": "2.10.34",
+      "after": "2.11.34"
+    },
+    {
+      "path": "node_modules/brace-expansion",
+      "before": "1.1.15",
+      "after": "1.1.21"
+    },
+    {
+      "path": "node_modules/browserslist",
+      "before": "4.28.2",
+      "after": "4.29.5"
+    },
+    {
+      "path": "node_modules/caniuse-lite",
+      "before": "1.0.30001797",
+      "after": "1.0.30001820"
+    },
+    {
+      "path": "node_modules/compression",
+      "before": "1.8.1",
+      "after": "1.8.2"
+    },
+    {
+      "path": "node_modules/electron-to-chromium",
+      "before": "1.5.368",
+      "after": "1.5.472"
+    },
+    {
+      "path": "node_modules/glob/node_modules/brace-expansion",
+      "before": "5.0.6",
+      "after": "5.0.12"
+    },
+    {
+      "path": "node_modules/js-yaml",
+      "before": "4.2.0",
+      "after": "4.3.2"
+    },
+    {
+      "path": "node_modules/nanoid",
+      "before": "3.3.12",
+      "after": "3.3.20"
+    },
+    {
+      "path": "node_modules/node-forge",
+      "before": "1.4.0",
+      "after": "1.4.2"
+    },
+    {
+      "path": "node_modules/node-releases",
+      "before": "2.0.47",
+      "after": "2.0.63"
+    },
+    {
+      "path": "node_modules/plist/node_modules/@xmldom/xmldom",
+      "before": "0.9.10",
+      "after": "0.9.12"
+    },
+    {
+      "path": "node_modules/postcss",
+      "before": "8.5.15",
+      "after": "8.5.32"
+    },
+    {
+      "path": "node_modules/shell-quote",
+      "before": "1.8.4",
+      "after": "1.12.0"
+    },
+    {
+      "path": "node_modules/socket.io-parser",
+      "before": "4.2.6",
+      "after": "4.2.7"
+    },
+    {
+      "path": "node_modules/source-map-js",
+      "before": "1.2.1",
+      "after": "1.2.2"
+    },
+    {
+      "path": "node_modules/update-browserslist-db",
+      "before": "1.2.3",
+      "after": "1.3.4"
+    }
+  ],
+  "npmAudit": {
+    "production": {
+      "before": {
+        "info": 0,
+        "low": 2,
+        "moderate": 15,
+        "high": 16,
+        "critical": 1,
+        "total": 34
+      },
+      "after": {
+        "info": 0,
+        "low": 2,
+        "moderate": 14,
+        "high": 6,
+        "critical": 0,
+        "total": 22
+      },
+      "removedAffectedPackageNames": [
+        "@xmldom/xmldom",
+        "baseline-browser-mapping",
+        "brace-expansion",
+        "browserslist",
+        "compression",
+        "js-yaml",
+        "nanoid",
+        "node-forge",
+        "postcss",
+        "shell-quote",
+        "socket.io-parser",
+        "source-map-js"
+      ],
+      "remainingAffectedPackageNames": [
+        "@expo/cli",
+        "@expo/config",
+        "@expo/config-plugins",
+        "@expo/fingerprint",
+        "@expo/inline-modules",
+        "@expo/local-build-cache-provider",
+        "@expo/metro-config",
+        "@expo/prebuild-config",
+        "decode-uri-component",
+        "deepmerge",
+        "expo",
+        "expo-router",
+        "expo-sharing",
+        "expo-splash-screen",
+        "expo-updates",
+        "glob",
+        "image-size",
+        "minimatch",
+        "query-string",
+        "uuid",
+        "xcode",
+        "zod"
+      ]
+    },
+    "all": {
+      "before": {
+        "info": 0,
+        "low": 2,
+        "moderate": 32,
+        "high": 16,
+        "critical": 1,
+        "total": 51
+      },
+      "after": {
+        "info": 0,
+        "low": 2,
+        "moderate": 31,
+        "high": 6,
+        "critical": 0,
+        "total": 39
+      },
+      "removedAffectedPackageNames": [
+        "@xmldom/xmldom",
+        "baseline-browser-mapping",
+        "brace-expansion",
+        "browserslist",
+        "compression",
+        "js-yaml",
+        "nanoid",
+        "node-forge",
+        "postcss",
+        "shell-quote",
+        "socket.io-parser",
+        "source-map-js"
+      ],
+      "remainingAffectedPackageNames": [
+        "@esbuild-kit/core-utils",
+        "@esbuild-kit/esm-loader",
+        "@eslint-community/eslint-utils",
+        "@eslint/config-array",
+        "@eslint/eslintrc",
+        "@expo/cli",
+        "@expo/config",
+        "@expo/config-plugins",
+        "@expo/fingerprint",
+        "@expo/inline-modules",
+        "@expo/local-build-cache-provider",
+        "@expo/metro-config",
+        "@expo/prebuild-config",
+        "@typescript-eslint/eslint-plugin",
+        "@typescript-eslint/parser",
+        "@typescript-eslint/type-utils",
+        "@typescript-eslint/typescript-estree",
+        "@typescript-eslint/utils",
+        "decode-uri-component",
+        "deepmerge",
+        "drizzle-kit",
+        "esbuild",
+        "eslint",
+        "eslint-config-expo",
+        "eslint-plugin-expo",
+        "eslint-plugin-import",
+        "eslint-plugin-react",
+        "expo",
+        "expo-router",
+        "expo-sharing",
+        "expo-splash-screen",
+        "expo-updates",
+        "glob",
+        "image-size",
+        "minimatch",
+        "query-string",
+        "uuid",
+        "xcode",
+        "zod"
+      ]
+    }
+  },
+  "automatedChecks": {
+    "baselineExistingTests": 344,
+    "baselineExistingPassed": 344,
+    "baselineExistingDurationMs": 44535,
+    "finalTests": 353,
+    "finalPassed": 353,
+    "finalFailed": 0,
+    "finalSkipped": 0,
+    "finalDurationMs": 54405.796401,
+    "newActualPackageTests": 9,
+    "preFixFixtureExpectedFailures": 5,
+    "preFixFixturePassedControls": 4,
+    "postFixActualPackagePassed": 9,
+    "typecheckPassed": true,
+    "eslintFilesChecked": 63,
+    "eslintErrors": 0,
+    "eslintWarnings": 0
+  },
+  "productionModeExports": {
+    "environment": {
+      "CI": "1",
+      "EXPO_OFFLINE": "1",
+      "EXPO_PUBLIC_API_URL": "https://api.example.invalid",
+      "EAS_BUILD_PROFILE": "production"
+    },
+    "platforms": {
+      "android": {
+        "before": {
+          "hermesBytes": 6554750,
+          "hermesSha256": "ceabf6933aa13cb2503d368a038f28f5a78a1162a345e26b8430cd61acbdbb8f",
+          "metadataAssetRecords": 46,
+          "exportedUniqueAssetFiles": 46
+        },
+        "after": {
+          "hermesBytes": 6554786,
+          "hermesSha256": "a650c5a4d5bc1bc5cf93ace68ddc986193104721b3b542a5fbee18f9c36a8bc1",
+          "metadataAssetRecords": 46,
+          "exportedUniqueAssetFiles": 46
+        },
+        "byteDelta": 36,
+        "percentageDelta": 0.00054922,
+        "allAssetPathsAndContentsUnchanged": true
+      },
+      "ios": {
+        "before": {
+          "hermesBytes": 6370466,
+          "hermesSha256": "13469c1b200a5e405ea2f96396614b7fca0330e90fa578ef3c56a91a50718555",
+          "metadataAssetRecords": 43,
+          "exportedUniqueAssetFiles": 43
+        },
+        "after": {
+          "hermesBytes": 6370505,
+          "hermesSha256": "c7eea88a83381a85f93fa1470e236f2f2b9966b9fa953ab0851d4267abfc7ac9",
+          "metadataAssetRecords": 43,
+          "exportedUniqueAssetFiles": 43
+        },
+        "byteDelta": 39,
+        "percentageDelta": 0.0006122,
+        "allAssetPathsAndContentsUnchanged": true
+      }
+    },
+    "fixtureOriginIsLiveService": false,
+    "apkSizeOrNativeStartupMeasurement": false
+  },
+  "remainingLeafAdvisories": {
+    "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4": {
+      "package": "glob",
+      "severity": "moderate",
+      "range": ">=9.0.0 <=14.0.1",
+      "title": "Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal"
+    },
+    "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq": {
+      "package": "image-size",
+      "severity": "high",
+      "range": ">=1.2.0 <=2.0.2",
+      "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops"
+    },
+    "https://github.com/advisories/GHSA-67mh-4wv8-2f99": {
+      "package": "esbuild",
+      "severity": "moderate",
+      "range": "<=0.24.2",
+      "title": "esbuild enables any website to send any requests to the development server and read the response"
+    },
+    "https://github.com/advisories/GHSA-g3hv-75wg-m249": {
+      "package": "minimatch",
+      "severity": "moderate",
+      "range": "<11.0.1",
+      "title": "minimatch has potential denial of service via globparts amplification"
+    },
+    "https://github.com/advisories/GHSA-gcqx-w48m-w2h4": {
+      "package": "deepmerge",
+      "severity": "low",
+      "range": ">=4.2.0 <=4.3.1",
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects"
+    },
+    "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5": {
+      "package": "zod",
+      "severity": "high",
+      "range": "<4.6.6",
+      "title": "Zod can exhaust memory while validating oversized constrained collections"
+    },
+    "https://github.com/advisories/GHSA-qr28-fpjm-wq7f": {
+      "package": "decode-uri-component",
+      "severity": "high",
+      "range": "<=0.5.0",
+      "title": "decode-uri-component vulnerable to denial of service via quadratic replacement of percent-encoded runs"
+    },
+    "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr": {
+      "package": "decode-uri-component",
+      "severity": "moderate",
+      "range": "<=0.4.2",
+      "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input"
+    },
+    "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr": {
+      "package": "image-size",
+      "severity": "high",
+      "range": ">=0.6.3 <=2.0.2",
+      "title": "image-size: ICNS parser allows denial of service through an infinite loop"
+    },
+    "https://github.com/advisories/GHSA-w5hq-g745-h8pq": {
+      "package": "uuid",
+      "severity": "moderate",
+      "range": "<11.1.1",
+      "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided"
+    }
+  },
+  "notPerformed": [
+    "Android/iOS native compilation",
+    "APK/AAB generation or size measurement",
+    "physical-device installation",
+    "native startup/FPS measurement",
+    "two-account/two-physical-Android-device verification",
+    "live production API/media/TLS/range/codec verification",
+    "backend dependency remediation",
+    "deployment or live database mutation"
+  ],
+  "productionCertified": false
+}

@@ -1,33 +1,16 @@
+import { API_ORIGIN } from "../config/api";
 import { MessageService } from "./MessageService";
 import { socketReceiver, SocketReceiver } from "./SocketReceiver";
 
 /**
- * MediaService — single entry point for the entire messaging + media system.
+ * Existing messaging facade: MessageService creates/reconciles SQLite rows and
+ * uploads local attachments before the existing conversation message/reply POST.
+ * SocketReceiver owns the shared Socket.IO connection and incoming persistence.
+ * There are no separate .video/.audio services or competing message stores.
  *
- * ┌─────────────────────────────────┐
- * │           MediaService          │
- * │  .video   → VideoUploader       │
- * │  .audio   → AudioUploader       │
- * │  .message → MessageService      │  ← all write to SQLite via MessageStore
- * │  .socket  → SocketReceiver      │  ← reads from server, writes to SQLite
- * └─────────────────────────────────┘
- *
- * Usage (after login):
- *   mediaService.setAuthToken(token);
- *   mediaService.connectSocket(userId, token);
- *
- *   // Text
- *   await mediaService.message.send("Hi", { senderId, receiverId, roomId });
- *
- *   // Video
- *   const { url } = await mediaService.video.upload(uri, "video/mp4", 45, { userId }, onPct);
- *   await mediaService.message.sendMediaRecord("video", url, { senderId, receiverId, roomId });
- *
- *   // Audio (from expo-av recording)
- *   await mediaService.audio.uploadFromRecording(recording, { userId });
- *
- *   // On logout
- *   mediaService.disconnectSocket();
+ * After login: setAuthToken(token), then connectSocket(userId, token).
+ * Media: message.sendMediaRecord(type, localUri, metadata, duration, replyId, attachment).
+ * Logout: disconnectSocket(); account preparation clears the scoped stores.
  */
 export class MediaService {
   readonly message: MessageService;
@@ -64,6 +47,4 @@ export class MediaService {
 
 // ─── App-wide singleton ───────────────────────────────────────────────────────
 // Import this everywhere — one instance, one socket connection, one token state.
-export const mediaService = new MediaService(
-  `${process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.3:3000"}/api/v1`,
-);
+export const mediaService = new MediaService(`${API_ORIGIN}/api/v1`);

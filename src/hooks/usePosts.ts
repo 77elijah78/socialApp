@@ -1,348 +1,389 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
-import { PostResponse, PaginatedResponse, SocialPost } from "@/types";
+import type { SocialPost } from "@/types";
 import { getCached, setCached } from "@/utils/queryCache";
+import {
+  normalizePostsPage,
+  uniquePosts,
+  type PostSource,
+} from "@/utils/postContracts";
+import {
+  applyPostUpdate,
+  publishPostUpdate,
+  subscribePostUpdates,
+} from "@/utils/postUpdates";
 
-const FEED_CACHE_KEY = "feed:page1";
-const FEED_CACHE_TTL = 5 * 60_000;
-
-interface UsePostsOptions {
+type Options = {
   page?: number;
   limit?: number;
-}
+  source?: PostSource;
+  username?: string;
+  /** Detail entry only; not a guessed canonical author-page position. */
+  entryPost?: SocialPost;
+};
+type FeedCache = { posts: SocialPost[]; total: number; hasMore: boolean };
+const EMPTY_POSTS: SocialPost[] = [];
+const FEED_TTL = 5 * 60_000;
 
-interface UsePostsReturn {
-  posts: SocialPost[];
-  loading: boolean;
-  refreshing: boolean;
-  error: Error | null;
-  refresh: () => Promise<void>;
-  loadMore: () => Promise<void>;
-  hasMore: boolean;
-  paginating: boolean;
-  paginationError: Error | null;
-  like: (postId: string) => Promise<void>;
-  unlike: (postId: string) => Promise<void>;
-  save: (postId: string) => Promise<void>;
-  unsave: (postId: string) => Promise<void>;
-  deletePost: (postId: string) => Promise<void>;
-}
-
-function mapPostResponse(post: PostResponse): SocialPost {
-  return {
-    ...post,
-    timestamp: new Date(post.createdAt).toISOString(),
-    imageUrl: post.imageUrls[0] ?? "",
-    tags: [],
-    likeCount: post._count.likes,
-    commentCount: post._count.comments,
-    shareCount: post.shareCount ?? 0,
-    isLiked: post.isLiked,
-    isBookmarked: post.isSaved,
-  };
-}
-
-// In-flight request deduplication
-const pendingLikeRequests = new Map<string, Promise<void>>();
-const pendingSaveRequests = new Map<string, Promise<void>>();
-
-export function usePosts(options: UsePostsOptions = {}): UsePostsReturn {
-  const { page: initialPage = 1, limit = 20 } = options;
-  const token = useAppSelector((s) => s.auth.token);
-
+/** Existing post hook, with the backend's actual array/meta and author envelopes.
+ * One fetch owner: page commits never trigger another fetch effect. */
+export function usePosts({
+  page: initialPage = 1,
+  limit = 20,
+  source = "feed",
+  username,
+  entryPost,
+}: Options = {}) {
+  const token = useAppSelector((state) => state.auth.token);
+  const accountId = useAppSelector((state) => state.auth.user?.id);
+  const authReady = Boolean(token && accountId);
+  const scopeKey = JSON.stringify([
+    accountId,
+    source,
+    username,
+    initialPage,
+    limit,
+    entryPost?.id,
+  ]);
+  const [owner, setOwner] = useState(scopeKey);
+  const entryRef = useRef(entryPost);
+  useLayoutEffect(() => { entryRef.current = entryPost; }, [entryPost]);
+  const [entrySeparate, setEntrySeparate] = useState(false);
+  const tokenRef = useRef(token);
+  useLayoutEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+  const networkCommitted = useRef(false);
+  const cacheMeta = useRef({ total: 0, hasMore: false });
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [hasMore, setHasMore] = useState(true);
   const [paginating, setPaginating] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const [paginationError, setPaginationError] = useState<Error | null>(null);
-  const [page, setPage] = useState(initialPage);
-  const postsRef = useRef<SocialPost[]>([]);
-  const hydratedRef = useRef(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [firstPage, setFirstPage] = useState(initialPage);
+  const rows = useRef<SocialPost[]>([]);
+  const range = useRef({ first: initialPage, last: initialPage });
+  const session = useRef(0);
+  const inFlight = useRef<Promise<void> | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const failedPageMode = useRef<"next" | "previous">("next");
+  const updateVersion = useRef(0);
+  const changed = useRef(new Map<string, number>());
+  const removed = useRef(new Map<string, number>());
+  const pendingMutations = useRef(new Map<string, Promise<void>>());
+  const cacheKey = `feed:${accountId}:page1`;
 
-  // Keep ref in sync for optimistic updates
-  useEffect(() => {
-    postsRef.current = posts;
-  }, [posts]);
+  const commit = useCallback((next: SocialPost[]) => {
+    rows.current = next;
+    setPosts(next);
+  }, []);
+  const fetchPage = useCallback(
+    async (page: number, signal: AbortSignal) => {
+      const accessToken = tokenRef.current;
+      if (!accessToken) throw new Error("Sign in to view posts");
+      const path =
+        source === "author"
+          ? `/posts/user/${encodeURIComponent(username ?? "")}`
+          : `/posts/${source}`;
+      const response = await api.get(
+        `${path}?page=${page}&limit=${limit}`,
+        accessToken,
+        { signal },
+      );
+      return normalizePostsPage(response, source, page, limit);
+    },
+    [source, username, limit],
+  );
 
-  // Memoize map function
-  const mapPost = useMemo(() => mapPostResponse, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function hydrate() {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const cached = await getCached<SocialPost[]>(FEED_CACHE_KEY);
-        if (cached && !cancelled) {
-          setPosts(cached);
-          hydratedRef.current = true;
-          setLoading(false);
-        }
-      } catch {
-        // ignore cache errors
-      }
-    }
-
-    hydrate();
-
-    async function fetchPosts() {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const data = await api.get<PaginatedResponse<PostResponse>>(
-          `/posts/feed?page=${page}&limit=${limit}`,
-          token ?? undefined,
-        );
-
-        if (!cancelled) {
-          const mapped = data.data.map(mapPost);
-          if (page === 1) {
-            setPosts(mapped);
-            setCached(FEED_CACHE_KEY, mapped, FEED_CACHE_TTL);
-          } else {
-            setPosts((prev) => [...prev, ...mapped]);
-          }
-          setHasMore(data.page * data.pageSize < data.total);
+  const load = useCallback(
+    (mode: "initial" | "refresh" | "next" | "previous"): Promise<void> => {
+      if (inFlight.current) return inFlight.current;
+      const epoch = session.current;
+      const version = updateVersion.current;
+      const abort = new AbortController();
+      controller.current = abort;
+      const page =
+        mode === "next"
+          ? range.current.last + 1
+          : mode === "previous"
+            ? range.current.first - 1
+            : initialPage;
+      if (mode === "initial") setLoading(true);
+      if (mode === "refresh") setRefreshing(true);
+      if (mode === "next" || mode === "previous") setPaginating(true);
+      setPaginationError(null);
+      const work = (async () => {
+        try {
+          const result = await fetchPage(page, abort.signal);
+          if (epoch !== session.current || abort.signal.aborted) return;
+          // Do not let an older GET undo a confirmed like/save/comment/delete.
+          const currentById = new Map(
+            rows.current.map((post) => [post.id, post]),
+          );
+          const removedFromResponse = result.posts.filter(
+            (post) => (removed.current.get(post.id) ?? 0) > version,
+          ).length;
+          const responseTotal = Math.max(0, result.total - removedFromResponse);
+          const fetched = result.posts.flatMap((post) =>
+            (removed.current.get(post.id) ?? 0) > version
+              ? []
+              : (changed.current.get(post.id) ?? 0) > version &&
+                  currentById.has(post.id)
+                ? [currentById.get(post.id)!]
+                : [post],
+          );
+          const entry = entryRef.current;
+          const separate = entry && !removed.current.has(entry.id) && !fetched.some(post => post.id === entry.id);
+          const prefix = separate ? [currentById.get(entry.id) ?? entry] : [];
+          const existing = rows.current.map(post => post.id === entry?.id
+            ? fetched.find(fresh => fresh.id === post.id) ?? post : post);
+          const next =
+            mode === "previous"
+              ? uniquePosts([...fetched, ...existing])
+              : mode === "next"
+                ? uniquePosts([...existing, ...fetched])
+                : uniquePosts([...prefix, ...fetched]);
+          if (mode === "initial" || mode === "refresh") setEntrySeparate(Boolean(separate));
+          networkCommitted.current = true;
+          cacheMeta.current = {
+            total: responseTotal,
+            hasMore: responseTotal > limit,
+          };
+          commit(next);
+          range.current =
+            mode === "previous"
+              ? { ...range.current, first: page }
+              : mode === "next"
+                ? { ...range.current, last: page }
+                : { first: page, last: page };
+          setFirstPage(range.current.first);
+          setTotal(responseTotal);
+          if (mode !== "previous") setHasMore(result.hasMore);
           setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
-          if (!hydratedRef.current) {
+          if (source === "feed" && range.current.first === 1)
+            void setCached(
+              cacheKey,
+              { posts: next.slice(0, limit), ...cacheMeta.current },
+              FEED_TTL,
+            );
+        } catch (cause) {
+          if (epoch !== session.current || abort.signal.aborted) return;
+          const failure =
+            cause instanceof Error ? cause : new Error(String(cause));
+          if (mode === "next" || mode === "previous") {
+            failedPageMode.current = mode;
+            setPaginationError(failure);
+          } else {
+            // A resolved detail entry remains usable if only the surrounding
+            // author page fails; do not hide a real post behind a feed error.
+            const entry = entryRef.current;
+            if (entry && !rows.current.length && !removed.current.has(entry.id)) {
+              commit([entry]);
+              setEntrySeparate(true);
+            }
+            setError(failure);
+          }
+        } finally {
+          if (epoch === session.current) {
+            inFlight.current = null;
+            controller.current = null;
             setLoading(false);
+            setRefreshing(false);
+            setPaginating(false);
           }
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          hydratedRef.current = false;
+      })();
+      inFlight.current = work;
+      return work;
+    },
+    [cacheKey, commit, fetchPage, initialPage, limit, source],
+  );
+
+  useEffect(() => {
+    const epoch = ++session.current;
+    controller.current?.abort();
+    inFlight.current = null;
+    pendingMutations.current.clear();
+    changed.current.clear();
+    removed.current.clear();
+    updateVersion.current = 0;
+    range.current = { first: initialPage, last: initialPage };
+    // Clear the previous external resource before starting this account/source.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    commit([]);
+    setOwner(scopeKey);
+    networkCommitted.current = false;
+    setFirstPage(initialPage);
+    setHasMore(false);
+    setError(null);
+    if (authReady && source === "feed" && initialPage === 1) {
+      const cacheVersion = updateVersion.current;
+      void getCached<FeedCache>(cacheKey).then((cached) => {
+        if (
+          cached?.posts &&
+          epoch === session.current &&
+          !networkCommitted.current &&
+          updateVersion.current === cacheVersion
+        ) {
+          commit(cached.posts);
+          cacheMeta.current = { total: cached.total, hasMore: cached.hasMore };
+          setTotal(cached.total);
+          setHasMore(cached.hasMore);
+          setLoading(false); // render cache immediately; do not wait for HTTP/timeout
         }
-      }
+      });
     }
-
-    fetchPosts();
-
+    void load("initial");
     return () => {
-      cancelled = true;
+      session.current += 1;
+      controller.current?.abort();
     };
-  }, [token, page, limit, mapPost]);
+  }, [authReady, cacheKey, commit, initialPage, load, scopeKey, source]);
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    setRefreshing(true);
-    try {
-      const data = await api.get<PaginatedResponse<PostResponse>>(
-        `/posts/feed?page=1&limit=${limit}`,
-        token ?? undefined,
-      );
-
-      const mapped = data.data.map(mapPost);
-      setPosts(mapped);
-      setPage(1);
-      setHasMore(data.page * data.pageSize < data.total);
-      postsRef.current = mapped;
-      setCached(FEED_CACHE_KEY, mapped, FEED_CACHE_TTL);
-      setError(null);
-    } catch (err) {
-      console.error("Refresh failed:", err);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [token, limit, mapPost]);
-
-  const loadMore = useCallback(async () => {
-    if (paginating || !hasMore || loading) {
-      return;
-    }
-
-    setPaginating(true);
-    setPaginationError(null);
-
-    try {
-      const data = await api.get<PaginatedResponse<PostResponse>>(
-        `/posts/feed?page=${page + 1}&limit=${limit}`,
-        token ?? undefined,
-      );
-
-      const mapped = data.data.map(mapPost);
-      setPosts((prev) => [...prev, ...mapped]);
-      setHasMore(data.page * data.pageSize < data.total);
-      setPage((prev) => prev + 1);
-    } catch (err) {
-      setPaginationError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setPaginating(false);
-    }
-  }, [paginating, hasMore, loading, page, limit, token, mapPost]);
-
-  // Helper to update a single post optimistically using ref
-  const updatePostOptimistic = useCallback(
-    (postId: string, updater: (post: SocialPost) => SocialPost) => {
-      const currentPosts = postsRef.current;
-      const index = currentPosts.findIndex((p) => p.id === postId);
-      if (index !== -1) {
-        const newPosts = [...currentPosts];
-        newPosts[index] = updater(newPosts[index]);
-        postsRef.current = newPosts;
-        setPosts(newPosts);
-      }
-    },
-    [],
-  );
-
-  // Deduplicated like
-  const like = useCallback(
-    async (postId: string) => {
-      // Return existing pending request if any
-      const existing = pendingLikeRequests.get(postId);
-      if (existing) return existing;
-
-      const promise = (async () => {
-        try {
-          await api.post(`/posts/${postId}/like`, {}, token ?? undefined);
-          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: true, likeCount: p.likeCount + 1 }));
-        } catch (err) {
-          // Rollback on error
-          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: false, likeCount: p.likeCount - 1 }));
-          throw err;
+  useEffect(
+    () =>
+      subscribePostUpdates((event) => {
+        if (event.accountId !== accountId) return;
+        const version = ++updateVersion.current;
+        changed.current.set(event.postId, version);
+        const removeMember =
+          event.deleted ||
+          (source === "saved" && event.patch?.isBookmarked === false);
+        if (removeMember) removed.current.set(event.postId, version);
+        else if (source === "saved" && event.patch?.isBookmarked === true)
+          removed.current.delete(event.postId);
+        const next = removeMember
+          ? rows.current.filter((post) => post.id !== event.postId)
+          : rows.current.map((post) => applyPostUpdate(post, event));
+        const removedCount = rows.current.length - next.length;
+        if (removedCount) {
+          setTotal((previous) => Math.max(0, previous - removedCount));
+          cacheMeta.current.total = Math.max(
+            0,
+            cacheMeta.current.total - removedCount,
+          );
         }
-      })();
-
-      pendingLikeRequests.set(postId, promise);
-      try {
-        await promise;
-      } finally {
-        pendingLikeRequests.delete(postId);
-      }
-    },
-    [token, updatePostOptimistic],
+        commit(next);
+        if (source === "feed" && range.current.first === 1)
+          void setCached(
+            cacheKey,
+            { posts: next.slice(0, limit), ...cacheMeta.current },
+            FEED_TTL,
+          );
+      }),
+    [accountId, cacheKey, commit, limit, source],
   );
 
-  // Deduplicated unlike
-  const unlike = useCallback(
-    async (postId: string) => {
-      const existing = pendingLikeRequests.get(postId);
+  const mutate = useCallback(
+    (
+      postId: string,
+      kind: "like" | "save" | "delete",
+      value: boolean,
+    ): Promise<void> => {
+      const key = `${postId}:${kind}`;
+      const existing = pendingMutations.current.get(key);
       if (existing) return existing;
-
-      const promise = (async () => {
+      const epoch = session.current;
+      const post = rows.current.find((row) => row.id === postId);
+      const work = (async () => {
+        if (!token || !accountId) throw new Error("Sign in to update posts");
+        let alreadyApplied = false;
         try {
-          await api.delete(`/posts/${postId}/like`, token ?? undefined);
-          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: false, likeCount: p.likeCount - 1 }));
-        } catch (err) {
-          // Rollback on error
-          updatePostOptimistic(postId, (p) => ({ ...p, isLiked: true, likeCount: p.likeCount + 1 }));
-          throw err;
+          const path = `/posts/${encodeURIComponent(postId)}${kind === "delete" ? "" : `/${kind}`}`;
+          if (kind !== "delete" && value) await api.post(path, {}, token);
+          else await api.delete(path, token);
+        } catch (cause) {
+          // Verified conflict responses establish the requested state, without a fake increment.
+          const message = cause instanceof Error ? cause.message : "";
+          if (
+            value &&
+            ((kind === "like" && message === "Already liked") ||
+              (kind === "save" && message === "Post already saved"))
+          )
+            alreadyApplied = true;
+          else throw cause;
         }
-      })();
-
-      pendingLikeRequests.set(postId, promise);
-      try {
-        await promise;
-      } finally {
-        pendingLikeRequests.delete(postId);
-      }
-    },
-    [token, updatePostOptimistic],
-  );
-
-  // Deduplicated save
-  const save = useCallback(
-    async (postId: string) => {
-      const existing = pendingSaveRequests.get(postId);
-      if (existing) return existing;
-
-      const promise = (async () => {
-        try {
-          await api.post(`/posts/${postId}/save`, {}, token ?? undefined);
-          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: true }));
-        } catch (err) {
-          // Rollback on error
-          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: false }));
-          throw err;
+        if (epoch !== session.current) return;
+        let count = Math.max(
+          0,
+          (post?.likeCount ?? 0) + (alreadyApplied ? 0 : value ? 1 : -1),
+        );
+        if (kind === "like" && post?.likeStateKnown === false) {
+          // GET /posts/:id omits membership flags. An idempotent LIKE may
+          // already exist, so never invent an increment for a detail entry.
+          count = post.likeCount;
+          try {
+            const response = await api.get<{ data: { _count: { likes: number } } }>(`/posts/${encodeURIComponent(postId)}`, token, { deduplicate: false });
+            if (Number.isSafeInteger(response.data?._count?.likes) && response.data._count.likes >= 0) count = response.data._count.likes;
+          } catch { /* The write succeeded. Keep the last real count until refresh. */ }
         }
+        if (epoch !== session.current) return;
+        publishPostUpdate({
+          postId,
+          accountId,
+          deleted: kind === "delete",
+          patch:
+            kind === "like"
+              ? { isLiked: value, likeCount: count, likeStateKnown: true }
+              : kind === "save"
+                ? { isBookmarked: value, saveStateKnown: true }
+                : undefined,
+        });
       })();
-
-      pendingSaveRequests.set(postId, promise);
-      try {
-        await promise;
-      } finally {
-        pendingSaveRequests.delete(postId);
-      }
+      pendingMutations.current.set(key, work);
+      void work
+        .finally(() => {
+          if (pendingMutations.current.get(key) === work)
+            pendingMutations.current.delete(key);
+        })
+        .catch(() => {});
+      return work;
     },
-    [token, updatePostOptimistic],
-  );
-
-  // Deduplicated unsave
-  const unsave = useCallback(
-    async (postId: string) => {
-      const existing = pendingSaveRequests.get(postId);
-      if (existing) return existing;
-
-      const promise = (async () => {
-        try {
-          await api.delete(`/posts/${postId}/save`, token ?? undefined);
-          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: false }));
-        } catch (err) {
-          // Rollback on error
-          updatePostOptimistic(postId, (p) => ({ ...p, isBookmarked: true }));
-          throw err;
-        }
-      })();
-
-      pendingSaveRequests.set(postId, promise);
-      try {
-        await promise;
-      } finally {
-        pendingSaveRequests.delete(postId);
-      }
-    },
-    [token, updatePostOptimistic],
-  );
-
-  const deletePost = useCallback(
-    async (postId: string) => {
-      const previousPosts = postsRef.current;
-      const nextPosts = previousPosts.filter((post) => post.id !== postId);
-      postsRef.current = nextPosts;
-      setPosts(nextPosts);
-      void setCached(FEED_CACHE_KEY, nextPosts, FEED_CACHE_TTL);
-
-      try {
-        await api.delete(`/posts/${postId}`, token ?? undefined);
-      } catch (error) {
-        postsRef.current = previousPosts;
-        setPosts(previousPosts);
-        void setCached(FEED_CACHE_KEY, previousPosts, FEED_CACHE_TTL);
-        throw error;
-      }
-    },
-    [token],
+    [accountId, token],
   );
 
   return {
-    posts,
-    loading,
+    posts: authReady && owner === scopeKey ? posts : EMPTY_POSTS,
+    entrySeparate,
+    loading: loading || (authReady && owner !== scopeKey),
     refreshing,
-    error,
-    refresh,
-    loadMore,
-    hasMore,
     paginating,
+    error,
     paginationError,
-    like,
-    unlike,
-    save,
-    unsave,
-    deletePost,
+    hasMore,
+    total,
+    firstPage,
+    hasPrevious: firstPage > 1,
+    retryPagination: useCallback(() => load(failedPageMode.current), [load]),
+    refresh: useCallback(() => load("refresh"), [load]),
+    loadMore: useCallback(
+      () => (hasMore && !loading ? load("next") : Promise.resolve()),
+      [hasMore, load, loading],
+    ),
+    loadPrevious: useCallback(
+      () =>
+        range.current.first > 1 && !loading
+          ? load("previous")
+          : Promise.resolve(),
+      [load, loading],
+    ),
+    like: useCallback((id: string) => mutate(id, "like", true), [mutate]),
+    unlike: useCallback((id: string) => mutate(id, "like", false), [mutate]),
+    save: useCallback((id: string) => mutate(id, "save", true), [mutate]),
+    unsave: useCallback((id: string) => mutate(id, "save", false), [mutate]),
+    deletePost: useCallback(
+      (id: string) => mutate(id, "delete", false),
+      [mutate],
+    ),
   };
 }

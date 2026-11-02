@@ -1,3 +1,4 @@
+import { withoutLegacyActivity } from "@/services/NotificationService";
 // store/index.ts
 import { configureStore, combineReducers } from '@reduxjs/toolkit';
 import { persistStore, persistReducer, FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER } from 'redux-persist';
@@ -16,7 +17,9 @@ const rootReducer = combineReducers({
 const persistConfig = {
   key: 'root',
   storage: AsyncStorage,
-  whitelist: ['auth', 'app', 'notifications'],
+  whitelist: ['auth', 'app'],
+  // Drop unscoped legacy notifications on upgrade, without a new startup request.
+  migrate: async (state: import('redux-persist').PersistedState) => withoutLegacyActivity(state),
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

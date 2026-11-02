@@ -1,8 +1,8 @@
 import { Stack } from "expo-router";
-import theme from "@/constants/theme";
+import { DETAIL_STACK_OPTIONS } from "@/constants/navigation";
 
 const chatRoomLayout = () => (
-  <Stack>
+  <Stack screenOptions={DETAIL_STACK_OPTIONS}>
     <Stack.Screen name="privateRoom" options={{ headerShown: false }} />
   </Stack>
 );

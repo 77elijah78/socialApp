@@ -5,6 +5,19 @@ import { roomUpdateQueries } from "./updateQueries";
 import { NewRoomRow, RoomRow } from "./schema";
 
 export class RoomStore {
+  private syncListeners = new Set<() => void>();
+  subscribeSyncRequests(listener: () => void) { this.syncListeners.add(listener); return () => { this.syncListeners.delete(listener); }; }
+  requestSync() { for (const listener of this.syncListeners) listener(); }
+  private preferenceListeners = new Set<(conversationId: string) => void>();
+  subscribePreferences(listener: (conversationId: string) => void) {
+    this.preferenceListeners.add(listener);
+    return () => { this.preferenceListeners.delete(listener); };
+  }
+  async setMuted(conversationId: string, muted: boolean) {
+    await roomUpdateQueries.updateRoom(conversationId, { muted });
+    for (const listener of this.preferenceListeners) listener(conversationId);
+  }
+
   getAllRooms() {
     return roomGetQueries.getAll();
   }

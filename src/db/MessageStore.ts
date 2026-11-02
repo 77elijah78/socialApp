@@ -1,325 +1,280 @@
+import { receiptQueue } from "./receiptQueue";
+import { syncStateStore } from "./syncStateStore";
 import { messageInsertQueries } from "./insertQueries";
 import { messageGetQueries } from "./getQueries";
 import { messageUpdateQueries } from "./updateQueries";
 import { messageDeleteQueries } from "./deleteQueries";
-import { MessageRow, NewMessageRow } from "./schema";
+import type { MessageRow, NewMessageRow } from "./schema";
+import type { DeletionScope } from "./deletionState";
+import type { MessageCursor } from "../utils/messaging/timeline";
+import {
+  invalidateRecentMessageCache,
+  clearRecentMessageCache,
+} from "../utils/recentMessageCache";
 
-// Re-export so callers only need to import from MessageStore
 export type Message = MessageRow;
+export type MessageChange =
+  | { type: "upsert"; conversationId: string; rows: MessageRow[]; source?: "live" | "history" | "mutation" }
+  | { type: "invalidate"; conversationId: string; messageId: string }
+  | { type: "clear"; conversationId?: string };
+type Subscriber = (change: MessageChange) => void;
 
-/**
- * MessageStore
- *
- * Single API the rest of the app uses for local message persistence.
- *
- * Wraps the four query classes so nothing outside db/
- * needs to know about Drizzle or SQLite directly.
- */
+/** One persistence boundary and one incremental notification per committed write. */
 export class MessageStore {
-  // =========================================================
-  // READ
-  // =========================================================
+  private subscribers = new Set<Subscriber>();
+  private cacheGeneration = 0;
+  private roomVersions = new Map<string, number>();
 
-  /**
-   * All messages for a room, oldest → newest
-   */
+  getRoomVersion(conversationId: string) {
+    return `${this.cacheGeneration}:${this.roomVersions.get(conversationId) ?? 0}`;
+  }
+  private outgoing = new Map<
+    string,
+    { count: number; settled: Promise<void>; resolve: () => void }
+  >();
+
+  subscribe(listener: Subscriber): () => void {
+    this.subscribers.add(listener);
+    return () => {
+      this.subscribers.delete(listener);
+    };
+  }
+
+  private publish(change: MessageChange) {
+    if (change.conversationId)
+      invalidateRecentMessageCache(change.conversationId);
+    else clearRecentMessageCache();
+    for (const listener of this.subscribers) {
+      try {
+        listener(change);
+      } catch (error) {
+        if (__DEV__) console.warn("[MessageStore] subscriber failed", error);
+      }
+    }
+  }
+
+  private publishRows(rows: MessageRow[], source: "live" | "history" | "mutation" = "mutation") {
+    const byRoom = new Map<string, MessageRow[]>();
+    for (const row of rows) {
+      const group = byRoom.get(row.conversationId) ?? [];
+      group.push(row);
+      byRoom.set(row.conversationId, group);
+    }
+    for (const [conversationId, group] of byRoom)
+      this.publish({ type: "upsert", conversationId, rows: group, source });
+    return rows;
+  }
+
+  private async changed(work: Promise<MessageRow | null>) {
+    const row = await work;
+    if (row) this.publishRows([row]);
+    return row;
+  }
+
+  /** Defer uncorrelated own echoes until REST confirms the canonical localId. No content guessing. */
+  beginOutgoing(senderId: string): () => void {
+    let entry = this.outgoing.get(senderId);
+    if (!entry) {
+      let resolve!: () => void;
+      const settled = new Promise<void>((done) => {
+        resolve = done;
+      });
+      entry = { count: 0, settled, resolve };
+      this.outgoing.set(senderId, entry);
+    }
+    entry.count += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (--entry.count === 0) {
+        if (this.outgoing.get(senderId) === entry)
+          this.outgoing.delete(senderId);
+        entry.resolve();
+      }
+    };
+  }
+
+  resetOutgoing() {
+    for (const entry of this.outgoing.values()) entry.resolve();
+    this.outgoing.clear();
+  }
+
+  async waitForOutgoing(senderId: string) {
+    await this.outgoing.get(senderId)?.settled;
+  }
+
+  getInvalidations(ids: string[]) {
+    return messageGetQueries.getInvalidations(ids);
+  }
   getByRoom(roomId: string) {
     return messageGetQueries.getByRoom(roomId);
   }
-
   getByIds(roomId: string, ids: string[]) {
     return messageGetQueries.getByIds(roomId, ids);
   }
-
-  /**
-   * Last N messages for initial FlatList render
-   */
   getRecent(roomId: string, limit = 30) {
     return messageGetQueries.getRecent(roomId, limit);
   }
-
-  /**
-   * Older messages for infinite scroll
-   */
-  getOlderThan(roomId: string, beforeTimestamp: number, limit = 20) {
-    return messageGetQueries.getOlderThan(roomId, beforeTimestamp, limit);
+  getOlderThan(roomId: string, cursor: MessageCursor, limit = 30) {
+    return messageGetQueries.getOlderThan(roomId, cursor, limit);
   }
-
-  /**
-   * Single message by localId
-   */
-  getByLocalId(localId: string) {
-    return messageGetQueries.getByLocalId(localId);
+  getFromMessage(roomId: string, parent: MessageRow) {
+    return messageGetQueries.getFromMessage(roomId, parent);
   }
-
-  /**
-   * Single message by server id
-   */
+  getReplies(roomId: string, parentIds: string[]) {
+    return messageGetQueries.getReplies(roomId, parentIds);
+  }
+  getByLocalId(id: string) {
+    return messageGetQueries.getByLocalId(id);
+  }
   getByServerId(id: string) {
     return messageGetQueries.getByServerId(id);
   }
-
-  /**
-   * Single message by any id (local or server)
-   */
   getById(id: string) {
     return messageGetQueries.getById(id);
   }
-
-  /**
-   * Unread badge count for one room
-   */
-  getUnreadCount(roomId: string, currentUserId: string) {
-    return messageGetQueries.getUnreadCount(roomId, currentUserId);
+  getUnreadCount(roomId: string, userId: string) {
+    return messageGetQueries.getUnreadCount(roomId, userId);
   }
-
-  /**
-   * Unread counts for all rooms
-   */
-  getAllUnreadCounts(currentUserId: string) {
-    return messageGetQueries.getAllUnreadCounts(currentUserId);
+  getAllUnreadCounts(userId: string) {
+    return messageGetQueries.getAllUnreadCounts(userId);
   }
-
-  /**
-   * Last message preview for conversation list
-   */
   getLastMessage(roomId: string) {
     return messageGetQueries.getLastMessage(roomId);
   }
-
-  /**
-   * Batch last-message fetch for multiple rooms
-   */
   getLastMessages(roomIds: string[]) {
     return messageGetQueries.getLastMessages(roomIds);
   }
-
-  /**
-   * Oldest message timestamp in a room (for cursor pagination)
-   */
   getOldestMessageTimestamp(roomId: string) {
     return messageGetQueries.getOldestMessageTimestamp(roomId);
   }
-
-  /**
-   * Oldest message id in a room (for cursor pagination)
-   */
   getOldestMessageId(roomId: string) {
     return messageGetQueries.getOldestMessageId(roomId);
   }
-
-  /**
-   * All failed messages in a room
-   */
   getFailed(roomId: string) {
     return messageGetQueries.getFailed(roomId);
   }
-
-  // =========================================================
-  // WRITE
-  // =========================================================
-
-  /**
-   * Save an optimistic outgoing message.
-   */
-  save(message: NewMessageRow) {
-    return messageInsertQueries.insert(message);
+  getReceiptCandidates(userId: string, afterLocalId = "", limit = 100) {
+    return messageGetQueries.getReceiptCandidates(userId, afterLocalId, limit);
+  }
+  getReadReceipts(roomId: string, userId: string) {
+    return messageGetQueries.getReadReceipts(roomId, userId);
   }
 
-  /**
-   * Save an incoming received message.
-   *
-   * IMPORTANT:
-   * This should remain an UPSERT.
-   */
-  saveReceived(message: NewMessageRow) {
-    return messageInsertQueries.upsert(message);
+  async save(message: NewMessageRow) {
+    const row = await messageInsertQueries.insert(message);
+    this.publishRows([row], "live");
+    return row;
   }
-
-  /**
-   * Bulk upsert from server history sync.
-   */
-  saveMany(batch: NewMessageRow[]) {
-    return messageInsertQueries.upsertMany(batch);
+  async saveReceived(
+    message: NewMessageRow,
+    isCurrent: () => boolean = () => true,
+    currentUserId?: string,
+    options?: { serverCreated?: boolean },
+  ) {
+    const roomVersion = this.getRoomVersion(message.conversationId);
+    // A REST-created forward has its own confirmed identity and no optimistic
+    // counterpart. It must not wait behind an unrelated upload's own echo.
+    if (!options?.serverCreated) await this.waitForOutgoing(message.senderId);
+    if (
+      !isCurrent() ||
+      roomVersion !== this.getRoomVersion(message.conversationId)
+    )
+      return null;
+    const row = currentUserId
+      ? await messageInsertQueries.upsertReceived(message, currentUserId)
+      : await messageInsertQueries.upsert(message);
+    this.publishRows([row], "live");
+    return row;
   }
-
-  // =========================================================
-  // UPDATE
-  // =========================================================
-
-  /**
-   * Confirm an optimistic message after
-   * the server responds.
-   *
-   * IMPORTANT:
-   * Preserve localId so we can still map optimistic
-   * rows by localId after confirmation.
-   */
-  confirm(localId: string, serverId: string, serverTimestamp?: number) {
-    return messageUpdateQueries.confirm(localId, serverId, serverTimestamp);
+  async saveMany(batch: NewMessageRow[], requestStartedAt?: number) {
+    return this.publishRows(await messageInsertQueries.upsertMany(batch, requestStartedAt), "history");
   }
-
-  /**
-   * Mark a message as failed.
-   */
-  markFailed(localId: string) {
-    return messageUpdateQueries.markFailed(localId);
-  }
-
-  /**
-   * Mark a message as delivered.
-   */
-  markDelivered(messageId: string, roomId: string) {
-    return messageUpdateQueries.markDelivered(messageId, roomId);
-  }
-
-  /**
-   * Mark ONE specific message as read.
-   *
-   * This is the preferred method for read receipts.
-   */
-  markRead(messageId: string, roomId: string) {
-    return messageUpdateQueries.markRead(messageId, roomId);
-  }
-
-  /**
-   * Mark all RECEIVED messages in a room as read.
-   *
-   * Used when the current user opens the chat.
-   */
-  markRoomAsRead(roomId: string, upToTimestamp?: number) {
-    return messageUpdateQueries.markRoomAsRead(roomId, upToTimestamp);
-  }
-
-  /**
-   * ========================================================
-   * NEW
-   * ========================================================
-   *
-   * Mark the current user's SENT messages as READ.
-   *
-   * This is different from markRoomAsRead().
-   *
-   * markRoomAsRead():
-   *   "I have read messages that I received."
-   *
-   * markSentMessagesAsRead():
-   *   "The other person has read messages that I sent."
-   *
-   * This is used when the server sends:
-   *
-   * {
-   *   conversationId,
-   *   userId
-   * }
-   *
-   * without a specific messageId.
-   */
-  async markSentMessagesAsRead(
-    roomId: string,
-    currentUserId: string,
-  ): Promise<void> {
-    const messages = await this.getByRoom(roomId);
-
-    if (!messages || messages.length === 0) {
-      return;
-    }
-
-    /**
-     * Find messages that:
-     *
-     * 1. Were sent by the current user
-     * 2. Are not already READ
-     */
-    const unreadSentMessages = messages.filter((message) => {
-      const senderId = String(message.senderId ?? "");
-
-      const status = String(message.status ?? "").toUpperCase();
-
-      return senderId === currentUserId && status !== "READ";
-    });
-
-    if (unreadSentMessages.length === 0) {
-      return;
-    }
-
-    /**
-     * Update each message using the existing
-     * markRead() query.
-     *
-     * This avoids needing another SQL query.
-     */
-    await Promise.all(
-      unreadSentMessages.map((message) => this.markRead(message.id!, roomId)),
+  confirm(localId: string, serverId: string, timestamp?: number) {
+    return this.changed(
+      messageUpdateQueries.confirm(localId, serverId, timestamp),
     );
   }
-
-  /**
-   * Update message text.
-   */
-  editText(localId: string, newText: string) {
-    return messageUpdateQueries.editText(localId, newText);
+  async recoverUnfinishedSends() {
+    return this.publishRows(
+      await messageUpdateQueries.recoverUnfinishedSends(),
+    );
   }
-
-  /**
-   * Reset status to sending before retry.
-   */
+  markFailed(localId: string) {
+    return this.changed(messageUpdateQueries.markFailed(localId));
+  }
+  markDelivered(id: string, roomId: string) {
+    return this.changed(messageUpdateQueries.markDelivered(id, roomId));
+  }
+  markRead(id: string, roomId: string, currentUserId?: string) {
+    return this.changed(
+      messageUpdateQueries.markRead(id, roomId, currentUserId),
+    );
+  }
+  async markVisibleReadIds(ids: string[], roomId: string, userId: string) {
+    return this.publishRows(
+      await messageUpdateQueries.markVisibleReadIds(ids, roomId, userId),
+    );
+  }
+  async markReadIds(ids: string[], roomId: string) {
+    return this.publishRows(
+      await messageUpdateQueries.markReadIds(ids, roomId),
+    );
+  }
+  async markRoomAsRead(roomId: string, timestamp?: number) {
+    return this.publishRows(
+      await messageUpdateQueries.markRoomAsRead(roomId, timestamp),
+    ).length;
+  }
+  async markSentMessagesAsRead(roomId: string, senderId: string) {
+    this.publishRows(
+      await messageUpdateQueries.markSentMessagesAsRead(roomId, senderId),
+    );
+  }
+  editText(id: string, text: string, conversationId?: string) {
+    return this.changed(messageUpdateQueries.editText(id, text, conversationId));
+  }
   resetForRetry(localId: string) {
-    return messageUpdateQueries.resetForRetry(localId);
+    return this.changed(messageUpdateQueries.resetForRetry(localId));
+  }
+  patch(id: string, patch: Partial<Omit<MessageRow, "localId">>) {
+    return this.changed(messageUpdateQueries.patch(id, patch));
   }
 
-  /**
-   * Generic patch.
-   */
-  patch(localId: string, patch: Partial<Omit<Message, "localId">>) {
-    return messageUpdateQueries.patch(localId, patch);
+  /** Server-confirmed scoped invalidation survives missing originals/stale pages. */
+  async deleteOne(id: string, currentUserId?: string, scope?: DeletionScope) {
+    const row = await messageUpdateQueries.tombstone(id, currentUserId, scope);
+    const room = scope?.conversationId ?? row?.conversationId;
+    if (row) this.publishRows([row]);
+    else if (room) this.publish({ type: "invalidate", conversationId: room, messageId: id });
+    return Boolean(row);
   }
-
-  // =========================================================
-  // DELETE
-  // =========================================================
-
-  /**
-   * Delete one message by localId or server id.
-   */
-  deleteOne(messageId: string) {
-    return messageDeleteQueries.deleteOne(messageId);
+  async deleteMany(ids: string[]) {
+    return (await Promise.all(ids.map((id) => this.deleteOne(id)))).filter(
+      Boolean,
+    ).length;
   }
-
-  /**
-   * Delete multiple messages.
-   */
-  deleteMany(localIds: string[]) {
-    return messageDeleteQueries.deleteMany(localIds);
+  async deleteRoom(roomId: string) {
+    this.roomVersions.set(roomId, (this.roomVersions.get(roomId) ?? 0) + 1);
+    const count = await messageDeleteQueries.deleteRoom(roomId);
+    await receiptQueue.deleteRoom(roomId);
+    await syncStateStore.delete(roomId);
+    this.publish({ type: "clear", conversationId: roomId });
+    return count;
   }
-
-  /**
-   * Clear all messages in a room.
-   */
-  deleteRoom(roomId: string) {
-    return messageDeleteQueries.deleteRoom(roomId);
+  deleteOlderThan(roomId: string, timestamp: number) {
+    return messageDeleteQueries.deleteOlderThan(roomId, timestamp);
   }
-
-  /**
-   * Delete messages older than a given time.
-   */
-  deleteOlderThan(roomId: string, olderThanMs: number) {
-    return messageDeleteQueries.deleteOlderThan(roomId, olderThanMs);
-  }
-
-  /**
-   * Delete all failed messages in a room.
-   */
   deleteAllFailed(roomId: string) {
     return messageDeleteQueries.deleteAllFailed(roomId);
   }
-
-  /**
-   * Wipe everything on logout.
-   */
-  deleteAll() {
-    return messageDeleteQueries.deleteAll();
+  async deleteAll() {
+    this.cacheGeneration += 1;
+    this.roomVersions.clear();
+    const count = await messageDeleteQueries.deleteAll();
+    this.publish({ type: "clear" });
+    return count;
   }
 }
-
 export const messageStore = new MessageStore();

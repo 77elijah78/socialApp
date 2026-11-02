@@ -1,3 +1,5 @@
+import { normalizeMediaUrl, requireRemoteMediaUrl } from "../utils/mediaUrls";
+import { mediaFileForUpload } from "../utils/mediaUpload";
 import { BaseUploader } from "./BaseUploader";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,44 +27,16 @@ export interface LocalFile {
   type?: string;
 }
 
-// ─── MIME helpers ─────────────────────────────────────────────────────────────
-
-const MIME_MAP: Record<string, string> = {
-  // Images
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  // Videos
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  webm: "video/webm",
-  avi: "video/x-msvideo",
-  // Audio
-  mp3: "audio/mpeg",
-  ogg: "audio/ogg",
-  wav: "audio/wav",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-};
-
-const getMimeType = (uri: string, hint?: string): string => {
-  if (hint) return hint;
-  const ext = uri.split(".").pop()?.toLowerCase() ?? "";
-  return MIME_MAP[ext] ?? "application/octet-stream";
-};
-
-const getFilename = (uri: string, hint?: string): string => {
-  if (hint) return hint;
-  return uri.split("/").pop() ?? `file_${Date.now()}`;
-};
-
 // ─── Class ────────────────────────────────────────────────────────────────────
 
 export class MediaUploader extends BaseUploader {
   constructor(baseUrl: string, authToken: string | null = null) {
     super(baseUrl, authToken);
+  }
+
+  private normalizeFile<T extends { url: string; thumbnailUrl?: string }>(file: T): T {
+    return { ...file, url: requireRemoteMediaUrl(file.url, this.baseUrl),
+      thumbnailUrl: normalizeMediaUrl(file.thumbnailUrl, this.baseUrl) ?? undefined };
   }
 
   // ─── Single file (image / video / audio) ──────────────────────────────────
@@ -72,8 +46,7 @@ export class MediaUploader extends BaseUploader {
     file: LocalFile,
     onProgress?: (percent: number) => void,
   ): Promise<MediaFile> {
-    const mimeType = getMimeType(file.uri, file.type);
-    const filename = getFilename(file.uri, file.name);
+    const { type: mimeType, name: filename } = mediaFileForUpload(file.uri, { name: file.name, mimeType: file.type });
 
     const formData = new FormData();
     formData.append("file", {
@@ -89,7 +62,7 @@ export class MediaUploader extends BaseUploader {
     )) as UploadResponse<MediaFile>;
 
     if (!res.success) throw new Error(res.message);
-    return res.data;
+    return this.normalizeFile(res.data);
   }
 
   // ─── Multiple images (up to 4) ────────────────────────────────────────────
@@ -105,8 +78,7 @@ export class MediaUploader extends BaseUploader {
     const formData = new FormData();
 
     for (const file of files) {
-      const mimeType = getMimeType(file.uri, file.type);
-      const filename = getFilename(file.uri, file.name);
+      const { type: mimeType, name: filename } = mediaFileForUpload(file.uri, { name: file.name, mimeType: file.type });
 
       formData.append("images", {
         uri: file.uri,
@@ -122,7 +94,7 @@ export class MediaUploader extends BaseUploader {
     )) as UploadResponse<MediaFile[]>;
 
     if (!res.success) throw new Error(res.message);
-    return res.data;
+    return res.data.map((file) => this.normalizeFile(file));
   }
 
   // ─── Avatar ───────────────────────────────────────────────────────────────
@@ -137,8 +109,7 @@ export class MediaUploader extends BaseUploader {
     width?: number;
     height?: number;
   }> {
-    const mimeType = getMimeType(file.uri, file.type);
-    const filename = getFilename(file.uri, file.name);
+    const { type: mimeType, name: filename } = mediaFileForUpload(file.uri, { name: file.name, mimeType: file.type });
 
     const formData = new FormData();
     formData.append("avatar", {
@@ -159,7 +130,7 @@ export class MediaUploader extends BaseUploader {
     }>;
 
     if (!res.success) throw new Error(res.message);
-    return res.data;
+    return this.normalizeFile(res.data);
   }
 
   // ─── Voice message shorthand ──────────────────────────────────────────────

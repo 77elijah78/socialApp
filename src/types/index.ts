@@ -11,8 +11,8 @@ import {
 // ─────────────────────────────────────────────────────────────────────
 
 export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'SHARED_POST' | 'SHARED_STORY';
-export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ';
-export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SYSTEM';
+export type MessageStatus = 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+export type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'MENTION' | 'SHARE' | 'SYSTEM';
 
 export interface User {
   id: string;
@@ -78,7 +78,7 @@ export interface Comment {
   repliedToId: string | null;
   author?: Partial<User> & Pick<User, "id" | "username">;
   post?: Post;
-  /** Frontend-ready comment engagement fields; likes remain optimistic until persisted by the API. */
+  /** Legacy optional engagement fields; current backend exposes no comment-like mutation. */
   likeCount?: number;
   isLiked?: boolean;
   repliesCount?: number;
@@ -129,6 +129,8 @@ export interface Message {
   receiver?: PublicUser | null;
   conversation?: Conversation;
   isRead: boolean;
+  readByMe?: boolean;
+  isGroup?: boolean;
   createdAt: Date;
   updatedAt: Date;
   editedAt: Date | null;
@@ -186,6 +188,8 @@ export interface PrimaryButtonProps extends ButtonProps {
   rightIcon?: ImageSourcePropType;
   leftIcon?: ImageSourcePropType;
   iconStyle?: ImageStyle;
+  loading?: boolean;
+  loadingLabel?: string;
 }
 
 // ─── Feed / Posts ─────────────────────────────────────────────────────────────
@@ -223,6 +227,9 @@ export interface PostOneResponse extends PostResponse {
 }
 
 export interface SocialPost extends PostResponse {
+  /** Client knowledge flags, not new server fields. */
+  likeStateKnown?: boolean;
+  saveStateKnown?: boolean;
   timestamp: string;
   imageUrl?: string;
   tags?: string[];
@@ -252,6 +259,7 @@ export interface StoryItem {
 
 export interface MessageAuthor {
   id: string;
+  displayName?: string | null;
   username: string;
   avatarUrl: string | null;
 }
@@ -269,6 +277,8 @@ export interface MessageResponse {
   sender: MessageAuthor;
   receiver?: MessageAuthor | null;
   isRead: boolean;
+  readByMe?: boolean;
+  isGroup?: boolean;
   createdAt: Date;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -367,7 +377,7 @@ export interface PrivateMessageCardProps {
 
 export interface MessageCardProps {
   message: string | null;
-  time: string;
+  time: string | number;
   sender: string;
   isRead: boolean;
   isSent: boolean;
@@ -376,16 +386,16 @@ export interface MessageCardProps {
   onLongPress?: () => void;
   type: string;
   uri: string;
-  repliedTo?: {
-    id: string;
-    content: string;
-    senderId: string;
-    type: string;
-    sender?: {
-      username: string;
-      avatarUrl: string;
-    };
-  };
+  thumbnailUri?: string;
+  playbackId?: string;
+  duration?: number;
+  onRetry?: () => void;
+  senderAvatar?: string | null;
+  showAuthor?: boolean;
+  ownerId?: string;
+  attachment?: import('@/utils/messaging/presentation').AttachmentInfo;
+  onReplyPress?: (id: string) => void;
+  repliedTo?: import('@/utils/messaging/presentation').ReplyPreviewModel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -411,4 +421,7 @@ export interface PickedFile {
   name: string;
   type: string;
   size?: number;
+  width?: number;
+  height?: number;
+  duration?: number;
 }

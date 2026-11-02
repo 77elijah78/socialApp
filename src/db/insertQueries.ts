@@ -1,124 +1,143 @@
-import { db } from "./db";
+import { db, withDatabaseTransaction } from "./db";
 import {
   messages,
-  NewMessageRow,
-  MessageRow,
-  NewRoomRow,
-  RoomRow,
+  type NewMessageRow,
+  type MessageRow,
+  type NewRoomRow,
+  type RoomRow,
   rooms,
 } from "./schema";
-import { sql } from "drizzle-orm";
-
-const nowIso = () => new Date().toISOString();
-const nowMs = () => Date.now();
+import { inArray, or, eq, and, lte, sql } from "drizzle-orm";
+import { synchronizeReplySnapshots } from "./replySnapshots";
+import { applyMessageInvalidations, recordMessageTombstones } from "./deletionState";
+import { mergePersistedMessage } from "../utils/messaging/timeline";
 
 export class MessageInsertQueries {
   async insert(message: NewMessageRow): Promise<MessageRow> {
-    const [row] = await db.insert(messages).values(message).returning();
-    return row;
-  }
-
-  async insertMany(batch: NewMessageRow[]): Promise<MessageRow[]> {
-    if (batch.length === 0) return [];
-    const rows = await db
-      .insert(messages)
-      .values(batch)
-      .onConflictDoNothing()
-      .returning();
-    return rows;
+    return withDatabaseTransaction(async tx => {
+      await recordMessageTombstones(tx, [message]);
+      [message] = await applyMessageInvalidations(tx, [message]);
+      const [row] = await tx.insert(messages).values(message).returning();
+      return (await synchronizeReplySnapshots(tx, [row]))[0];
+    });
   }
 
   async upsert(message: NewMessageRow): Promise<MessageRow> {
-    const [row] = await db
-      .insert(messages)
-      .values(message)
-      .onConflictDoUpdate({
-        target: messages.localId,
-        set: {
-          id: message.id,
-          content: message.content,
-          mediaUrl: message.mediaUrl,
-          thumbnailUrl: message.thumbnailUrl,
-          type: message.type,
-          status: message.status,
-          senderId: message.senderId,
-          receiverId: message.receiverId,
-          isRead: message.isRead,
-          timestamp: message.timestamp,
-          editedAt: message.editedAt,
-          deletedAt: message.deletedAt,
-          duration: message.duration,
-          repliedToId: message.repliedToId,
-          forwardedFromId: message.forwardedFromId,
-          deliveredAt: message.deliveredAt,
-          readAt: message.readAt,
-          failedAt: message.failedAt,
-          retryCount: message.retryCount,
-        },
-      })
-      .returning();
-    return row;
+    return (await this.upsertMany([message]))[0];
   }
 
-  async upsertMany(batch: NewMessageRow[]): Promise<MessageRow[]> {
-    if (batch.length === 0) return [];
-    const rows = await db
-      .insert(messages)
-      .values(batch)
-      .onConflictDoUpdate({
-        target: messages.localId,
-        set: {
-          id: sql`excluded.id`,
-          content: sql`excluded.content`,
-          mediaUrl: sql`excluded.media_url`,
-          thumbnailUrl: sql`excluded.thumbnail_url`,
-          type: sql`excluded.type`,
-          status: sql`excluded.status`,
-          senderId: sql`excluded.sender_id`,
-          receiverId: sql`excluded.receiver_id`,
-          conversationId: sql`excluded.conversation_id`,
-          isRead: sql`excluded.is_read`,
-          timestamp: sql`excluded.timestamp`,
-          editedAt: sql`excluded.edited_at`,
-          deletedAt: sql`excluded.deleted_at`,
-          deletedBy: sql`excluded.deleted_by`,
-          duration: sql`excluded.duration`,
-          repliedToId: sql`excluded.replied_to_id`,
-          forwardedFromId: sql`excluded.forwarded_from_id`,
-          deliveredAt: sql`excluded.delivered_at`,
-          readAt: sql`excluded.read_at`,
-          failedAt: sql`excluded.failed_at`,
-          retryCount: sql`excluded.retry_count`,
-        },
-      })
-      .returning();
-    return rows;
+  /** Realtime receipt and its global unread delta are one transaction. A partial
+   * message cache must never replace the server's whole-conversation count. */
+  async upsertReceived(
+    message: NewMessageRow,
+    userId: string,
+  ): Promise<MessageRow> {
+    return withDatabaseTransaction(async (tx) => {
+      await recordMessageTombstones(tx, [message]);
+      [message] = await applyMessageInvalidations(tx, [message]);
+      const [existing] = await tx
+        .select()
+        .from(messages)
+        .where(
+          or(
+            eq(messages.id, message.id ?? message.localId),
+            eq(messages.localId, message.localId),
+          ),
+        )
+        .limit(1);
+      const next = mergePersistedMessage(existing, message);
+      const { localId: _key, ...patch } = next;
+      const [row] = await tx
+        .insert(messages)
+        .values(next)
+        .onConflictDoUpdate({ target: messages.localId, set: patch })
+        .returning();
+      if (
+        !existing &&
+        row.senderId !== userId &&
+        row.status !== "READ" &&
+        !row.isRead &&
+        !row.deletedAt
+      ) {
+        await tx
+          .update(rooms)
+          .set({
+            unreadCount: sql`COALESCE(${rooms.unreadCount}, 0) + 1`,
+            updatedAt: Date.now(),
+          })
+          .where(
+            and(
+              eq(rooms.conversationId, row.conversationId),
+              lte(rooms.lastMessageTimestamp, message.timestamp),
+            ),
+          );
+      }
+      return (await synchronizeReplySnapshots(tx, [row]))[0];
+    });
+  }
+
+  async upsertMany(
+    batch: NewMessageRow[],
+    requestStartedAt?: number,
+  ): Promise<MessageRow[]> {
+    if (!batch.length) return [];
+    return withDatabaseTransaction(async (tx) => {
+      await recordMessageTombstones(tx, batch);
+      batch = await applyMessageInvalidations(tx, batch);
+      const ids = batch.flatMap((row) =>
+        row.id ? [row.id, row.localId] : [row.localId],
+      );
+      const existing = await tx
+        .select()
+        .from(messages)
+        .where(or(inArray(messages.id, ids), inArray(messages.localId, ids)));
+      const byId = new Map<string, MessageRow>();
+      for (const row of existing) {
+        byId.set(row.localId, row);
+        if (row.id) byId.set(row.id, row);
+      }
+      const canonical = new Map<string, NewMessageRow>();
+      const pendingByIdentity = new Map<string, NewMessageRow>();
+      for (const message of batch) {
+        const local =
+          pendingByIdentity.get(message.id ?? message.localId) ??
+          pendingByIdentity.get(message.localId) ??
+          byId.get(message.id ?? message.localId) ??
+          byId.get(message.localId);
+        const next = mergePersistedMessage(local, message, requestStartedAt);
+        canonical.set(next.localId, next);
+        pendingByIdentity.set(next.localId, next);
+        if (next.id) pendingByIdentity.set(next.id, next);
+      }
+      const result: MessageRow[] = [];
+      // Bounded pages avoid SQLite parameter limits and giant synchronous JS work.
+      for (const message of canonical.values()) {
+        const { localId, ...patch } = message;
+        const [row] = await tx
+          .insert(messages)
+          .values(message)
+          .onConflictDoUpdate({ target: messages.localId, set: patch })
+          .returning();
+        result.push(row);
+      }
+      return synchronizeReplySnapshots(tx, result);
+    });
   }
 }
 
 export class RoomsInsertQueries {
   async insert(room: NewRoomRow): Promise<RoomRow> {
-    const [row] = await db.insert(rooms).values(room).returning();
-    return row;
+    return this.upsert(room);
   }
 
   async upsert(room: NewRoomRow): Promise<RoomRow> {
+    const { id, conversationId, ...patch } = room;
     const [row] = await db
       .insert(rooms)
       .values(room)
       .onConflictDoUpdate({
         target: rooms.conversationId,
-        set: {
-          name: room.name,
-          avatarUrl: room.avatarUrl,
-          lastMessage: room.lastMessage,
-          lastMessageType: room.lastMessageType,
-          lastMessageTimestamp: room.lastMessageTimestamp,
-          receiverId: room.receiverId,
-          lastMessageStatus: room.lastMessageStatus ?? rooms.lastMessageStatus,
-          cachedAt: nowMs(),
-          updatedAt: nowMs(),
-        },
+        set: { ...patch, cachedAt: Date.now(), updatedAt: Date.now() },
       })
       .returning();
     return row;
