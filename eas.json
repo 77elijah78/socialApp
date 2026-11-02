@@ -9,10 +9,16 @@
       "distribution": "internal",
       "cache": {
         "disabled": true
+      },
+      "env": {
+        "EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS": "1"
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS": "1"
+      }
     },
     "production": {
       "autoIncrement": true

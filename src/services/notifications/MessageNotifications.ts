@@ -60,6 +60,7 @@ export interface MessageNotificationScope {
   visibleConversationId: string | null;
 }
 let scope: MessageNotificationScope = { accountId: "", enabled: false, active: false, conversationId: null, ready: false, visibleConversationId: null };
+let lastActionToken: string | null = null;
 function updateVisibility(force = false) {
   const registration = pushBackend.registration();
   const eligible = scope.active && scope.enabled && scope.ready && messageNotifications.acceptsForeground(scope.accountId);
@@ -68,12 +69,19 @@ function updateVisibility(force = false) {
     conversationId: eligible ? scope.visibleConversationId : null }, force);
 }
 export function updateMessageNotificationScope(next: MessageNotificationScope) {
+  const shouldRetryActions = next.ready && next.active && (!scope.ready || !scope.active || next.accountId !== scope.accountId);
   scope = next;
   messageNotifications.update(next);
   const identity = currentIdentity();
+  const refreshedActionToken = !!identity?.authToken && identity.authToken !== lastActionToken;
+  lastActionToken = identity?.authToken ?? null;
   messagePush.update(identity, next.enabled);
   pushPreferences.update(identity);
   updateVisibility();
+  if ((shouldRetryActions || (next.ready && next.active && refreshedActionToken)) && process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- only loaded in the opt-in native build
+    void (require("./AndroidMessageActions") as typeof import("./AndroidMessageActions")).retryAndroidNotificationReplies().catch(() => {});
+  }
 }
 function recoverMessages() {
   roomStore.requestSync();
@@ -83,6 +91,10 @@ function recoverMessages() {
 }
 export function refreshMessagePush() {
   void messagePush.refresh(); void pushPreferences.refresh(); recoverMessages();
+  if (process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- only loaded in the opt-in native build
+    void (require("./AndroidMessageActions") as typeof import("./AndroidMessageActions")).retryAndroidNotificationReplies().catch(() => {});
+  }
 }
 function startPushBridge() {
   const native = notificationModule();
@@ -124,10 +136,22 @@ export function startMessageNotifications() {
   messageNotifications.start();
   const logout = registerPushLogout(async nextAccountId => {
     if (nextAccountId && nextAccountId === messageNotifications.getAccountId()) return;
+    const previousAccount = messageNotifications.getAccountId();
     scope = { ...scope, enabled: false, ready: false, visibleConversationId: null };
     pushVisibility.stop(); messageNotifications.prepareLogout();
+    if (previousAccount && process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- only loaded in the opt-in native build
+      await (require("./AndroidMessageActions") as typeof import("./AndroidMessageActions")).clearAndroidNotificationActions(previousAccount).catch(() => {});
+    }
     try { await messagePush.deactivate(); }
     finally {
+      // Registration and logout are serialized by the token coordinator. Block
+      // again after it settles in case an in-flight registration finished while
+      // the first logout cleanup was running.
+      if (previousAccount && process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- only loaded in the opt-in native build
+        await (require("./AndroidMessageActions") as typeof import("./AndroidMessageActions")).clearAndroidNotificationActions(previousAccount).catch(() => {});
+      }
       const native = notificationModule(); native?.clearLastNotificationResponse();
       await native?.dismissAllNotificationsAsync().catch(() => {});
     }

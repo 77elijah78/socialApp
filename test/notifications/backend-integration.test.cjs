@@ -98,3 +98,19 @@ test('permission loss cleans a durable previous-process binding without reacquir
 test('a failed previous-account cleanup blocks Expo token reacquisition before it can reactivate the old provider binding',async()=>{
  await backend.register(TOKEN,A);owner={...B};setTokens(B.authToken,'refresh-B');let acquisitions=0;const coordinator=new PushTokenCoordinator({capability:()=>({available:true}),permission:async()=>({granted:true,canAskAgain:true}),token:async()=>{acquisitions++;return TOKEN;},unregister:async()=>{}},backend);coordinator.update(B,true);await settle();assert.equal(acquisitions,0);assert.equal(coordinator.getSnapshot().state,'error');assert.match(coordinator.getSnapshot().detail,/previous account/);coordinator.stop();
 });
+
+test('v2 alert navigation binds the recipient and installation after an account switch',async()=>{
+ await backend.register(TOKEN,A);await backend.revoke(TOKEN,A);owner={...B};setTokens(B.authToken,'refresh-B');await backend.register(TOKEN,B);
+ const v2=payload({contractVersion:2,recipientUserId:B.accountId,deviceId:DEVICE});
+ assert.equal((await backend.parseMessage(v2)).accountId,B.accountId);
+ await assert.rejects(backend.parseMessage({...v2,recipientUserId:A.accountId}),PushAccountAmbiguous);
+ await assert.rejects(backend.parseMessage({...v2,deviceId:id(99)}),PushAccountAmbiguous);
+ const other=client(registry,()=>PROJECT,'https://another-api.test');await assert.rejects(other.parseMessage(v2),PushAccountAmbiguous);
+ await backend.revoke(TOKEN,B);await assert.rejects(backend.parseMessage(v2),PushAccountAmbiguous);
+});
+test('v2 malformed or future payloads cannot fall back to legacy owner inference',async()=>{
+ await backend.register(TOKEN,A);
+ for(const patch of [{contractVersion:3,recipientUserId:A.accountId,deviceId:DEVICE},{contractVersion:2,deviceId:DEVICE},{contractVersion:2,recipientUserId:A.accountId,deviceId:'invalid'},{contractVersion:null}])
+  assert.equal(await backend.parseMessage(payload(patch)),null);
+ assert.equal(await backend.parseMessage(payload({contractVersion:2,recipientUserId:A.accountId,deviceId:DEVICE,senderId:A.accountId})),null);
+});

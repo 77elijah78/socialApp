@@ -53,6 +53,11 @@ export async function readPushPermission(request = false) {
   const capability = pushCapability();
   if (!capability.available) throw new Error(capability.explanation);
   await ensureMessageChannel(); // Android 13: create a channel before requesting POST_NOTIFICATIONS.
+  if (Platform.OS === "android" && process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- only load the opt-in task in a matching native build
+    const actions = require("./AndroidMessageActions") as typeof import("./AndroidMessageActions");
+    await actions.prepareAndroidMessageActions();
+  }
   const notifications = notificationModule()!;
   let permission = await notifications.getPermissionsAsync();
   if (request && !permission.granted && permission.canAskAgain)

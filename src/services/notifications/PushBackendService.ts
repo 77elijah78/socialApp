@@ -9,6 +9,7 @@ export class PushAccountAmbiguous extends Error {}
 export interface MessagePushPayload {
   messageId: string; conversationId: string; senderId: string; notificationId: string;
   conversationType: "private" | "group"; notificationType: "MESSAGE";
+  contractVersion?: 2; recipientUserId?: string; deviceId?: string;
 }
 export interface PushPreferences { messagePushEnabled: boolean; pushPreviewsEnabled: boolean }
 interface Envelope<T> { success: boolean; data: T }
@@ -17,8 +18,12 @@ export function parseMessagePushPayload(value: unknown): MessagePushPayload | nu
   const data = value as Record<string, unknown>;
   if (data.notificationType !== "MESSAGE" || !["private", "group"].includes(data.conversationType as string) ||
     ![data.messageId, data.conversationId, data.senderId, data.notificationId].every(isPushUuid)) return null;
+  // Never downgrade a malformed or future version to the legacy owner inference.
+  if (data.contractVersion !== undefined && (data.contractVersion !== 2 ||
+    !isPushUuid(data.recipientUserId) || !isPushUuid(data.deviceId))) return null;
   return { messageId: data.messageId as string, conversationId: data.conversationId as string, senderId: data.senderId as string,
-    notificationId: data.notificationId as string, conversationType: data.conversationType as "private" | "group", notificationType: "MESSAGE" };
+    notificationId: data.notificationId as string, conversationType: data.conversationType as "private" | "group", notificationType: "MESSAGE",
+    ...(data.contractVersion === 2 ? { contractVersion: 2 as const, recipientUserId: data.recipientUserId as string, deviceId: data.deviceId as string } : {}) };
 }
 const validPreferences = (value: unknown): value is PushPreferences => !!value && typeof value === "object" &&
   typeof (value as PushPreferences).messagePushEnabled === "boolean" && typeof (value as PushPreferences).pushPreviewsEnabled === "boolean";
@@ -60,15 +65,24 @@ export class PushBackendService implements PushRegistration {
         (state.pendingOwnerId && state.pendingOwnerId !== owner.accountId))
         throw new PushSetupError("This installation still needs online push cleanup by its previous account. Sign in to that account and disable system notifications before switching.");
       await this.installation.attempt(owner.accountId, this.origin);
-      const result = await api.post<Envelope<{ deviceId: string; platform: string; enabled: boolean }>>("/push/devices", {
+      const result = await api.post<Envelope<{ deviceId: string; platform: string; enabled: boolean; deliveryMode?: string }>>("/push/devices", {
         deviceId: state.deviceId, platform: "android", projectId, token: expoPushToken,
+        ...(process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" ? { deliveryMode: "android-data-v2" } : {}),
       }, this.token(owner), { timeout: 8000 });
       if (result.success !== true || result.data?.deviceId !== state.deviceId || result.data.platform !== "android" || result.data.enabled !== true)
         throw new Error("Invalid registration acknowledgement");
+      if (process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" && result.data.deliveryMode !== "android-data-v2")
+        throw new PushSetupError("This server does not confirm the Android reply delivery mode. Deploy the updated push backend and migration before testing notification actions.");
       // Keep authoritative ownership even if logout raced the response; cleanup
       // must know which account's real server binding needs revocation.
       await this.installation.registered(owner.accountId, this.origin);
-      if (this.current(owner)) this.confirmed = { accountId: owner.accountId, deviceId: state.deviceId };
+      if (this.current(owner)) {
+        if (process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1") {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports -- available only in the opted-in native build
+          await (require("./AndroidMessageActions") as typeof import("./AndroidMessageActions")).enableAndroidNotificationActions(owner.accountId);
+        }
+        if (this.current(owner)) this.confirmed = { accountId: owner.accountId, deviceId: state.deviceId };
+      }
     } catch (error) { throw setupError(error); }
   }
   revoke(_token: string, owner: PushIdentity) { return this.revokeCurrent(owner); }
@@ -86,7 +100,16 @@ export class PushBackendService implements PushRegistration {
   async parseMessage(data: unknown): Promise<MessagePushTarget | null> {
     const payload = parseMessagePushPayload(data); if (!payload) return null;
     const state = await this.installation.load();
-    // This actual legacy wire payload has NO recipient ID. Never assign the
+    // V2 explicitly binds both recipient and installation. A notification from
+    // a revoked or different owner must never be rebound to the current login.
+    if (payload.contractVersion === 2) {
+      if (state.origin !== this.origin || payload.deviceId !== state.deviceId ||
+        payload.recipientUserId !== state.registeredOwnerId) throw new PushAccountAmbiguous();
+      if (payload.senderId === payload.recipientUserId) return null;
+      return { accountId: payload.recipientUserId!, conversationId: payload.conversationId,
+        messageId: payload.messageId, notificationId: payload.notificationId };
+    }
+    // The legacy wire payload has NO recipient ID. Never assign the
     // current login to a stale notification. Only a proven single-owner install
     // can resolve it; after account/origin changes fail closed until the backend
     // publishes recipient-scoped data. Membership is still rechecked on tap.
