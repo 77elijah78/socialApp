@@ -78,3 +78,29 @@ test('a native error for an old account cannot overwrite the new account status'
   try { controller.update(identity,true);await settle();controller.update({accountId:'new-owner',authToken:'new-jwt'},true);gate.reject(coded('E_REGISTRATION_FAILED','Default FirebaseApp is not initialized'));await settle();assert.equal(controller.getSnapshot().state,'ready');assert.equal(controller.getSnapshot().detail.includes('FCM_CONFIG_MISSING'),false); }
   finally {controller.stop();}
 });
+test('Expo rejection preserves HTTP status and whitelisted provider/field hints without values', async () => {
+  const body=JSON.stringify({errors:[{code:'VALIDATION_ERROR',message:'"deviceId" must be a UUID; supplied private-device-value',details:{token:'secret-token',projectId:'private-project-value'}}]});
+  const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`Error encountered while fetching Expo token, expected an OK response, received: Bad Request (body: "${body}").`));
+  assert.match(status.detail,/HTTP 400/);assert.match(status.detail,/VALIDATION_ERROR/);assert.match(status.detail,/deviceId/);for(const secret of ['private-device-value','secret-token','private-project-value'])assert.equal(status.detail.includes(secret),false);
+});
+for(const [label,expected] of [['403',403],['Forbidden',403],['Unprocessable Entity',422],['Service Unavailable',503]])test(`Expo HTTP status is retained safely: ${label}`,async()=>{
+ const body=JSON.stringify({errors:[{code:'INTERNAL_SERVER_ERROR',message:'private-body-must-not-show'}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`expected an OK response, received: ${label} (body: "${body}").`));assert.ok(status.detail.includes(`HTTP ${expected}`));assert.equal(status.detail.includes('private-body-must-not-show'),false);
+});
+test('unknown provider code/value and HTML bodies are not echoed',async()=>{
+ const body=JSON.stringify({errors:[{code:'PRIVATE_SECRET_CODE',message:'secret-body-with-credential'}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`received: Forbidden (body: "${body}").`));assert.match(status.detail,/HTTP 403/);assert.equal(status.detail.includes('PRIVATE_SECRET_CODE'),false);assert.equal(status.detail.includes('secret-body'),false);const html=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR','received: Forbidden (body: "<html>private-secret-page</html>").'));assert.match(html.detail,/HTTP 403/);assert.equal(html.detail.includes('private-secret-page'),false);
+});
+test('provider validation paths expose only known field names and never rejected values',async()=>{
+ const body=JSON.stringify({errors:[{code:'VALIDATION_ERROR',message:'invalid input',details:[{path:['deviceToken'],context:{value:'private-fcm-token'}},{path:['unknown-private-field'],context:{value:'private-key'}}]}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`received: 422 (body: "${body}").`));assert.match(status.detail,/deviceToken/);for(const value of ['private-fcm-token','unknown-private-field','private-key'])assert.equal(status.detail.includes(value),false);
+});
+test('oversized response bodies are not parsed or copied into diagnostics',async()=>{
+ const body=JSON.stringify({errors:[{code:'VALIDATION_ERROR',message:'secret'.repeat(3000)}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`received: 400 (body: "${body}").`));assert.match(status.detail,/HTTP 400/);assert.equal(status.detail.includes('VALIDATION_ERROR'),false);assert.equal(status.detail.includes('secret'),false);
+});
+test('a malformed successful Expo response is not mislabeled as HTTP rate limiting',async()=>{
+ const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR','Malformed response from server, expected data, received: 429'));assert.match(status.detail,/^\[EXPO_RESPONSE_INVALID\]/);
+});
+test('HTTP 403 cannot be turned into a rate-limit diagnosis by text inside its body',async()=>{
+ const body=JSON.stringify({errors:[{code:'FORBIDDEN',message:'upstream message received: 429'}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`received: Forbidden (body: "${body}").`));assert.match(status.detail,/^\[EXPO_TOKEN_REJECTED\]/);assert.match(status.detail,/HTTP 403/);
+});
+test('arbitrary status text cannot be copied into the safe diagnostic',async()=>{
+ const body=JSON.stringify({errors:[{code:'PRIVATE_ERROR_IDENTIFIER',message:'secret-value'}]});const status=await failAt('expo-token',coded('ERR_NOTIFICATIONS_SERVER_ERROR',`received: PRIVATE_STATUS_CREDENTIAL (body: "${body}").`));assert.match(status.detail,/HTTP status unavailable/);for(const secret of ['PRIVATE_STATUS_CREDENTIAL','PRIVATE_ERROR_IDENTIFIER','secret-value'])assert.equal(status.detail.includes(secret),false);
+});

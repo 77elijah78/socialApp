@@ -1,3 +1,42 @@
+const httpLabels: Record<string, number> = {
+  "bad request": 400, unauthorized: 401, "payment required": 402, forbidden: 403, "not found": 404,
+  "request timeout": 408, conflict: 409, gone: 410, "payload too large": 413, "unsupported media type": 415,
+  "unprocessable entity": 422, "too many requests": 429, "internal server error": 500,
+  "bad gateway": 502, "service unavailable": 503, "gateway timeout": 504,
+};
+const providerCodes = new Set(["VALIDATION_ERROR", "BAD_REQUEST", "PROJECT_NOT_FOUND", "EXPERIENCE_NOT_FOUND",
+  "UNAUTHORIZED", "FORBIDDEN", "RATE_LIMITED", "INTERNAL_SERVER_ERROR", "SERVICE_UNAVAILABLE", "PUSH_TOKEN_GENERATION_ERROR"]);
+const requestFields = ["projectId", "appId", "deviceId", "deviceToken", "type", "development"];
+function expoResponseFacts(message: string) {
+  // SDK embeds statusText plus a possibly sensitive response body in its error.
+  // Only expose a status number, known provider codes and known FIELD NAMES.
+  const prefix = message.slice(0, 8192);
+  const match = /received:\s*([^()\r\n]{1,64}?)(?:\s*\(body:|$)/i.exec(prefix);
+  const label = match?.[1].trim().toLowerCase() ?? "";
+  const status = /^[1-5]\d{2}$/.test(label) ? Number(label) : httpLabels[label] ?? null;
+  const codes = new Set<string>(), fields = new Set<string>();
+  const start = message.indexOf('(body: "'), end = message.lastIndexOf('").');
+  if (start >= 0 && end > start && end - start <= 8192) {
+    try {
+      const body = JSON.parse(message.slice(start + '(body: "'.length, end));
+      const errors = Array.isArray(body?.errors) ? body.errors.slice(0, 8) : [body?.error ?? body];
+      for (const item of errors) {
+        if (!item || typeof item !== "object") continue;
+        if (typeof item.code === "string" && providerCodes.has(item.code)) codes.add(item.code);
+        const text = typeof item.message === "string" ? item.message.slice(0, 2048) : "";
+        for (const field of requestFields) if (new RegExp(`\\b${field}\\b`, "i").test(text)) fields.add(field);
+        const details = Array.isArray(item.details) ? item.details.slice(0, 8) : [item.details];
+        for (const detail of details) if (Array.isArray(detail?.path))
+          for (const field of requestFields) if (detail.path.includes(field)) fields.add(field);
+      }
+    } catch { /* Never fall back to echoing malformed/untrusted response text. */ }
+  }
+  const safe = [status ? `HTTP ${status}.` : "HTTP status unavailable.",
+    codes.size ? `Provider code: ${[...codes].join(", ")}.` : "",
+    fields.size ? `Fields mentioned: ${[...fields].join(", ")}.` : ""].filter(Boolean).join(" ");
+  return { status, safe };
+}
+
 export type PushSetupStage = "permissions" | "identity" | "native-token" | "expo-token" | "server" | "cleanup";
 
 /** Whitelisted diagnostics only. SDK messages may embed HTTP bodies, tokens or
@@ -32,9 +71,14 @@ export function describePushSetupFailure(error: unknown, stage: PushSetupStage):
   if (code === "ERR_NOTIFICATIONS_NETWORK_ERROR")
     return "[EXPO_NETWORK_ERROR] The phone could not reach Expo’s HTTPS token service. Check internet, VPN or private-DNS restrictions. This request does not use your local backend URL.";
   if (code === "ERR_NOTIFICATIONS_SERVER_ERROR") {
-    if (/received:\s*(?:429\b|Too Many Requests\b)/i.test(message))
-      return "[EXPO_RATE_LIMITED] Expo rate-limited token registration. Stop repeated retries and retry after its restriction clears.";
-    return "[EXPO_TOKEN_REJECTED] Expo rejected the token request or returned an invalid response. Check the EAS project/build configuration and Expo service availability. This happened before backend device registration.";
+    const facts = expoResponseFacts(message);
+    if (/Malformed response from server|Expected a JSON response from server/i.test(message))
+      return "[EXPO_RESPONSE_INVALID] Expo returned an invalid token response. Check its service availability and whether a VPN, proxy or captive portal is intercepting the phone’s connection. No response contents are displayed.";
+    if (facts.status === 429)
+      return "[EXPO_RATE_LIMITED] HTTP 429. Expo rate-limited token registration. Stop repeated retries and retry after its restriction clears.";
+    if (facts.status && facts.status >= 500)
+      return `[EXPO_TOKEN_REJECTED] ${facts.safe} Expo’s token service returned a server error. Retry when the service is available; this is not evidence that Firebase keys need replacing.`;
+    return `[EXPO_TOKEN_REJECTED] ${facts.safe} Expo rejected token registration before the app backend was contacted. Compare the app’s displayed EAS project with project:info; do not change IDs or credentials without the response evidence.`;
   }
   if (stage === "permissions")
     return "[PERMISSION_CHECK_FAILED] Couldn’t check Android notification permission or prepare the Messages channel. Check the phone’s app notification settings, then reload and retry.";

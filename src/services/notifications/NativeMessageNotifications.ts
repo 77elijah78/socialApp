@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import { Linking, Platform } from "react-native";
 import type * as Notifications from "expo-notifications";
 import type { AndroidPushDeviceToken } from "./PushTokenCoordinator";
+import { isPushUuid } from "./PushInstallation";
 
 export const MESSAGE_CHANNEL_ID = "messages";
 export type NotificationModule = typeof Notifications;
@@ -34,7 +35,7 @@ export function pushCapability(): PushCapability {
     const device = require("expo-device") as typeof import("expo-device");
     if (!device.isDevice) return { available: false, explanation: "Test push notifications on a physical device." };
   } catch { return { available: false, explanation: "Rebuild the EAS development/production app to include native push dependencies." }; }
-  const id = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  const id = easPushProjectId();
   return typeof id === "string" && id ? { available: true }
     : { available: false, explanation: "The EAS project ID is missing from this build." };
 }
@@ -65,7 +66,7 @@ export async function getAndroidPushDeviceToken(): Promise<AndroidPushDeviceToke
   return { type: "android", data: token.data };
 }
 export async function getMessagePushToken(devicePushToken?: AndroidPushDeviceToken) {
-  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  const projectId = easPushProjectId() ?? undefined;
   return (await notificationModule()!.getExpoPushTokenAsync({ projectId, ...(devicePushToken ? { devicePushToken } : {}) })).data;
 }
 export function openNotificationSettings() { return Linking.openSettings(); }
@@ -86,6 +87,16 @@ export const nativePushStorage = {
   setItem: (key: string, value: string) => secureStore().setItemAsync(key, value),
 };
 export function easPushProjectId(): string | null {
-  const value = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  const value = Constants.easConfig?.projectId || Constants.expoConfig?.extra?.eas?.projectId;
   return typeof value === "string" ? value : null;
+}
+
+/** Public project identifiers only; never display an arbitrary config value
+ * that could accidentally contain a credential instead of a UUID. */
+export function pushProjectInfo() {
+  const safeId = (value: unknown) => isPushUuid(value) ? value.toLowerCase() : null;
+  const runtimeProjectId = safeId(Constants.easConfig?.projectId);
+  const configuredProjectId = safeId(Constants.expoConfig?.extra?.eas?.projectId);
+  return { runtimeProjectId, configuredProjectId, usedProjectId: safeId(easPushProjectId()),
+    mismatch: !!runtimeProjectId && !!configuredProjectId && runtimeProjectId !== configuredProjectId };
 }

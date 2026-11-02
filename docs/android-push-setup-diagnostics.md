@@ -1,5 +1,7 @@
 # Safe Android push setup diagnostics
 
+> **Expo rejection follow-up:** [safe HTTP status/provider hints and runtime project display](expo-token-rejection-diagnostics.md) narrows `EXPO_TOKEN_REJECTED` after the user confirmed the source EAS project ID. No handset rejection reason has yet been verified.
+
 ## Why this change
 
 The user reached the terminal Settings error “Couldn’t synchronize system notifications. Check your connection and native FCM configuration, then retry.” That message was a generic catch-all in `PushTokenCoordinator`, not evidence of a particular handset/configuration problem.

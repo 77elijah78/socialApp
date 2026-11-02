@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { messagePush, pushPreferences, pushInstallation } from "@/services/notifications/MessageNotifications";
-import { openNotificationSettings } from "@/services/notifications/NativeMessageNotifications";
+import { openNotificationSettings, pushProjectInfo } from "@/services/notifications/NativeMessageNotifications";
 import { COLORS } from "@/constants/theme";
 import { useAppSelector } from "@/store/hooks";
 export default function PushNotificationSettings() {
@@ -11,11 +11,14 @@ export default function PushNotificationSettings() {
   const enabled = useAppSelector(state => state.app.notificationsEnabled);
   const accountId = useAppSelector(state => state.auth.user?.id);
   const data = preferences.accountId === accountId ? preferences.data : null;
+  const project = pushProjectInfo();
   const registeredButOff = status.state === "ready" && data?.messagePushEnabled === false;
   return <View style={styles.container}>
     <Text style={styles.title}>System message notifications</Text>
-    <Text accessibilityLiveRegion="polite" style={styles.detail}>{registeredButOff
+    <Text selectable accessibilityLiveRegion="polite" style={styles.detail}>{registeredButOff
       ? "This device is registered, but message push is turned off for your account." : status.detail}</Text>
+    {status.state === "error" ? <Text testID="push-runtime-project" selectable style={styles.detail}>EAS project used: {project.usedProjectId ?? "unavailable or invalid"}</Text> : null}
+    {project.mismatch ? <Text selectable accessibilityRole="alert" style={styles.error}>[EAS_PROJECT_MISMATCH] SDK runtime: {project.runtimeProjectId}. Current source: {project.configuredProjectId}. Check the app/bundle project link before changing IDs.</Text> : null}
     <Text style={styles.detail}>Use a physical Android development or production build. Expo Go cannot receive this app’s remote push notifications.</Text>
     {enabled && status.state !== "unsupported" && status.state !== "syncing" && status.state !== "backend-required" ?
       <Pressable accessibilityRole="button" style={styles.button} onPress={() => {
