@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import PostCard from "@/components/feed/PostCard";
 import { usePosts } from "@/hooks/usePosts";
@@ -18,6 +18,7 @@ import { useOverlay } from "@/providers/OverlayProvider";
 import { showAppDialog } from "@/services/AppDialogService";
 import * as theme from "@/constants/theme";
 import type { SocialPost } from "@/types";
+import { formatCount } from "@/utils/format";
 
 const PAGE_SIZE = 20;
 type Props = {
@@ -56,8 +57,16 @@ export default function PostCollection({
   const heights = useRef(new Map<string, number>());
   const anchorDone = useRef(!selectedId);
   const viewportReady = useRef(false);
+  const columns = width >= 700 ? 4 : width >= 340 ? 3 : 2;
   const tileWidth =
-    (width - theme.LAYOUT.contentPadding * 2 - theme.SPACING.sm * 2) / 3;
+    (width -
+      theme.LAYOUT.contentPadding * 2 -
+      theme.SPACING.sm * (columns - 1)) /
+    columns;
+  const openPost = useCallback((postId: string) => {
+    // A saved/bookmarked grid cell is a post — never an implicit comments route.
+    router.push({ pathname: "/posts/[id]", params: { id: postId } });
+  }, []);
 
   const positionSelected = useCallback(() => {
     if (
@@ -128,15 +137,18 @@ export default function PostCollection({
     mode === "grid" ? (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`View comments on ${item.author.username}'s post`}
-        onPress={() => openComments(item.id)}
+        accessibilityLabel={`Open post by ${item.author.displayName || item.author.username}`}
+        onPress={() => openPost(item.id)}
         style={[styles.tile, { width: tileWidth, height: tileWidth }]}
       >
         {item.imageUrl ? (
           <Image
             source={{ uri: item.imageUrl }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
+            recyclingKey={item.id}
           />
         ) : (
           <View style={styles.textTile}>
@@ -154,9 +166,34 @@ export default function PostCollection({
             </Text>
           </View>
         )}
+        <View style={styles.tileBadges}>
+          {item.videoUrl ? (
+            <View style={styles.tileBadge}>
+              <Ionicons name="play" size={9} color={theme.COLORS.white} />
+            </View>
+          ) : null}
+          {(item.imageUrls?.length ?? 0) > 1 ? (
+            <View style={styles.tileBadge}>
+              <Ionicons
+                name="copy-outline"
+                size={9}
+                color={theme.COLORS.white}
+              />
+              <Text style={styles.tileBadgeText}>
+                {item.imageUrls.length}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <View style={styles.tileMeta}>
-          <Ionicons name="bookmark" size={12} color={theme.COLORS.white} />
-          <Text style={styles.tileMetaText}>{item.commentCount} comments</Text>
+          <Ionicons name="heart" size={11} color={theme.COLORS.white} />
+          <Text style={styles.tileMetaText}>{formatCount(item.likeCount)}</Text>
+          <Ionicons
+            name="chatbubble-outline"
+            size={10}
+            color="rgba(255,255,255,0.9)"
+          />
+          <Text style={styles.tileMetaText}>{formatCount(item.commentCount)}</Text>
         </View>
       </Pressable>
     ) : (
@@ -182,6 +219,7 @@ export default function PostCollection({
           onShare={(postId) => openShare({ postId })}
           onUserPress={(name) => router.push(`/user/${name}`)}
           onMenuPress={menu}
+          onOpen={openPost}
         />
       </View>
     );
@@ -286,7 +324,7 @@ export default function PostCollection({
             data={feed.posts}
             renderItem={renderItem}
             keyExtractor={(post) => post.id}
-            numColumns={mode === "grid" ? 3 : 1}
+            numColumns={mode === "grid" ? columns : 1}
             columnWrapperStyle={mode === "grid" ? styles.gridRow : undefined}
             style={{ flex: 1, opacity: anchored || feed.error ? 1 : 0 }}
             contentContainerStyle={styles.content}
@@ -328,6 +366,15 @@ export default function PostCollection({
                       ? "Save a post to find it here later."
                       : "This author hasn't shared any posts."}
                   </Text>
+                  {source === "saved" ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => router.push("/(tabs)/explore")}
+                      style={styles.emptyAction}
+                    >
+                      <Text style={styles.link}>Find posts to save</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : null
             }
@@ -428,6 +475,26 @@ const styles = StyleSheet.create({
   },
   textTile: { flex: 1, padding: theme.SPACING.md, gap: theme.SPACING.sm },
   tileCopy: { fontSize: 12, color: theme.COLORS.textPrimary, lineHeight: 17 },
+  tileBadges: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  tileBadge: {
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 3,
+    borderRadius: 9,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  tileBadgeText: { fontSize: 8, color: theme.COLORS.white },
   tileMeta: {
     position: "absolute",
     bottom: 0,
@@ -440,6 +507,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tileMetaText: { fontSize: 10, color: theme.COLORS.white },
+  emptyAction: {
+    minHeight: 44,
+    justifyContent: "center",
+    marginTop: theme.SPACING.xs,
+  },
   feedItem: {
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingBottom: theme.SPACING.lg,

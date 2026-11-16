@@ -7,6 +7,7 @@ export {
   ProfileSkeleton,
   ProfileGridItemSkeleton,
   ProfileGridSkeleton,
+  ExploreGridSkeleton,
   ConversationRowSkeleton,
   ChatBubbleSkeleton,
   CommentsSkeleton,

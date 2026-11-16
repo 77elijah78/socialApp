@@ -1,6 +1,5 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -14,19 +13,10 @@ import { router } from "expo-router";
 
 import { StoriesBarSkeleton } from "@/components/ui/Skeleton";
 import theme from "@/constants/theme";
-import {
-  createUploadFormData,
-  getAssetMimeType,
-  PickedAsset,
-  pickFromLibrary,
-  showImageSourceActionSheet,
-  takePhoto,
-} from "@/hooks/useImagePicker";
 import { useStories } from "@/hooks/useStories";
-import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
-import { showAppDialog } from "@/services/AppDialogService";
+import { subscribeStoryCreated } from "@/utils/storyUpdates";
 
 const STORY_SIZE = theme.SIZING.storyItem;
 
@@ -127,53 +117,17 @@ export default function StoriesBar() {
   const token = useAppSelector((state) => state.auth.token);
   const currentUserId = useAppSelector((state) => state.auth.user?.id);
   const currentAvatarUrl = useAppSelector((state) => state.auth.user?.avatarUrl ?? null);
-  const [uploading, setUploading] = useState(false);
-
   const handleCreateStory = useCallback(() => {
-    if (!token || uploading) return;
+    if (!token) return;
+    router.push("/stories/create");
+  }, [token]);
 
-    showImageSourceActionSheet(async (action) => {
-      let asset: PickedAsset | null = null;
-      if (action === "library") {
-        const result = await pickFromLibrary({ allowsEditing: true, aspect: [9, 16] });
-        asset = Array.isArray(result) ? result[0] ?? null : result;
-      } else {
-        asset = await takePhoto();
-      }
-
-      if (!asset) return;
-
-      setUploading(true);
-      try {
-        const mimeType = getAssetMimeType(asset);
-        const form = createUploadFormData(asset.uri, mimeType);
-        const uploaded = await api.upload("/media/upload", form, token);
-
-        await api.post(
-          "/posts/stories",
-          {
-            mediaUrl: uploaded.data.url,
-            mediaType: "image",
-            caption: undefined,
-          },
-          token,
-        );
-
-        await refetch();
-      } catch (err) {
-        showAppDialog({
-          title: "Couldn’t create story",
-          message: err instanceof Error ? err.message : "Please try again.",
-          tone: "error",
-        });
-      } finally {
-        setUploading(false);
-      }
-    }, {
-      title: "Create a story",
-      message: "Choose a photo from your library or capture a new one.",
-    });
-  }, [token, uploading, refetch]);
+  // A confirmed publish refreshes the real `/posts/stories` list once, without
+  // polling or refetching every time Home regains focus.
+  useEffect(
+    () => subscribeStoryCreated(() => void refetch()),
+    [refetch],
+  );
 
   const handleStoryPress = useCallback(
     (story: StoryItem) => {
@@ -226,11 +180,21 @@ export default function StoriesBar() {
           <Text style={styles.sectionTitle}>Stories</Text>
           <Text style={styles.sectionSubtitle}>Little moments from your circle</Text>
         </View>
-        <View style={styles.updatesBadge}>
-          <View style={[styles.updatesDot, newStoryCount === 0 && styles.updatesDotQuiet]} />
-          <Text style={styles.updatesText}>
-            {newStoryCount > 0 ? `${newStoryCount} new` : "Your circle"}
-          </Text>
+        <View style={styles.headerActions}>
+          <View style={styles.updatesBadge}>
+            <View style={[styles.updatesDot, newStoryCount === 0 && styles.updatesDotQuiet]} />
+            <Text style={styles.updatesText}>
+              {newStoryCount > 0 ? `${newStoryCount} new` : "Your circle"}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create a story"
+            onPress={handleCreateStory}
+            style={({ pressed }) => [styles.addStory, pressed && styles.storyPressed]}
+          >
+            <Ionicons name="add" size={17} color={theme.COLORS.primary} />
+          </Pressable>
         </View>
       </View>
 
@@ -259,7 +223,12 @@ export default function StoriesBar() {
                 accessibilityLabel={isMe ? label : `View ${label}'s story`}
                 style={({ pressed }) => [styles.storyItem, pressed && styles.storyPressed]}
                 onPress={() => handleStoryPress(isMe ? ownItem : item)}
-                disabled={isMe && uploading}
+                onLongPress={isMe ? handleCreateStory : undefined}
+                accessibilityHint={
+                  isMe
+                    ? "Tap to view your story. Long press to add another."
+                    : undefined
+                }
               >
                 <View style={styles.storyAvatarWrap}>
                   <StoryRing
@@ -271,11 +240,6 @@ export default function StoriesBar() {
                     hasStory={isMe ? ownStoryCount > 0 : true}
                     storyCount={count}
                   />
-                  {isMe && uploading ? (
-                    <View style={styles.uploadingOverlay}>
-                      <ActivityIndicator size="small" color={theme.COLORS.white} />
-                    </View>
-                  ) : null}
                 </View>
                 <Text style={[styles.storyLabel, isMe && styles.ownStoryLabel]} numberOfLines={1}>
                   {label}
@@ -307,6 +271,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: theme.SPACING.lg,
     marginBottom: theme.SPACING.md,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+  },
+  addStory: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.COLORS.primaryGhost,
+    borderWidth: 1,
+    borderColor: theme.COLORS.primaryGhostBorder,
   },
   sectionTitle: {
     color: theme.COLORS.textPrimary,
@@ -444,16 +423,5 @@ const styles = StyleSheet.create({
   ownStoryLabel: {
     color: theme.COLORS.textPrimary,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  uploadingOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: STORY_SIZE / 2,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(26, 26, 46, 0.42)",
   },
 });

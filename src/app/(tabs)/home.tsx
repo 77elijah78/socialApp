@@ -122,6 +122,9 @@ export default function FeedScreen() {
     (postId: string) => openShare({ postId }),
     [openShare],
   );
+  const openPost = useCallback((postId: string) => {
+    router.push({ pathname: "/posts/[id]", params: { id: postId } });
+  }, []);
   const hasFocusedFeedRef = useRef(false);
 
   useFocusEffect(
@@ -141,6 +144,7 @@ export default function FeedScreen() {
           onShare={handleShare}
           onUserPress={(username) => router.push(`/user/${username}`)}
           onBookmark={(postId, bookmarked) => bookmarked ? save(postId) : unsave(postId)}
+          onOpen={openPost}
           onMenuPress={(postId, anchor) => {
             const isOwnPost = item.author.id === currentUserId;
             const actions: ActionMenuItem[] = [

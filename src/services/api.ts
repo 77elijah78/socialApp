@@ -348,11 +348,12 @@ export const api = {
     path: string,
     formData: FormData,
     token?: string,
+    onProgress?: (percent: number) => void,
   ): Promise<{
     success: boolean;
     data: MediaUploadResponse;
     message?: string;
-  }> => _uploadFile(path, formData, token),
+  }> => _uploadFile(path, formData, token, onProgress),
 
   /**
    * Upload file from URI
@@ -364,6 +365,7 @@ export const api = {
     fieldName: string = "file",
     filename?: string,
     token?: string,
+    onProgress?: (percent: number) => void,
   ): Promise<{
     success: boolean;
     data: MediaUploadResponse;
@@ -373,6 +375,7 @@ export const api = {
       path,
       _buildFormData(uri, mimeType, fieldName, filename),
       token,
+      onProgress,
     ),
 };
 
@@ -380,6 +383,7 @@ async function _uploadFile(
   path: string,
   formData: FormData,
   token?: string,
+  onProgress?: (percent: number) => void,
 ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
   const generation = authGeneration;
   const url = apiUrl(path);
@@ -389,7 +393,7 @@ async function _uploadFile(
     throw new Error("No authentication token available");
   }
 
-  const response = await uploadMultipart<{ success: boolean; data: MediaUploadResponse; message?: string }>(url, formData, authToken, undefined, generation);
+  const response = await uploadMultipart<{ success: boolean; data: MediaUploadResponse; message?: string }>(url, formData, authToken, onProgress, generation);
   if (!response.success || !response.data) throw new Error(response.message || "Upload was not confirmed");
   return { ...response, data: { ...response.data, url: requireRemoteMediaUrl(response.data.url),
     thumbnailUrl: normalizeMediaUrl(response.data.thumbnailUrl) ?? undefined } };

@@ -7,9 +7,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
 import { Comment } from "@/types";
+import { showAppDialog } from "@/services/AppDialogService";
+import { formatCount } from "@/utils/format";
 
 export interface CommentThreadNode {
   comment: Comment;
@@ -78,6 +81,7 @@ interface CommentThreadProps {
   keyboardIsVisible: boolean;
   onReply: (comment: Comment) => void;
   onProfilePress: (username: string) => void;
+  onLike?: (comment: Comment) => void | Promise<void>;
   depth?: number;
 }
 
@@ -87,6 +91,7 @@ export function CommentThread({
   keyboardIsVisible,
   onReply,
   onProfilePress,
+  onLike,
   depth = 0,
 }: CommentThreadProps) {
   const { comment, replies, replyCount } = node;
@@ -97,6 +102,12 @@ export function CommentThread({
   const timeLabel = formatCommentTime(comment.createdAt);
   const canShowReplies = replyCount > 0 || replies.length > 0;
   const [repliesExpanded, setRepliesExpanded] = useState(false);
+  const [liking, setLiking] = useState(false);
+  const liked = Boolean(comment.isLikedByCurrentUser ?? comment.isLiked);
+  const likeCount = Math.max(
+    0,
+    comment.likesCount ?? comment._count?.likes ?? comment.likeCount ?? 0,
+  );
 
   const handleProfilePress = () => {
     if (!username) return;
@@ -107,6 +118,22 @@ export function CommentThread({
     onProfilePress(username);
   };
 
+  const handleLike = async () => {
+    if (!onLike || liking) return;
+    setLiking(true);
+    try {
+      await onLike(comment);
+    } catch (error) {
+      showAppDialog({
+        title: liked ? "Couldn’t remove like" : "Couldn’t like comment",
+        message:
+          error instanceof Error ? error.message : "Please try again.",
+        tone: "error",
+      });
+    } finally {
+      setLiking(false);
+    }
+  };
 
   return (
     <View style={[styles.thread, depth > 0 && styles.replyThread]}>
@@ -145,6 +172,36 @@ export function CommentThread({
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaText}>{timeLabel}</Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={
+                liked
+                  ? `Unlike ${authorName}'s comment`
+                  : `Like ${authorName}'s comment`
+              }
+              accessibilityState={{ selected: liked, busy: liking }}
+              disabled={!onLike || liking}
+              onPress={() => void handleLike()}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+              activeOpacity={0.7}
+              style={styles.likeAction}
+            >
+              <Ionicons
+                name={liked ? "heart" : "heart-outline"}
+                size={13}
+                color={liked ? COLORS.secondary : COLORS.textMuted}
+              />
+              {likeCount > 0 ? (
+                <Text
+                  style={[
+                    styles.likeCount,
+                    liked && styles.likeCountLiked,
+                  ]}
+                >
+                  {formatCount(likeCount)}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => onReply(comment)} activeOpacity={0.7}>
               <Text style={styles.metaAction}>Reply</Text>
             </TouchableOpacity>
@@ -181,6 +238,7 @@ export function CommentThread({
                 keyboardIsVisible={keyboardIsVisible}
                 onReply={onReply}
                 onProfilePress={onProfilePress}
+                onLike={onLike}
                 depth={depth + 1}
               />
             ))
@@ -292,16 +350,18 @@ const styles = StyleSheet.create({
   metaActionLiked: {
     color: COLORS.secondary,
   },
-  likeButton: {
-    width: 30,
-    minHeight: 34,
+  likeAction: {
+    minHeight: 28,
+    minWidth: 30,
+    flexDirection: "row",
     alignItems: "center",
-    paddingTop: 7,
-    gap: 1,
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: SPACING.xs,
   },
   likeCount: {
     color: COLORS.textMuted,
-    fontSize: 9,
+    fontSize: TYPOGRAPHY.fontSize.xs,
     fontWeight: TYPOGRAPHY.fontWeight.semibold,
   },
   likeCountLiked: {

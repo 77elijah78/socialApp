@@ -179,3 +179,32 @@ export function showImageSourceActionSheet(
     ],
   });
 }
+
+/** Camera capture for stories: a single photo or a short video. */
+export async function captureMedia(): Promise<PickedAsset | null> {
+  const cameraGranted = await ensurePermission(
+    () => ImagePicker.requestCameraPermissionsAsync(),
+    "Permission Required",
+    "Please grant camera permission to capture media.",
+  );
+  if (!cameraGranted) return null;
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.All,
+    quality: 0.9,
+    videoMaxDuration: 60,
+    base64: false,
+  });
+
+  if (result.canceled) return null;
+
+  const a = result.assets[0];
+  return {
+    uri: a.uri,
+    width: a.width,
+    height: a.height,
+    fileName: a.fileName,
+    type: a.type,
+    mimeType: a.mimeType,
+  };
+}

@@ -247,6 +247,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       total: commentCount,
       refresh: fetchComments,
       send: handleSend,
+      toggleLike,
     } = usePostComments(postId, openSequence);
     const [currentSnapIndex, setCurrentSnapIndex] = useState(0);
 
@@ -368,9 +369,16 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           keyboardIsVisible={keyboardIsVisible}
           onReply={handleReply}
           onProfilePress={handleProfilePress}
+          onLike={(comment) => toggleLike(comment.id)}
         />
       ),
-      [currentUserId, keyboardIsVisible, handleReply, handleProfilePress],
+      [
+        currentUserId,
+        keyboardIsVisible,
+        handleReply,
+        handleProfilePress,
+        toggleLike,
+      ],
     );
 
     const ListEmptyComponent = useCallback(() => {
@@ -498,8 +506,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             ListFooterComponent={
               commentCount > comments.length ? (
                 <Text style={styles.stateSubtext}>
-                  Showing {comments.length} of {commentCount} comments. More
-                  comments are not yet available from this server.
+                  Showing the latest {comments.length} of {commentCount}{" "}
+                  comments.
                 </Text>
               ) : null
             }

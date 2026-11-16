@@ -39,7 +39,7 @@ export default function CommentsScreen() {
   const currentUserId = currentUser?.id ?? "";
   const keyboardIsVisible = useKeyboardState((state) => state.isVisible);
 
-  const { comments, total, loading, error, refresh, send } =
+  const { comments, total, loading, error, refresh, send, toggleLike } =
     usePostComments(postId);
   const [sendError, setSendError] = useState<string | null>(null);
   const sendingRef = useRef(false);
@@ -111,9 +111,10 @@ export default function CommentsScreen() {
         keyboardIsVisible={keyboardIsVisible}
         onReply={setReplyingTo}
         onProfilePress={handleProfilePress}
+        onLike={(comment) => toggleLike(comment.id)}
       />
     ),
-    [currentUserId, keyboardIsVisible, handleProfilePress],
+    [currentUserId, keyboardIsVisible, handleProfilePress, toggleLike],
   );
 
   // This custom header owns the top inset; this screen also owns the bottom
@@ -181,8 +182,7 @@ export default function CommentsScreen() {
             ListFooterComponent={
               total > comments.length ? (
                 <Text style={styles.emptySubtitle}>
-                  Showing {comments.length} of {total} comments. This server
-                  does not yet support more pages.
+                  Showing the latest {comments.length} of {total} comments.
                 </Text>
               ) : null
             }

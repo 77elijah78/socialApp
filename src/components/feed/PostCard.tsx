@@ -19,16 +19,10 @@ import type { ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as theme from "@/constants/theme";
 import { SocialPost } from "@/types";
+import { formatCount } from "@/utils/format";
 
 // Defer video-module evaluation and native resources; never preload a player on startup.
 const PostVideo = React.lazy(() => import("@/components/messages/Videoplayer"));
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000)
-    return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
 
 export interface SocialPostCardProps {
   post: SocialPost;
@@ -42,6 +36,8 @@ export interface SocialPostCardProps {
   ) => void;
   onTagPress?: (tag: string) => void;
   onUserPress?: (username: string) => void;
+  /** Opens the shared post-detail route; never opens comments implicitly. */
+  onOpen?: (postId: string) => void;
 }
 
 function PostCard({
@@ -53,6 +49,7 @@ function PostCard({
   onMenuPress,
   onTagPress,
   onUserPress,
+  onOpen,
 }: SocialPostCardProps) {
   const [videoWidth, setVideoWidth] = useState(0);
   const pendingLike = useRef(false);
@@ -237,7 +234,12 @@ function PostCard({
       </TouchableOpacity>
 
       {/* Body */}
-      <View style={styles.body}>
+      <TouchableOpacity
+        activeOpacity={0.92}
+        disabled={!onOpen}
+        onPress={() => onOpen?.(post.id)}
+        style={styles.body}
+      >
         <Text style={styles.content}>{post.content}</Text>
 
         {post.tags && post.tags.length > 0 && (
@@ -255,7 +257,7 @@ function PostCard({
             ))}
           </View>
         )}
-      </View>
+      </TouchableOpacity>
 
       {post.videoUrl ? (
         <View style={styles.videoWrapper}>
@@ -283,7 +285,12 @@ function PostCard({
 
       {/* Post Image */}
       {currentMedia ? (
-        <TouchableOpacity activeOpacity={0.95} style={styles.imageWrapper}>
+        <TouchableOpacity
+          activeOpacity={0.95}
+          disabled={!onOpen}
+          onPress={() => onOpen?.(post.id)}
+          style={styles.imageWrapper}
+        >
           <Animated.View style={fadeStyle}>
             <Image
               source={{ uri: currentMedia }}

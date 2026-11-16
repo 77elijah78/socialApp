@@ -223,6 +223,14 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
+                      <Stack.Screen
+                        name="stories/create"
+                        options={{
+                          headerShown: false,
+                          presentation: "modal",
+                          animation: "slide_from_bottom",
+                        }}
+                      />
                     </Stack>
                     <MessageNotificationsHost />
                   </OverlayProvider>
