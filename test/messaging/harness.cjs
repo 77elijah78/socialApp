@@ -339,6 +339,12 @@ for (const extension of [".ts", ".tsx"])
     });
     module._compile(result.outputText, filename);
   };
+// React Native resolves image assets to opaque module ids; the test runner only
+// needs a stable value, never the binary.
+for (const extension of [".png", ".jpg", ".jpeg", ".webp", ".gif"])
+  Module._extensions[extension] = function (module, filename) {
+    module.exports = filename;
+  };
 global.__DEV__ = false;
 global.IS_REACT_ACT_ENVIRONMENT = true;
 function row(index, overrides = {}) {
