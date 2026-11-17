@@ -13,6 +13,23 @@ Verification at the time of writing:
 | `npx expo config --type public` | resolves `circle`, runtime `1.2.0`, all plugins |
 | `npx expo prebuild --platform android --no-install` (scratch copy) | succeeds; manifest and `MainApplication` patches are present |
 
+### Local setup after pulling this branch
+
+`expo-share-intent` is a runtime/config-plugin dependency (see `package.json` and
+`package-lock.json`), so an existing `node_modules` from before this branch must
+be refreshed:
+
+```bash
+npm install
+npx expo start -c
+```
+
+If Expo still reports `Failed to resolve plugin for module "expo-share-intent"`,
+confirm `node_modules/expo-share-intent/app.plugin.js` exists and, if necessary,
+reinstall with `npm install expo-share-intent@^7.0.0`. This module is not part of
+Expo Go; use an Android development build / `npx expo run:android` (or EAS) to
+exercise the native share and background-audio paths.
+
 ---
 
 ## 1. One download lifecycle for photos, video, voice/audio and documents
