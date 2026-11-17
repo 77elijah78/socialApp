@@ -13,6 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import theme from "@/constants/theme";
+import { SHEET_BACKDROP_COLOR, SHEET_HANDLE, SHEET_SURFACE } from "@/constants/sheets";
 
 export interface ActionMenuItem {
   key: string;
@@ -162,7 +163,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: "rgba(20,18,42,0.34)",
+    backgroundColor: SHEET_BACKDROP_COLOR,
   },
   popoverContainer: {
     position: "absolute",
@@ -195,19 +196,16 @@ const styles = StyleSheet.create({
     paddingTop: theme.SPACING.sm,
   },
   sheetCard: {
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    ...SHEET_SURFACE,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
     paddingTop: theme.SPACING.md,
     paddingBottom: theme.SPACING.md,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   handle: {
-    width: 38,
-    height: 4,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignSelf: "center",
-    backgroundColor: "#D9D7E3",
+    ...SHEET_HANDLE,
     marginBottom: theme.SPACING.md,
   },
   actionItem: {

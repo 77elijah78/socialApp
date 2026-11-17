@@ -59,6 +59,7 @@ function player(kind) {
     },
     update(patch) {
       this.snapshot = { ...this.snapshot, ...patch };
+      this.statusListener?.(this.snapshot);
       subscribers.forEach((listener) => listener());
     },
     pause() {
@@ -105,6 +106,19 @@ function usePlayer(kind) {
   return value;
 }
 mock("expo-audio", {
+  createAudioPlayer: (source) => {
+    const p = player("audio");
+    audioPlayers.push(p);
+    if (source?.uri) p.replaces.push(source);
+    p.setActiveForLockScreen = () => {};
+    p.clearLockScreenControls = () => {};
+    p.remove = () => { p.released = true; };
+    p.addListener = (_event, callback) => {
+      p.statusListener = callback;
+      return { remove: () => { p.statusListener = null; } };
+    };
+    return p;
+  },
   useAudioPlayer: () => usePlayer("audio"),
   useAudioPlayerStatus: (value) =>
     React.useSyncExternalStore(value.subscribe, () => value.snapshot),
@@ -138,6 +152,7 @@ mock("expo-sharing", {
     if (shareWork) await shareWork.promise;
   },
 });
+const { chatAudio } = require("../../src/services/ChatAudioPlayer.ts");
 const Card = require("../../src/components/messages/MessageCard.tsx").default;
 const Voice = require("../../src/components/messages/VoiceMessage.tsx").default;
 const Video = require("../../src/components/messages/Videoplayer.tsx").default;
@@ -156,6 +171,7 @@ beforeEach(async () => {
   appState.currentState = "active";
   files.clear();
   await documentDownloads.clear();
+  chatAudio.reset();
 });
 afterEach(async () => {
   if (shareWork) shareWork.resolve();
@@ -286,50 +302,54 @@ test("unknown cached group authors are honest instead of being mislabeled as ano
       .some((node) => node.children.includes("Unknown sender")),
   );
 });
-test("image loading, failed/retry state and real portrait geometry remain within the bubble", async () => {
+test("an image waits for an explicit download, then shows the local photo with real portrait geometry", async () => {
   await render(Card, {
     ...card,
     type: "IMAGE",
     uri: "https://cdn.test/portrait.jpg",
     message: null,
   });
-  assert.ok(renderer.root.findAllByType("ActivityIndicator").length);
-  await act(async () => renderer.root.findByType("ExpoImage").props.onError());
+  const download = renderer.root.findByProps({ accessibilityLabel: "Download photo" });
+  assert.ok(download);
   assert.equal(renderer.root.findAllByType("ExpoImage").length, 0);
-  await act(async () =>
-    renderer.root
-      .findByProps({ accessibilityLabel: "Retry photo" })
-      .props.onPress(),
+  await act(async () => {
+    download.props.onPress();
+    await settle();
+  });
+  assert.equal(
+    renderer.root.findAllByProps({ accessibilityLabel: "Download photo" }).length,
+    0,
   );
+  const image = renderer.root.findByType("ExpoImage");
+  assert.match(image.props.source.uri, /^file:\/\/\/documents\/chat-downloads\//);
   await act(async () =>
-    renderer.root
-      .findByType("ExpoImage")
-      .props.onLoad({ source: { width: 600, height: 1200 } }),
+    image.props.onLoad({ source: { width: 600, height: 1200 } }),
   );
   const frame =
     renderer.root.findAllByType("View").find(node => Array.isArray(node.props.style) && node.props.style[1]?.width && node.props.style[1]?.height).props.style[1];
   assert.ok(Math.abs(frame.width / frame.height - 0.5) < 1e-9);
   assert.ok(frame.height <= 844 * 0.5);
 });
-test("voice bubbles create no player before play, use supplied real waveform and pause/resume/seek locally", async () => {
+test("voice downloads on demand, then uses the supplied waveform and a persistent session", async () => {
   await render(Voice, {
     audioUri: "https://cdn.test/voice.m4a",
     duration: 75,
     waveform: [0, 25, 100],
   });
   assert.equal(audioPlayers.length, 0);
+  assert.ok(renderer.root.findByProps({ accessibilityLabel: "Download voice message" }));
   assert.ok(
     renderer.root.findByProps({ accessibilityLabel: "Audio waveform" }),
   );
   await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Play voice message" })
+      .findByProps({ accessibilityLabel: "Download voice message" })
       .props.onPress();
     await settle();
   });
   const p = audioPlayers[0];
   assert.equal(p.plays, 1);
-  assert.equal(p.replaces.length, 1);
+  assert.match(p.replaces[0].uri, /^file:\/\/\/documents\/chat-downloads\//);
   await act(async () =>
     renderer.root
       .findByProps({ accessibilityLabel: "Pause voice message" })
@@ -350,13 +370,14 @@ test("voice bubbles create no player before play, use supplied real waveform and
     waveform.props.onPress({ nativeEvent: { locationX: 100 } });
   });
   assert.equal(p.snapshot.currentTime, 37.5);
+  // Leaving the screen/backgrounding is no longer a pause command.
   await act(async () => {
     appState.change("background");
+    await settle();
   });
-  assert.equal(p.playing, false);
+  assert.equal(p.playing, true);
 });
-test("missing waveform is a real progress rail, and asynchronous/native audio errors can retry", async () => {
-  failAudio = true;
+test("missing waveform is a real progress rail and native audio errors can retry", async () => {
   await render(Voice, { audioUri: "https://cdn.test/voice.m4a", duration: 75 });
   assert.ok(
     renderer.root.findByProps({
@@ -365,43 +386,40 @@ test("missing waveform is a real progress rail, and asynchronous/native audio er
   );
   await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Play voice message" })
+      .findByProps({ accessibilityLabel: "Download voice message" })
       .props.onPress();
     await settle();
   });
+  const p = audioPlayers[0];
+  assert.equal(p.playing, true);
+  await act(async () => p.update({ error: "Media unavailable" }));
   assert.ok(
     renderer.root.findByProps({ accessibilityLabel: "Retry voice message" }),
   );
-  failAudio = false;
   await act(async () => {
     renderer.root
       .findByProps({ accessibilityLabel: "Retry voice message" })
       .props.onPress();
     await settle();
   });
-  assert.equal(audioPlayers[0].playing, true);
-  await act(async () => audioPlayers[0].update({ error: "Media unavailable" }));
-  assert.ok(
-    renderer.root.findByProps({ accessibilityLabel: "Retry voice message" }),
-  );
+  assert.equal(audioPlayers.length, 2);
+  assert.equal(audioPlayers[1].playing, true);
 });
-test("late audio setup cannot play after the row unmounts; native hook resource is released", async () => {
-  const pending = deferred();
-  mode = () => pending.promise;
+test("a recycled voice row cannot stop the shared session; closing it releases the player", async () => {
   await render(Voice, { audioUri: "https://cdn.test/voice.m4a", duration: 75 });
-  await act(async () =>
-    renderer.root
-      .findByProps({ accessibilityLabel: "Play voice message" })
-      .props.onPress(),
-  );
-  const p = audioPlayers[0];
-  await act(async () => renderer.unmount());
-  renderer = null;
   await act(async () => {
-    pending.resolve();
+    renderer.root
+      .findByProps({ accessibilityLabel: "Download voice message" })
+      .props.onPress();
     await settle();
   });
-  assert.equal(p.plays, 0);
+  const p = audioPlayers[0];
+  assert.equal(p.playing, true);
+  await act(async () => renderer.unmount());
+  renderer = null;
+  assert.equal(p.released, false);
+  assert.equal(p.playing, true);
+  await act(async () => chatAudio.close());
   assert.equal(p.released, true);
 });
 test("video is poster-only until a tap, opens a contained player, supports failure/retry, and releases on close", async () => {
@@ -413,7 +431,7 @@ test("video is poster-only until a tap, opens a contained player, supports failu
   assert.equal(videoPlayers.length, 0);
   await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Play video" })
+      .findByProps({ accessibilityLabel: "Download video" })
       .props.onPress();
     await settle();
   });
@@ -474,7 +492,7 @@ test("video modal blocks read eligibility without Router blur and releases the c
   });
   await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Play video" })
+      .findByProps({ accessibilityLabel: "Download video" })
       .props.onPress();
     await settle();
   });
@@ -486,12 +504,9 @@ test("video modal blocks read eligibility without Router blur and releases the c
   );
   assert.equal(covers, 0);
 });
-test("a real play tap can register visibility immediately without generating a read acknowledgment", async () => {
+test("voice playback needs no visibility claim and produces no read acknowledgment", async () => {
   const ids = [];
-  const confirm = (id) => {
-    ids.push(id);
-    setVisibleMedia(mediaOwner, [id]);
-  };
+  const confirm = (id) => ids.push(id);
   await act(async () => {
     renderer = create(
       React.createElement(
@@ -507,14 +522,14 @@ test("a real play tap can register visibility immediately without generating a r
   });
   await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Play voice message" })
+      .findByProps({ accessibilityLabel: "Download voice message" })
       .props.onPress();
     await settle();
   });
-  assert.deepEqual(ids, ["native-row"]);
+  assert.deepEqual(ids, []);
   assert.equal(audioPlayers[0].plays, 1);
   await act(async () => clearVisibleMedia(mediaOwner));
-  assert.equal(audioPlayers[0].playing, false);
+  assert.equal(audioPlayers[0].playing, true);
 });
 test("file download reaches a truthful downloaded/open state and the OS share sheet blocks chat reads", async () => {
   let covers = 0;

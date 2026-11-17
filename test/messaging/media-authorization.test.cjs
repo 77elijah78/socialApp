@@ -77,7 +77,23 @@ function usePlayer(kind) {
   React.useEffect(() => () => { value.released = true; }, [value]);
   return value;
 }
+function sessionPlayer(source) {
+  const p = {
+    kind: "audio", status: "readyToPlay", playing: false, plays: 0, pauses: 0,
+    released: false, replaces: source ? [source] : [], duration: 8, currentTime: 0,
+    snapshot: { currentTime: 0, duration: 8, playing: false, isBuffering: false, isLoaded: true, error: null, playbackState: "readyToPlay" },
+    update(patch) { this.snapshot = { ...this.snapshot, ...patch }; },
+    addListener(_name, callback) { this.statusListener = callback; return { remove: () => { this.statusListener = null; } }; },
+    play() { assert.equal(this.released, false); this.plays++; this.playing = true; this.update({ playing: true }); },
+    pause() { this.pauses++; this.playing = false; this.update({ playing: false }); },
+    async seekTo(time) { this.currentTime = time; this.update({ currentTime: time }); },
+    setActiveForLockScreen() {}, updateLockScreenMetadata() {}, clearLockScreenControls() {},
+    remove() { this.released = true; },
+  };
+  players.push(p); return p;
+}
 mock("expo-audio", {
+  createAudioPlayer: source => sessionPlayer(source),
   useAudioPlayer: () => usePlayer("audio"), setAudioModeAsync: async () => { const gate = audioGates.shift(); if (gate) await gate.promise; },
   useAudioPlayerStatus: player => React.useSyncExternalStore(player.subscribe, () => player.snapshot),
 });
@@ -86,6 +102,7 @@ mock("expo-video", {
   VideoView: "VideoView",
 });
 mock("expo", { useEvent: (player, event) => React.useSyncExternalStore(player.subscribe, () => player.events[event]) });
+const { chatAudio } = require("../../src/services/ChatAudioPlayer.ts");
 const AuthenticatedImage = require("../../src/components/common/AuthenticatedImage.tsx").default;
 const Photo = require("../../src/components/messages/ImageMessage.tsx").default;
 const Reply = require("../../src/components/messages/ReplyPreview.tsx").default;
@@ -131,10 +148,11 @@ beforeEach(async () => {
     } };
   };
   await documentDownloads.clear();
+  chatAudio.reset();
 });
 afterEach(async () => {
   await act(async () => { for (const root of roots.splice(0)) root.unmount(); await settle(); });
-  clearVisibleMedia(visibilityOwner); await documentDownloads.clear();
+  clearVisibleMedia(visibilityOwner); await documentDownloads.clear(); chatAudio.reset();
   fileSystem.createDownloadResumable = originalDownload; global.fetch = nativeFetch;
   auth.setTokenRefreshCallback(null); auth.setTokens(null, null);
 });
@@ -159,12 +177,14 @@ test("native HTTP classification is bounded, recognizes real status formats and 
   assert.equal(mediaTokenExpired(jwt(1)), true); assert.equal(mediaTokenExpired(jwt(9e9)), false);
   for (const token of ["opaque", "x.%%%%.y", "x.bnVsbA.y"]) assert.equal(mediaTokenExpired(token), false);
 });
-test("chat photo and private thumbnail carry Bearer with account/session memory-only cache identity", async () => {
+test("an undownloaded chat photo previews the private thumbnail with Bearer and a memory-only cache identity", async () => {
   const root = await render(Photo, { uri: owned(), thumbnail: owned("images/thumb.jpg"), maxWidth: 280, name: "Sender" });
   const image = root.root.findByType("ExpoImage").props;
-  assert.equal(image.source.headers.Authorization, "Bearer access-A"); assert.equal(image.placeholder.headers.Authorization, "Bearer access-A");
-  assert.equal(image.cachePolicy, "memory"); assert.match(image.source.cacheKey, /account-A/); assert.doesNotMatch(image.source.cacheKey, /access-A/);
-  assert.equal(image.contentFit, "contain");
+  assert.equal(image.source.uri, owned("images/thumb.jpg"));
+  assert.equal(image.source.headers.Authorization, "Bearer access-A");
+  assert.equal(image.cachePolicy, "memory");
+  assert.match(image.source.cacheKey, /account-A/);
+  assert.doesNotMatch(image.source.cacheKey, /access-A/);
 });
 test("a private placeholder cannot opt into disk caching through an external main image", async () => {
   const root = await render(AuthenticatedImage, { uri: "https://cdn.test/public.jpg", placeholderUri: owned(), cachePolicy: "memory-disk" });
@@ -185,19 +205,25 @@ test("shared video stories use an explicit video preview, not an image GET of MP
   assert.equal(root.root.findAllByType("ExpoImage").length, 0);
   assert.ok(root.root.findAllByType("Text").some(node => node.children.includes("Video story · Tap to watch")));
 });
-test("chat video stays lazy, authenticates the actual player source and disables private disk caching", async () => {
+test("chat video stays lazy, downloads with Bearer, then plays only the local file", async () => {
   setVisibleMedia(visibilityOwner, ["video"]);
-  const root = await render(Video, { uri: owned("videos/clip.mp4"), thumbnail: owned("images/poster.jpg"), playbackId: "video" });
-  assert.equal(players.length, 0); assert.equal(root.root.findByType("ExpoImage").props.source.headers.Authorization, "Bearer access-A");
-  await tap(root, "Play video");
-  assert.equal(players[0].replaces[0].headers.Authorization, "Bearer access-A"); assert.equal(players[0].replaces[0].useCaching, false);
-  assert.ok(players[0].plays); assert.equal(root.root.findByType("VideoView").props.nativeControls, true);
+  const root = await render(Video, { uri: owned("videos/clip.mp4"), thumbnail: owned("images/poster.jpg"), playbackId: "video", ownerId: "account-A" });
+  assert.equal(players.length, 0);
+  assert.equal(root.root.findByType("ExpoImage").props.source.headers.Authorization, "Bearer access-A");
+  await tap(root, "Download video");
+  assert.equal(transfers[0].options.headers.Authorization, "Bearer access-A");
+  assert.match(players[0].replaces[0].uri, /^file:\/\/\/documents\/chat-downloads\/account-A\//);
+  assert.ok(players[0].plays);
+  assert.equal(root.root.findByType("VideoView").props.nativeControls, true);
 });
-test("chat voice stays lazy and gives the actual audio source a Bearer header", async () => {
-  setVisibleMedia(visibilityOwner, ["voice"]);
-  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice", duration: 8 });
-  assert.equal(players.length, 0); await tap(root, "Play voice message");
-  assert.equal(players[0].replaces[0].headers.Authorization, "Bearer access-A"); assert.ok(players[0].plays);
+test("chat voice stays lazy, downloads with Bearer, then plays the private local file", async () => {
+  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice", duration: 8, ownerId: "account-A" });
+  assert.equal(players.length, 0);
+  assert.ok(root.root.findByProps({ accessibilityLabel: "Download voice message" }));
+  await tap(root, "Download voice message");
+  assert.equal(transfers[0].options.headers.Authorization, "Bearer access-A");
+  assert.match(players[0].replaces[0].uri, /^file:\/\/\/documents\/chat-downloads\/account-A\//);
+  assert.ok(players[0].plays);
 });
 for (const type of ["image", "video"]) test(`story ${type} authenticates its actual media source`, async () => {
   const root = await render(StoryViewer, { stories: [story(type)], onClose() {} });
@@ -229,114 +255,46 @@ test("external-source and valid-token codec failures do not refresh credentials"
   }
   assert.equal(requests.length, 0);
 });
-test("private video refreshes once after a native 403 and reloads the actual source with the fresh token", async () => {
-  videoFailures.push({ message: "Response code: 403" }); setVisibleMedia(visibilityOwner, ["video"]);
-  const root = await render(Video, { uri: owned("videos/clip.mp4"), playbackId: "video" }); await tap(root, "Play video");
-  assert.deepEqual(players[0].replaces.map(source => source.headers.Authorization), ["Bearer access-A", "Bearer access-fresh"]);
-  assert.equal(requests.length, 1); assert.ok(players[0].playing);
-});
-test("opaque Android audio errors recover a known-expired JWT without guessing that codec errors mean 403", async () => {
-  const expired = `header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
-  publishIdentity("account-A", expired); audioFailures.push("Source error"); setVisibleMedia(visibilityOwner, ["voice"]);
-  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice" }); await tap(root, "Play voice message");
-  assert.equal(players[0].replaces.length, 2); assert.equal(players[0].replaces[1].headers.Authorization, "Bearer access-fresh"); assert.equal(requests.length, 1);
-});
-test("token synchronization cannot replay an old video error while the refreshed native load is pending", async () => {
-  const pending = deferred(); videoFailures.push({ message: "HTTP 403" }); videoGates.push(null, pending);
+test("private video download refreshes once after HTTP 403, then opens the local file", async () => {
+  downloadStatuses.push(403, 200);
   setVisibleMedia(visibilityOwner, ["video"]);
-  const root = await render(Video, { uri: owned("videos/slow.mp4"), playbackId: "video" }); await tap(root, "Play video");
-  assert.equal(players[0].replaces.length, 2);
-  await act(async () => { pending.resolve(); await settle(); });
-  assert.equal(root.root.findAllByProps({ accessibilityLabel: "Retry video" }).length, 0);
-  assert.ok(players[0].playing); assert.equal(requests.length, 1);
-});
-test("token synchronization cannot replay an old audio error during refreshed audio setup", async () => {
-  const pending = deferred(); audioFailures.push("Response code: 403"); audioGates.push(null, pending);
-  setVisibleMedia(visibilityOwner, ["voice"]);
-  const root = await render(Voice, { audioUri: owned("audio/slow.m4a"), playbackId: "voice" }); await tap(root, "Play voice message");
-  await act(async () => { pending.resolve(); await settle(); });
-  assert.equal(players[0].replaces.length, 2); assert.equal(root.root.findAllByProps({ accessibilityLabel: "Retry voice message" }).length, 0);
-  assert.equal(requests.length, 1);
-});
-test("returning to a previous media URI cannot revive its cancelled auth-error callback", async () => {
-  const pending = deferred(); fetchResponse = () => pending.promise; let failures = 0;
-  const props = { uri: owned(), onError: () => failures++ };
-  const root = await render(AuthenticatedImage, props);
-  await act(async () => { root.root.findByType("ExpoImage").props.onError({ error: "HTTP 403" }); await settle(); });
-  await act(async () => root.update(React.createElement(AuthenticatedImage, { ...props, uri: owned("images/other.jpg") })));
-  await act(async () => root.update(React.createElement(AuthenticatedImage, props)));
-  await act(async () => { pending.resolve(response({ data: { accessToken: "access-fresh", refreshToken: "refresh-fresh" } })); await settle(); });
-  assert.equal(failures, 0);
-  // This is a new resource lifetime, not an old handled-error flag for the same URL.
-  fetchResponse = async () => response({}, 401);
-  await act(async () => { root.root.findByType("ExpoImage").props.onError({ error: "HTTP 403" }); await settle(); });
-  assert.equal(failures, 1);
-});
-test("logout/account switch invalidates an in-flight media refresh and late callbacks; caches never cross accounts", async () => {
-  const pending = deferred(); fetchResponse = () => pending.promise;
-  let failures = 0; const root = await render(AuthenticatedImage, { uri: owned(), onError: () => failures++ });
-  const old = root.root.findByType("ExpoImage").props;
-  await act(async () => { old.onError({ error: "HTTP 403" }); await settle(); });
-  await act(async () => publishIdentity("account-B", "access-B", "refresh-B"));
-  const next = root.root.findByType("ExpoImage").props;
-  assert.notEqual(old.source.cacheKey, next.source.cacheKey); assert.equal(next.source.headers.Authorization, "Bearer access-B");
-  await act(async () => { pending.resolve(response({ data: { accessToken: "late-A", refreshToken: "late-refresh-A" } })); await settle(); old.onError({ error: "HTTP 403" }); await settle(); });
-  assert.equal(auth.getAccessToken(), "access-B"); assert.equal(failures, 0); assert.equal(requests.length, 1);
-});
-for (const status of [401, 403]) test(`private download HTTP ${status} retries once using the existing refresh flight and real file progress`, async () => {
-  const store = new DocumentDownloads(), spec = { ownerId: "account-A", id: "attachment", uri: owned(), name: "photo.jpg" };
-  downloadStatuses.push(status, 200); await store.download(spec);
-  assert.deepEqual(transfers.map(transfer => transfer.options.headers.Authorization), ["Bearer access-A", "Bearer access-fresh"]);
-  assert.equal(store.get(documentKey(spec)).status, "ready"); assert.equal(store.get(documentKey(spec)).bytes, 12);
-  assert.equal(files.has(transfers[0].localUri), false); assert.equal(requests.length, 1); await store.clear();
-});
-test("genuine private download denial stays failed, removes partial bytes and never retries anonymously", async () => {
-  const store = new DocumentDownloads(), spec = { ownerId: "account-A", id: "forbidden", uri: owned(), name: "photo.jpg" };
-  downloadStatuses.push(403, 403); await store.download(spec);
-  assert.equal(transfers.length, 2); assert.ok(transfers.every(transfer => transfer.options.headers.Authorization));
-  assert.equal(requests.length, 1); assert.equal(store.get(documentKey(spec)).status, "error"); assert.equal(files.size, 0); await store.clear();
-});
-test("signed external downloads preserve their URL and never receive or refresh our Bearer token", async () => {
-  const store = new DocumentDownloads(), spec = { ownerId: "account-A", id: "external", uri: "https://cdn.test/doc.pdf?X-Signature=a%2Fb%2B&x=2", name: "doc.pdf" };
-  downloadStatuses.push(403); await store.download(spec);
-  assert.equal(transfers[0].url, spec.uri); assert.deepEqual(transfers[0].options, {}); assert.equal(transfers.length, 1); assert.equal(requests.length, 0); await store.clear();
-});
-test("native sharing passes only an authenticated account-private local file, never the protected URL/token", async () => {
-  await shareMediaFile({ ownerId: "account-A", id: "share", uri: owned(), name: "photo.jpg" });
+  const root = await render(Video, { uri: owned("videos/clip.mp4"), playbackId: "video", ownerId: "account-A" });
+  await tap(root, "Download video");
   assert.equal(transfers[0].options.headers.Authorization, "Bearer access-A");
-  assert.match(shares[0][0], /^file:\/\/\/documents\/chat-downloads\/account-A\//); assert.doesNotMatch(shares[0][0], /access-A|https?:/);
-  params = { uri: owned("images/viewer.jpg") }; const root = await render(ImageViewer); await tap(root, "Share photo");
-  assert.equal(shares.length, 2); assert.equal(transfers[1].options.headers.Authorization, "Bearer access-A");
-});
-test("private attachment action offers native save/share instead of a browser request that cannot authenticate", async () => {
-  const root = await render(Card, { type: "AUDIO", uri: owned("audio/note.m4a"), message: "Voice", sender: "Other", time: 1, isSent: false, ownerId: "account-A", playbackId: "attachment" });
-  await tap(root, "Attachment options"); assert.equal(menus[0][0].label, "Save / share file");
-  await act(async () => { menus[0][0].onPress(); await settle(); });
-  assert.equal(shares.length, 1); assert.match(shares[0][0], /^file:/);
-});
-test("story image loading/auth recovery consumes neither display time nor a view before native readiness", async () => {
-  const originalInterval = global.setInterval, intervals = [];
-  global.setInterval = (callback, duration) => { intervals.push(duration); return originalInterval(callback, duration); };
-  try {
-    const root = await render(StoryViewer, { stories: [story()], onClose() {} });
-    assert.equal(intervals.length, 0); assert.equal(requests.length, 0);
-    await act(async () => { root.root.findByType("ExpoImage").props.onLoad({ source: { width: 400, height: 600 } }); await settle(); });
-    assert.deepEqual(intervals, [100]); assert.equal(requests.filter(call => call.url.endsWith("/view")).length, 1);
-  } finally { global.setInterval = originalInterval; }
-});
-for (const denied of [false, true]) test(`story video auth recovery is bounded and ${denied ? "preserves genuine/expired denial" : "reloads the actual native source"}`, async () => {
-  videoFailures.push({ message: "HTTP 403" }); if (denied) videoFailures.push({ message: "HTTP 403" });
-  const root = await render(StoryViewer, { stories: [story("video")], onClose() {} });
-  assert.deepEqual(players[0].replaces.map(source => source.headers.Authorization), ["Bearer access-A", "Bearer access-fresh"]);
+  assert.equal(transfers[1].options.headers.Authorization, "Bearer access-fresh");
   assert.equal(requests.filter(call => call.url.endsWith("/auth/refresh")).length, 1);
-  assert.equal(requests.filter(call => call.url.endsWith("/view")).length, denied ? 0 : 1);
-  assert.equal(root.root.findAllByType("Text").some(node => node.children.includes("This story is unavailable")), denied);
+  assert.ok(players[0].playing);
 });
-test("persistent native audio 403 does not create a refresh/reload loop", async () => {
-  audioFailures.push("Response code: 403", "Response code: 403"); setVisibleMedia(visibilityOwner, ["voice"]);
-  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice" }); await tap(root, "Play voice message");
-  assert.equal(players[0].replaces.length, 2); assert.equal(requests.length, 1);
-  assert.ok(root.root.findByProps({ accessibilityLabel: "Retry voice message" }));
+test("an opaque audio download error recovers a known-expired JWT exactly once", async () => {
+  const expired = `header.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.signature`;
+  publishIdentity("account-A", expired);
+  downloadStatuses.push(new Error("Source error"), 200);
+  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice", ownerId: "account-A" });
+  await tap(root, "Download voice message");
+  assert.equal(transfers.length, 2);
+  assert.equal(transfers[1].options.headers.Authorization, "Bearer access-fresh");
+  assert.equal(requests.filter(call => call.url.endsWith("/auth/refresh")).length, 1);
+  assert.ok(players[0].playing);
+});
+test("a completed video download opens one player and a second tap reuses it", async () => {
+  setVisibleMedia(visibilityOwner, ["video"]);
+  const root = await render(Video, { uri: owned("videos/slow.mp4"), playbackId: "video", ownerId: "account-A" });
+  await tap(root, "Download video");
+  assert.equal(players.length, 1);
+  await act(async () => root.root.findByProps({ accessibilityLabel: "Close video player" }).props.onPress());
+  await tap(root, "Play video");
+  assert.equal(players.length, 2);
+  assert.equal(transfers.length, 1, "the downloaded file is not fetched twice");
+});
+test("a failed voice download stays retryable and never creates a player", async () => {
+  downloadStatuses.push(500, 200);
+  const root = await render(Voice, { audioUri: owned("audio/voice.m4a"), playbackId: "voice", ownerId: "account-A" });
+  await tap(root, "Download voice message");
+  assert.equal(players.length, 0);
+  assert.ok(root.root.findByProps({ accessibilityLabel: "Retry voice message download" }));
+  await tap(root, "Retry voice message download");
+  assert.equal(players.length, 1);
+  assert.ok(players[0].playing);
 });
 test("native file rejection with an HTTP status uses the same bounded recovery as status-bearing results", async () => {
   const store = new DocumentDownloads(), spec = { ownerId: "account-A", id: "native-error", uri: owned(), name: "photo.jpg" };

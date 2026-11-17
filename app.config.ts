@@ -26,7 +26,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: config.slug ?? "social",
     // Opt-in builds contain a different native notification dispatcher and must
     // never receive an OTA bundle intended for the ordinary native runtime.
-    runtimeVersion: process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" ? "1.1.2-actions-v2" : config.runtimeVersion,
+    runtimeVersion: process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" ? "1.2.0-actions-v2" : config.runtimeVersion,
     android: {
       ...config.android,
       // EAS file environment variable; never commit FCM/service-account credentials.

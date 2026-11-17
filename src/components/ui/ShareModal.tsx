@@ -6,6 +6,7 @@ import { shareService, FollowedUser } from "@/services/ShareService";
 import { mediaService } from "@/services/MediaService";
 import { ShareOptions } from "@/providers/OverlayProvider";
 import theme from "@/constants/theme";
+import { SHEET_BACKDROP_COLOR, SHEET_HANDLE, SHEET_SURFACE } from "@/constants/sheets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export interface ShareModalProps {
@@ -296,28 +297,15 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: SHEET_BACKDROP_COLOR,
   },
   sheet: {
-    backgroundColor: theme.COLORS.bgWhite,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    ...SHEET_SURFACE,
     maxHeight: "90%",
     paddingBottom: theme.SPACING.xl,
-    borderTopWidth: 1,
-    borderColor: "#ECEAF4",
-    shadowColor: "#17152B",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.14,
-    shadowRadius: 20,
-    elevation: 20,
   },
   handle: {
-    width: 38,
-    height: 4,
-    backgroundColor: "#D9D7E3",
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignSelf: "center",
+    ...SHEET_HANDLE,
     marginTop: theme.SPACING.md,
     marginBottom: theme.SPACING.lg,
   },

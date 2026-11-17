@@ -23,6 +23,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OverlayProvider } from "@/providers/OverlayProvider";
 import MessageNotificationsHost from "@/components/notifications/MessageNotificationsHost";
+import { ShareIntentProvider } from "expo-share-intent";
+import ShareIntentHost from "@/components/chat/ShareIntentHost";
+import ChatAutoDownloadHost from "@/components/chat/ChatAutoDownloadHost";
+import ChatAudioMiniPlayer from "@/components/chat/ChatAudioMiniPlayer";
+import { chatAudio } from "@/services/ChatAudioPlayer";
 
 import { prepareMessagingAccount } from "@/services/MessagingCache";
 
@@ -121,6 +126,7 @@ function SocketProvider() {
       mediaService.connectSocket(userId, token);
     } else if (!isAuthenticated) {
       mediaService.disconnectSocket();
+      chatAudio.reset();
     }
     return () => mediaService.disconnectSocket();
   }, [isAuthenticated, token, userId]);
@@ -177,6 +183,7 @@ export default function RootLayout() {
   }, [router]);
 
   return (
+    <ShareIntentProvider options={{ resetOnBackground: false }}>
     <SafeAreaProvider>
       <KeyboardProvider>
         <Provider store={store}>
@@ -216,6 +223,14 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="share"
+                        options={{
+                          headerShown: false,
+                          presentation: "modal",
+                          animation: "slide_from_bottom",
+                        }}
+                      />
+                      <Stack.Screen
                         name="stories/viewer"
                         options={{
                           headerShown: false,
@@ -233,6 +248,9 @@ export default function RootLayout() {
                       />
                     </Stack>
                     <MessageNotificationsHost />
+                    <ChatAutoDownloadHost />
+                    <ShareIntentHost />
+                    <ChatAudioMiniPlayer />
                   </OverlayProvider>
                 </BottomSheetModalProvider>
               </GestureHandlerRootView>
@@ -241,5 +259,6 @@ export default function RootLayout() {
         </Provider>
       </KeyboardProvider>
     </SafeAreaProvider>
+    </ShareIntentProvider>
   );
 }

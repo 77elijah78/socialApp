@@ -17,6 +17,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import * as theme from "@/constants/theme";
+import {
+  SHEET_BACKDROP_COLOR,
+  SHEET_HANDLE,
+  SHEET_SURFACE,
+} from "@/constants/sheets";
 import { showAppDialog } from "@/services/AppDialogService";
 import { PickedFile } from "@/types";
 
@@ -411,28 +416,17 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: "rgba(20,18,42,0.44)",
+    backgroundColor: SHEET_BACKDROP_COLOR,
   },
   sheet: {
+    ...SHEET_SURFACE,
     maxHeight: "91%",
-    backgroundColor: theme.COLORS.bgWhite,
     paddingHorizontal: theme.SPACING.xxl,
     paddingTop: theme.SPACING.md,
     paddingBottom: theme.SPACING.xl,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: "#17152B",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 22,
   },
   handle: {
-    width: 38,
-    height: 4,
-    borderRadius: theme.BORDER_RADIUS.full,
-    alignSelf: "center",
-    backgroundColor: "#D9D7E3",
+    ...SHEET_HANDLE,
     marginBottom: theme.SPACING.xl,
   },
   header: {

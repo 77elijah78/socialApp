@@ -188,6 +188,10 @@ function MessageCard({
             mediaWidth={attachment?.width}
             mediaHeight={attachment?.height}
             onLongPress={onLongPress}
+            ownerId={ownerId}
+            id={playbackId}
+            mimeType={attachment?.mimeType}
+            isOwn={isSent}
           />
         )}
         {messageKind === "VIDEO" && (
@@ -200,6 +204,10 @@ function MessageCard({
             duration={duration}
             mediaWidth={attachment?.width}
             mediaHeight={attachment?.height}
+            ownerId={ownerId}
+            id={playbackId}
+            mimeType={attachment?.mimeType}
+            isOwn={isSent}
           />
         )}
         {messageKind === "AUDIO" && !!message && (
@@ -215,6 +223,9 @@ function MessageCard({
             waveform={attachment?.waveform}
             isOwn={isSent}
             onLongPress={onLongPress}
+            ownerId={ownerId}
+            name={attachment?.name ?? message}
+            mimeType={attachment?.mimeType}
           />
         )}
         {messageKind === "DOCUMENT" && (

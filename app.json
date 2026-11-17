@@ -23,7 +23,8 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_NETWORK_STATE"
       ],
       "package": "com.elijah77.social",
       "multidex": true
@@ -32,7 +33,13 @@
       "favicon": "./src/assets/favicon.png"
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Circle to record voice messages.",
+          "enableBackgroundPlayback": true
+        }
+      ],
       "expo-video",
       [
         "expo-build-properties",
@@ -40,6 +47,26 @@
           "android": {
             "enableMultiDex": true
           }
+        }
+      ],
+      "./plugins/withNetworkConditions.cjs",
+      [
+        "expo-share-intent",
+        {
+          "disableIOS": true,
+          "androidIntentFilters": [
+            "text/plain",
+            "image/*",
+            "video/*",
+            "audio/*",
+            "application/*"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*",
+            "video/*",
+            "audio/*",
+            "application/*"
+          ]
         }
       ],
       "expo-font",
@@ -80,7 +107,7 @@
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
     },
-    "runtimeVersion": "1.1.2",
+    "runtimeVersion": "1.2.0",
     "updates": {
       "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }

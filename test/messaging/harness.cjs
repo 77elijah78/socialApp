@@ -178,6 +178,7 @@ mock("expo-sqlite", { openDatabaseAsync: async () => sql });
 const files = new Map();
 const fileSystem = {
   documentDirectory: "file:///documents/",
+  cacheDirectory: "file:///cache/",
   async getInfoAsync(uri) {
     return files.get(uri) ?? { exists: false, isDirectory: false };
   },

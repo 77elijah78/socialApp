@@ -81,6 +81,9 @@ import { mediaService } from "@/services/MediaService";
 import { useOverlay, useOverlayVisible } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
+import { useAutoDownloadSettings } from "@/hooks/useAutoDownloadSettings";
+import { useNetworkConditions } from "@/hooks/useNetworkConditions";
+import { autoDownloadRunner } from "@/services/AutoDownloadRunner";
 
 interface RoomParams {
   roomId: string;
@@ -153,6 +156,8 @@ function Conversation({
   const overlayBlocksReads = useRef(blockingOverlay);
   useLayoutEffect(() => { overlayBlocksReads.current = blockingOverlay; }, [blockingOverlay]);
   const [isFocused, setFocused] = useState(false);
+  const autoDownload = useAutoDownloadSettings();
+  const network = useNetworkConditions();
   const [replyingTo, setReplyingTo] = useState<MessageRow | null>(null);
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
@@ -335,6 +340,14 @@ function Conversation({
       );
     }
   }, [messages, userId]);
+  useEffect(() => {
+    autoDownloadRunner.sync(
+      `${network.kind}:${JSON.stringify(autoDownload.networks)}:${JSON.stringify(autoDownload.media)}`,
+    );
+    if (userId)
+      autoDownloadRunner.considerAll(messages, userId, autoDownload, network.kind);
+  }, [messages, userId, autoDownload, network.kind]);
+
   const unread = useMemo(
     () =>
       messages.filter(

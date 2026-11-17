@@ -20,6 +20,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logout } from "@/store/slices/authSlice";
 import { toggleNotifications } from "@/store/slices/appSlice";
 import PushNotificationSettings from "@/components/notifications/PushNotificationSettings";
+import AutoDownloadSettingsPanel from "@/components/settings/AutoDownloadSettingsPanel";
 
 interface SettingRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -216,6 +217,8 @@ export default function SettingsScreen() {
           </View>
           <PushNotificationSettings />
         </SettingsSection>
+
+        <AutoDownloadSettingsPanel />
 
         <SettingsSection title="Support">
           <SettingRow
