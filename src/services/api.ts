@@ -496,9 +496,19 @@ export async function uploadMultipart<T = unknown>(
     if (error instanceof UploadHttpError && error.status === 401 && generation === authGeneration) {
       const newToken = await _getRefreshedToken();
       if (newToken && generation === authGeneration) {
-        const response = await _sendXHR<T>(url, formData, newToken, onProgress);
-        if (generation !== authGeneration) throw new Error("Authentication changed during upload");
-        return response;
+        try {
+          const response = await _sendXHR<T>(url, formData, newToken, onProgress);
+          if (generation !== authGeneration)
+            throw new Error("Authentication changed during upload");
+          return response;
+        } catch (retryError) {
+          // A refreshed retry can itself be rate-limited; keep the same global
+          // cooldown contract as the first upload attempt.
+          if (retryError instanceof UploadHttpError && retryError.status === 429) {
+            throw rateLimitError("media", retryError.retryAfterMs, retryError.message);
+          }
+          throw retryError;
+        }
       }
     }
     throw error;
