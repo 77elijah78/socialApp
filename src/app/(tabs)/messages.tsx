@@ -139,6 +139,16 @@ export default function Messages() {
           receiverUsername: item.receiverUsername ?? "",
           receiverAvatar: item.avatarUrl,
           receiverId: item.receiverId ?? "",
+          memberCount: String(
+            (() => {
+              try {
+                const participants = JSON.parse(item.participantsData ?? "[]");
+                return Array.isArray(participants) ? participants.length : 0;
+              } catch {
+                return 0;
+              }
+            })(),
+          ),
         },
       });
     },
@@ -278,6 +288,31 @@ export default function Messages() {
             />
           </TouchableOpacity>
         ) : null}
+      </View>
+
+      <View style={styles.quickActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Create a new group"
+          onPress={() => router.push("/(chatRoom)/newGroup")}
+          style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: theme.COLORS.primaryGhost }]}>
+            <Ionicons name="people" size={17} color={theme.COLORS.primary} />
+          </View>
+          <Text style={styles.quickLabel}>New group</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Browse channels"
+          onPress={() => router.push("/channels")}
+          style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: "#EAF2FF" }]}>
+            <Ionicons name="megaphone" size={17} color={theme.COLORS.accentBlue} />
+          </View>
+          <Text style={styles.quickLabel}>Channels</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -506,6 +541,37 @@ const styles = StyleSheet.create({
     color: theme.COLORS.white,
     fontSize: 9,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  quickActions: {
+    flexDirection: "row",
+    gap: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.sm,
+  },
+  quickAction: {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: 16,
+    backgroundColor: theme.COLORS.bgWhite,
+    borderWidth: 1,
+    borderColor: "#ECEAF4",
+  },
+  quickActionPressed: { opacity: 0.75 },
+  quickIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickLabel: {
+    color: theme.COLORS.textPrimary,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   searchContainer: {
     minHeight: 52,

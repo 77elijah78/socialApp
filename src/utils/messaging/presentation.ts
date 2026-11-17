@@ -16,6 +16,10 @@ export interface AttachmentInfo {
   width?: number;
   height?: number;
   waveform?: number[];
+  /** Local-only sticker metadata; the wire marker carries pack + sticker IDs. */
+  stickerId?: string;
+  packId?: string;
+  stickerName?: string;
 }
 export interface SharedReplyInfo {
   kind: "post" | "story";

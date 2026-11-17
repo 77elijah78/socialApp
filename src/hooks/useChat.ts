@@ -15,6 +15,8 @@ import { messageStore } from "../db/MessageStore";
 import type { MessageRow } from "../db/schema";
 import { socketReceiver } from "../services/SocketReceiver";
 import { mediaService } from "../services/MediaService";
+import { stickerMediaForSend } from "../services/StickerService";
+import type { Sticker } from "../constants/stickers";
 import {
   getRecentMessageCache,
   setRecentMessageCache,
@@ -719,6 +721,42 @@ export function useChat({
       currentUser.avatarUrl,
     ],
   );
+  const sendSticker = useCallback(
+    async (sticker: Sticker, receiverId: string, repliedToId?: string) => {
+      const media = await stickerMediaForSend(sticker);
+      if (!media) throw new Error("This sticker is unavailable.");
+      await mediaService.message.sendSticker(
+        {
+          packId: sticker.packId,
+          stickerId: sticker.id,
+          stickerName: sticker.name,
+          mediaUri: media.mediaUri,
+          mimeType: media.mimeType,
+          width: sticker.width,
+          height: sticker.height,
+        },
+        {
+          senderId: currentUser.id,
+          receiverId,
+          conversationId,
+          sender: {
+            id: currentUser.id,
+            username: currentUser.username,
+            displayName: currentUser.displayName,
+            avatarUrl: currentUser.avatarUrl,
+          },
+        },
+        repliedToId,
+      );
+    },
+    [
+      conversationId,
+      currentUser.id,
+      currentUser.username,
+      currentUser.displayName,
+      currentUser.avatarUrl,
+    ],
+  );
   const replyMsg = useCallback(
     async (text: string, repliedToId: string, receiverId: string) => {
       await mediaService.message.replyMessage(
@@ -827,6 +865,7 @@ export function useChat({
     messages: active ? state.messages : [],
     send,
     sendMedia,
+    sendSticker,
     replyMsg,
     retry,
     deleteMsg,

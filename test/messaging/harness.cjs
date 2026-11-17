@@ -274,6 +274,22 @@ mock("react-native-reanimated", {
 mock("expo-linear-gradient", { LinearGradient: "LinearGradient" });
 mock("@expo/vector-icons", { Ionicons: "Ionicons" });
 mock("expo-image", { Image: "ExpoImage" });
+mock("expo-auth-session/providers/google", {
+  useIdTokenAuthRequest: () => [
+    null,
+    null,
+    async () => ({ type: "dismiss" }),
+  ],
+});
+mock("expo-asset", {
+  Asset: {
+    fromModule: (module) => ({
+      downloaded: true,
+      localUri: `file:///stickers/${String(module).split("/").pop() || "sticker.webp"}`,
+      uri: `file:///stickers/${String(module).split("/").pop() || "sticker.webp"}`,
+    }),
+  },
+});
 mock("expo-audio", {
   AudioModule: {
     requestRecordingPermissionsAsync: async () => ({ granted: true }),

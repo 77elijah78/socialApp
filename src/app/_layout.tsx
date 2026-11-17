@@ -27,6 +27,7 @@ import { ShareIntentProvider } from "expo-share-intent";
 import ShareIntentHost from "@/components/chat/ShareIntentHost";
 import ChatAutoDownloadHost from "@/components/chat/ChatAutoDownloadHost";
 import ChatAudioMiniPlayer from "@/components/chat/ChatAudioMiniPlayer";
+import RateLimitBanner from "@/components/system/RateLimitBanner";
 import { chatAudio } from "@/services/ChatAudioPlayer";
 
 import { prepareMessagingAccount } from "@/services/MessagingCache";
@@ -223,6 +224,14 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="channels"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="stickers"
+                        options={{ headerShown: false, presentation: "modal" }}
+                      />
+                      <Stack.Screen
                         name="share"
                         options={{
                           headerShown: false,
@@ -247,6 +256,7 @@ export default function RootLayout() {
                         }}
                       />
                     </Stack>
+                    <RateLimitBanner />
                     <MessageNotificationsHost />
                     <ChatAutoDownloadHost />
                     <ShareIntentHost />

@@ -215,6 +215,12 @@ export default function SettingsScreen() {
               ios_backgroundColor="#D8D6E2"
             />
           </View>
+          <SettingRow
+            icon="happy-outline"
+            label="Sticker store"
+            description="Browse, add and remove sticker packs"
+            onPress={() => router.push("/stickers")}
+          />
           <PushNotificationSettings />
         </SettingsSection>
 

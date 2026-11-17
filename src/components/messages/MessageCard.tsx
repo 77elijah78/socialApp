@@ -30,6 +30,8 @@ import VideoPlayer from "./Videoplayer";
 import ImageMessage from "./ImageMessage";
 import DocumentMessage from "./DocumentMessage";
 import ReplyPreview from "./ReplyPreview";
+import StickerMessage from "./StickerMessage";
+import { parseStickerMarker } from "@/constants/stickers";
 import MessageMeta from "./MessageMeta";
 import SharedPostCard from "./SharedPostCard";
 import SharedStoryCard from "./SharedStoryCard";
@@ -125,6 +127,30 @@ function MessageCard({
     }
   }, [message, messageKind]);
   const media = messageKind !== "TEXT";
+  const sticker = useMemo(
+    () => (messageKind === "IMAGE" ? parseStickerMarker(message) : null),
+    [message, messageKind],
+  );
+  if (sticker) {
+    return (
+      <StickerMessage
+        packId={sticker.packId}
+        stickerId={sticker.stickerId}
+        uri={uri}
+        time={time}
+        status={status}
+        isSent={isSent}
+        showAuthor={showAuthor}
+        sender={sender}
+        senderAvatar={senderAvatar}
+        ownerId={ownerId}
+        repliedTo={repliedTo}
+        onReplyPress={onReplyPress}
+        onLongPress={onLongPress}
+        onRetry={onRetry}
+      />
+    );
+  }
   return (
     <View
       style={[styles.container, isSent ? styles.outgoing : styles.incoming]}
