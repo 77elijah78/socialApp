@@ -26,6 +26,7 @@ function attachmentSize(row: MessageRow): number | undefined {
 
 class AutoDownloadRunner {
   private attempted = new Set<string>();
+  private deferred = new Map<string, { row: MessageRow; ownerId: string }>();
   private signature = "";
 
   /** Called when network or settings change so a previously skipped transfer
@@ -48,7 +49,16 @@ class AutoDownloadRunner {
     const category = categoryForMessage(row);
     if (!category) return;
     const size = attachmentSize(row);
-    if (!shouldAutoDownload({ settings, category, size, network })) return;
+    const deferredKey = `${row.conversationId}:${row.localId}`;
+    if (!shouldAutoDownload({ settings, category, size, network })) {
+      // Remember why this row was skipped so a later connection/settings
+      // change can download it even if its upsert already scrolled away.
+      if (this.deferred.size >= 80)
+        this.deferred.delete(this.deferred.keys().next().value!);
+      this.deferred.set(deferredKey, { row, ownerId });
+      return;
+    }
+    this.deferred.delete(deferredKey);
 
     const meta = mediaNameForMessage(row);
     const input = chatMediaSpecForMessage(ownerId, row, meta.mimeType);
@@ -73,8 +83,17 @@ class AutoDownloadRunner {
     for (const row of rows) this.consider(row, ownerId, settings, network);
   }
 
+  /** Reconsider rows skipped while offline or while their type was disabled. */
+  retryDeferred(settings: AutoDownloadSettings, network: NetworkCharge) {
+    const pending = [...this.deferred.values()];
+    this.deferred.clear();
+    for (const item of pending)
+      this.consider(item.row, item.ownerId, settings, network);
+  }
+
   reset() {
     this.attempted.clear();
+    this.deferred.clear();
     this.signature = "";
   }
 }

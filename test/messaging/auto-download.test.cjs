@@ -241,3 +241,33 @@ test("an automatic transfer that exceeds the category limit stops, and a manual 
   assert.equal(documentDownloads.get(key).status, "ready");
   await documentDownloads.clear();
 });
+
+test("a row skipped offline is retried when the connection returns", async () => {
+  const original = fileSystem.createDownloadResumable;
+  const calls = [];
+  fileSystem.createDownloadResumable = (url, uri, options, progress) => {
+    calls.push(url);
+    return original(url, uri, options, progress);
+  };
+  try {
+    files.clear();
+    await documentDownloads.clear();
+    autoDownloadSettings.reset();
+    autoDownloadSettings.setMedia("videos", true);
+    autoDownloadRunner.reset();
+    const video = row(9, {
+      type: "VIDEO",
+      mediaUrl: "https://api.test/uploads/videos/late.mp4",
+      attachmentData: JSON.stringify({ size: 2048, mimeType: "video/mp4" }),
+    });
+    autoDownloadRunner.consider(video, "me", autoDownloadSettings.getSnapshot(), "offline");
+    await settle();
+    assert.equal(calls.length, 0, "nothing downloads while offline");
+    autoDownloadRunner.retryDeferred(autoDownloadSettings.getSnapshot(), "wifi");
+    await settle();
+    assert.equal(calls.length, 1, "the remembered row downloads on reconnect");
+  } finally {
+    fileSystem.createDownloadResumable = original;
+    await documentDownloads.clear();
+  }
+});

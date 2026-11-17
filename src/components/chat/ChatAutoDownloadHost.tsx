@@ -17,6 +17,7 @@ export default function ChatAutoDownloadHost() {
     autoDownloadRunner.sync(
       `${network.kind}:${JSON.stringify(settings.networks)}:${JSON.stringify(settings.media)}`,
     );
+    autoDownloadRunner.retryDeferred(settings, network.kind);
   }, [network.kind, settings]);
 
   useEffect(() => {

@@ -8,7 +8,7 @@ Verification at the time of writing:
 | Check | Result |
 | --- | --- |
 | `npx tsc --noEmit` | clean |
-| `npm test` | **698 tests, 698 pass, 0 fail** |
+| `npm test` | **699 tests, 699 pass, 0 fail** |
 | `npm run lint` | 0 new errors; the 7 pre-existing `react-hooks/refs` errors in `src/hooks/useVoiceRecorder.ts` are untouched |
 | `npx expo config --type public` | resolves `circle`, runtime `1.2.0`, all plugins |
 | `npx expo prebuild --platform android --no-install` (scratch copy) | succeeds; manifest and `MainApplication` patches are present |
@@ -130,7 +130,10 @@ subscription exists. It:
    `maxBytes` cap;
 5. remembers attempts and clears that memory only when the network/settings
    signature changes, so a failed attempt is not retried in a loop but a new
-   connection or setting can retry it.
+   connection or setting can retry it;
+6. remembers up to 80 rows skipped while offline or disabled and reconsiders
+   them on a connection/settings change, so a message that arrived while offline
+   still downloads on reconnect without opening the chat.
 
 Music and voice are distinguished by whether the audio attachment has a
 filename: a recorded voice note does not, a picked/shared audio file does.
@@ -245,7 +248,8 @@ New suites:
 - `test/messaging/auto-download.test.cjs` — defaults, network classification
   (Wi-Fi/ethernet/mobile/roaming/VPN/unknown/offline), roaming independence,
   per-category limits, voice-vs-music classification, persistence, receive
-  runner single-flight/skips, and auto-limit stop → manual retry.
+  runner single-flight/skips, offline deferred retry, and auto-limit stop →
+  manual retry.
 - `test/messaging/share-intent.test.cjs` — single/multiple intake, empty and
   pathless rejection, filename sanitizing/extension, cache staging,
   `stagePending`/reuse, missing-grant failure, and cache-only cleanup.
@@ -266,7 +270,7 @@ Commands run:
 
 ```bash
 npx tsc --noEmit          # clean
-npm test                  # 698/698
+npm test                  # 699/699
 npm run lint              # 0 new errors; 7 pre-existing useVoiceRecorder refs errors
 npx expo config --type public --json
 npx expo prebuild --platform android --no-install   # scratch copy; succeeds
