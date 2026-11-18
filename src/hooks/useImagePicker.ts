@@ -1,5 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { showAppDialog } from "@/services/AppDialogService";
+import { inferAssetMimeType } from "@/utils/imageMime";
 
 export type MediaType = "image" | "video";
 
@@ -8,25 +9,9 @@ export interface PickedAsset {
   width: number;
   height: number;
   fileName?: string | null;
+  fileSize?: number;
   type?: string | null;
   mimeType?: string;
-}
-
-function getMimeType(uri: string, fallback: string = "image/jpeg"): string {
-  const match = /\.(\w+)$/.exec(uri);
-  const ext = match ? match[1].toLowerCase() : "jpg";
-  const mimeMap: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    mp4: "video/mp4",
-    mov: "video/quicktime",
-    avi: "video/x-msvideo",
-    webm: "video/webm",
-  };
-  return mimeMap[ext] ?? fallback;
 }
 
 export function createUploadFormData(
@@ -45,9 +30,7 @@ export function createUploadFormData(
 }
 
 export function getAssetMimeType(asset: PickedAsset): string {
-  if (asset.mimeType) return asset.mimeType;
-  if (asset.type === "video") return "video/mp4";
-  return getMimeType(asset.uri);
+  return inferAssetMimeType(asset);
 }
 
 export function getAssetFilename(asset: PickedAsset, fallback: string = "upload"): string {
@@ -81,6 +64,8 @@ export async function pickFromLibrary(
     allowsMultiple?: boolean;
     allowsEditing?: boolean;
     aspect?: [number, number];
+    /** iOS 14+: "compatible" converts HEIC/HEIF to JPEG when possible. */
+    preferredRepresentation?: "automatic" | "compatible" | "current";
   },
 ): Promise<PickedAsset | PickedAsset[] | null> {
   const granted = await ensurePermission(
@@ -96,25 +81,28 @@ export async function pickFromLibrary(
     all: ImagePicker.MediaTypeOptions.All,
   };
 
+  const representation =
+    options?.preferredRepresentation ?? "compatible";
+  const representationMode =
+    representation === "current"
+      ? ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current
+      : representation === "automatic"
+        ? ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Automatic
+        : ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible;
+
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: mediaTypeMap[options?.mediaTypes ?? "images"],
     allowsEditing: options?.allowsEditing ?? true,
     aspect: options?.aspect ?? [1, 1],
     allowsMultipleSelection: options?.allowsMultiple ?? false,
+    preferredAssetRepresentationMode: representationMode,
     base64: false,
     quality: 0.9,
   });
 
   if (result.canceled) return null;
 
-  const assets = result.assets.map((a) => ({
-    uri: a.uri,
-    width: a.width,
-    height: a.height,
-    fileName: a.fileName,
-    type: a.type,
-    mimeType: a.mimeType,
-  }));
+  const assets = result.assets.map(toPickedAsset);
 
   if (options?.allowsMultiple) {
     return assets;
@@ -141,14 +129,18 @@ export async function takePhoto(): Promise<PickedAsset | null> {
 
   if (result.canceled) return null;
 
-  const a = result.assets[0];
+  return toPickedAsset(result.assets[0]);
+}
+
+function toPickedAsset(asset: ImagePicker.ImagePickerAsset): PickedAsset {
   return {
-    uri: a.uri,
-    width: a.width,
-    height: a.height,
-    fileName: a.fileName,
-    type: a.type,
-    mimeType: a.mimeType,
+    uri: asset.uri,
+    width: asset.width,
+    height: asset.height,
+    fileName: asset.fileName,
+    fileSize: asset.fileSize,
+    type: asset.type,
+    mimeType: asset.mimeType,
   };
 }
 
@@ -198,13 +190,5 @@ export async function captureMedia(): Promise<PickedAsset | null> {
 
   if (result.canceled) return null;
 
-  const a = result.assets[0];
-  return {
-    uri: a.uri,
-    width: a.width,
-    height: a.height,
-    fileName: a.fileName,
-    type: a.type,
-    mimeType: a.mimeType,
-  };
+  return toPickedAsset(result.assets[0]);
 }

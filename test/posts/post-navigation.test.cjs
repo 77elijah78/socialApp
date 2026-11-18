@@ -10,10 +10,11 @@ const { mock, storage } = require("../messaging/harness.cjs");
 let auth = { user: { id: "me", username: "me" }, token: "token" };
 mock("@/store/hooks", { useAppSelector: (select) => select({ auth }) });
 const pushes = [];
+const backs = [];
 mock("expo-router", {
   router: {
     push: (route) => pushes.push(route),
-    back() {},
+    back() { backs.push(true); },
     navigate() {},
   },
   useLocalSearchParams: () => ({}),
@@ -31,6 +32,7 @@ const raw = {
   commentsCount: 2,
   isBookmarkedByCurrentUser: true,
 };
+const deletes = [];
 mock("@/services/api", {
   api: {
     get: async () => ({
@@ -39,18 +41,26 @@ mock("@/services/api", {
       meta: { page: 1, limit: 20, total: 1, hasNext: false },
     }),
     post: async () => ({ success: true }),
-    delete: async () => ({ success: true }),
+    delete: async (path) => {
+      deletes.push(path);
+      return { success: true };
+    },
   },
+});
+const dialogs = [];
+mock("@/services/AppDialogService", {
+  showAppDialog: (options) => dialogs.push(options),
 });
 mock("@/components/feed/PostCard", (props) =>
   React.createElement("PostCard", props),
 );
 const comments = [];
+const menus = [];
 mock("@/providers/OverlayProvider", {
   useOverlay: () => ({
     openComments: (id) => comments.push(id),
     openShare() {},
-    openActionMenu() {},
+    openActionMenu: (items, anchor) => menus.push({ items, anchor }),
   }),
 });
 const Collection =
@@ -61,6 +71,13 @@ beforeEach(() => {
   storage.clear();
   pushes.length = 0;
   comments.length = 0;
+  backs.length = 0;
+  deletes.length = 0;
+  menus.length = 0;
+  dialogs.length = 0;
+  raw.author.id = "writer";
+  raw.isBookmarked = true;
+  raw.isBookmarkedByCurrentUser = true;
 });
 afterEach(async () => {
   if (renderer) await act(async () => renderer.unmount());
@@ -102,4 +119,35 @@ test("list mode opens detail from the card body and comments only from the comme
   assert.deepEqual(comments, []);
   await act(async () => card.props.onComment("saved-42"));
   assert.deepEqual(comments, ["saved-42"]);
+});
+
+test("the profile detail sheet matches the feed and can delete the selected own post", async () => {
+  raw.author.id = "me";
+  raw.isBookmarked = false;
+  raw.isBookmarkedByCurrentUser = false;
+  await act(async () => {
+    renderer = create(
+      React.createElement(Collection, {
+        source: "author",
+        username: "me",
+        selectedId: "saved-42",
+      }),
+    );
+  });
+  const card = renderer.root.findByType("PostCard");
+  await act(async () => card.props.onMenuPress("saved-42", { x: 1, y: 2, width: 3, height: 4 }));
+  assert.deepEqual(
+    menus[0].items.map((item) => item.label),
+    ["Save post", "Share", "Edit post", "Delete post"],
+  );
+  assert.equal(menus[0].items.at(-1).destructive, true);
+
+  await act(async () => menus[0].items.at(-1).onPress());
+  assert.equal(dialogs[0].title, "Delete this post?");
+  await act(async () => {
+    await dialogs[0].buttons.find((button) => button.destructive).onPress();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  assert.deepEqual(deletes, ["/posts/saved-42"]);
+  assert.equal(backs.length, 1, "closes the selected post after deletion");
 });

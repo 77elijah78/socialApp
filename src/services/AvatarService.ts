@@ -1,9 +1,6 @@
 import { api } from "./api";
-import {
-  getAssetFilename,
-  getAssetMimeType,
-  type PickedAsset,
-} from "@/hooks/useImagePicker";
+import type { PickedAsset } from "@/hooks/useImagePicker";
+import { avatarFileForUpload } from "@/utils/avatarUpload";
 
 export interface UploadedAvatar {
   url: string;
@@ -18,12 +15,13 @@ export async function uploadAvatarAsset(
   asset: PickedAsset,
   onProgress?: (percent: number) => void,
 ): Promise<UploadedAvatar> {
+  const file = avatarFileForUpload(asset);
   const response = await api.uploadFile(
     "/media/upload/avatar",
-    asset.uri,
-    getAssetMimeType(asset),
+    file.uri,
+    file.type,
     "avatar",
-    getAssetFilename(asset, "avatar"),
+    file.name,
     undefined,
     onProgress,
   );

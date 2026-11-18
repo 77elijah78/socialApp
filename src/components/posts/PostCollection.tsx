@@ -15,10 +15,11 @@ import { router } from "expo-router";
 import PostCard from "@/components/feed/PostCard";
 import { usePosts } from "@/hooks/usePosts";
 import { useOverlay } from "@/providers/OverlayProvider";
-import { showAppDialog } from "@/services/AppDialogService";
+import { useAppSelector } from "@/store/hooks";
 import * as theme from "@/constants/theme";
 import type { SocialPost } from "@/types";
 import { formatCount } from "@/utils/format";
+import { buildPostMenu } from "@/utils/postMenu";
 
 const PAGE_SIZE = 20;
 type Props = {
@@ -47,6 +48,7 @@ export default function PostCollection({
     entryPost,
   });
   const { openComments, openShare, openActionMenu } = useOverlay();
+  const currentUserId = useAppSelector((state) => state.auth.user?.id);
   const { width } = useWindowDimensions();
   const [mode, setMode] = useState<"grid" | "list">(
     source === "saved" ? "grid" : "list",
@@ -105,32 +107,29 @@ export default function PostCollection({
   const menu = useCallback(
     (postId: string) => {
       const post = feed.posts.find((item) => item.id === postId);
-      openActionMenu([
-        {
-          key: "save",
-          icon: "bookmark-outline",
-          label: post?.isBookmarked ? "Remove bookmark" : "Save post",
-          onPress: () => {
-            void (
-              post?.isBookmarked ? feed.unsave(postId) : feed.save(postId)
-            ).catch((error) =>
-              showAppDialog({
-                title: "Couldn’t update bookmark",
-                message: error.message,
-                tone: "error",
-              }),
-            );
+      if (!post) return;
+      openActionMenu(
+        buildPostMenu({
+          post,
+          currentUserId,
+          onSave: () => feed.save(postId),
+          onUnsave: () => feed.unsave(postId),
+          onShare: () => openShare({ postId }),
+          onEdit: () =>
+            router.push({
+              pathname: "/posts/create",
+              params: { postId },
+            }),
+          onDelete: async () => {
+            await feed.deletePost(postId);
+            // A selected detail item no longer has a page to anchor to; return
+            // to the profile/collection that opened it.
+            if (selectedId === postId) router.back();
           },
-        },
-        {
-          key: "share",
-          icon: "share-outline",
-          label: "Share post",
-          onPress: () => openShare({ postId }),
-        },
-      ]);
+        }),
+      );
     },
-    [feed, openActionMenu, openShare],
+    [currentUserId, feed, openActionMenu, openShare, selectedId],
   );
 
   const renderItem = ({ item }: { item: SocialPost }) =>

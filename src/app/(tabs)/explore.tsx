@@ -24,11 +24,18 @@ import type { SocialPost } from "@/types";
 
 const GRID_GAP = 2;
 const TAB_BAR_SPACE = 112;
+const GRID_PADDING = theme.LAYOUT.contentPadding;
 
 export default function ExploreScreen() {
   const { width } = useWindowDimensions();
   const columns = width >= 700 ? 4 : width >= 340 ? 3 : 2;
-  const tileSize = (width - GRID_GAP * (columns - 1)) / columns;
+  // Align the grid with the header/search gutters instead of running tiles to
+  // the physical screen edge. Three 2px gaps stay inside the content width.
+  const gridWidth = Math.max(0, width - GRID_PADDING * 2);
+  const tileSize = Math.max(
+    0,
+    (gridWidth - GRID_GAP * (columns - 1)) / columns,
+  );
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const normalizedQuery = debouncedQuery.trim();
@@ -414,17 +421,16 @@ const styles = StyleSheet.create({
   },
   listContent: {
     flexGrow: 1,
+    paddingHorizontal: GRID_PADDING,
     paddingBottom: TAB_BAR_SPACE,
   },
   gridIntro: {
-    paddingHorizontal: theme.SPACING.xs,
     paddingBottom: theme.SPACING.md,
   },
   gridHeadingRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.sm,
     paddingTop: theme.SPACING.sm,
   },
   gridHeadingCopy: {
@@ -467,7 +473,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: theme.SPACING.sm,
     marginTop: theme.SPACING.md,
-    marginHorizontal: theme.SPACING.sm,
     paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.md,

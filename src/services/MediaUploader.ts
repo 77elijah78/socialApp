@@ -1,3 +1,4 @@
+import { avatarFileForUpload } from "../utils/avatarUpload";
 import { normalizeMediaUrl, requireRemoteMediaUrl } from "../utils/mediaUrls";
 import { mediaFileForUpload } from "../utils/mediaUpload";
 import { BaseUploader } from "./BaseUploader";
@@ -109,13 +110,20 @@ export class MediaUploader extends BaseUploader {
     width?: number;
     height?: number;
   }> {
-    const { type: mimeType, name: filename } = mediaFileForUpload(file.uri, { name: file.name, mimeType: file.type });
+    const avatar = avatarFileForUpload({
+      uri: file.uri,
+      width: 0,
+      height: 0,
+      fileName: file.name,
+      type: "image",
+      mimeType: file.type,
+    });
 
     const formData = new FormData();
     formData.append("avatar", {
-      uri: file.uri,
-      name: filename,
-      type: mimeType,
+      uri: avatar.uri,
+      name: avatar.name,
+      type: avatar.type,
     } as unknown as Blob);
 
     const res = (await this._uploadWithProgress(
