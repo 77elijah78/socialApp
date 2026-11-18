@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/services/api";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useAppSelector } from "@/store/hooks";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 
 export interface UserSearchResult {
   id: string;
@@ -41,7 +42,11 @@ export function useUserSearch(query: string, limit = 20) {
       setUsers(
         (Array.isArray(response.data) ? response.data : [])
           .filter((user) => user.id !== userId)
-          .slice(0, limit),
+          .slice(0, limit)
+          .map((user) => ({
+            ...user,
+            avatarUrl: normalizeMediaUrl(user.avatarUrl),
+          })),
       );
     } catch (failure) {
       if (requestId.current !== id) return;

@@ -23,6 +23,8 @@ import ReplyContext from "./ReplyContext";
 import SwipeToReply from "./SwipeToReply";
 import { canReplyToMessage } from "@/utils/messaging/actions";
 import { Ionicons } from "@expo/vector-icons";
+import { useAppSelector } from "@/store/hooks";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 
 interface Props {
   item: ChatListItem;
@@ -79,6 +81,12 @@ function ChatMessageRow({
   highlight = 0,
 }: Props) {
   const message = item.kind === "message" ? item.message : null;
+  // The persisted sender snapshot is historical. For the signed-in author,
+  // prefer the current profile avatar so a changed photo appears in existing
+  // group messages without rewriting every cached row.
+  const currentAvatarUrl = useAppSelector(
+    (state) => state.auth.user?.avatarUrl,
+  );
   const latest = useRef(message);
   useLayoutEffect(() => {
     latest.current = message;
@@ -148,7 +156,11 @@ function ChatMessageRow({
               metadata.author,
               own ? "You" : isGroup ? "Unknown sender" : receiverName,
             )}
-            senderAvatar={metadata.author?.avatarUrl}
+            senderAvatar={
+              normalizeMediaUrl(
+                own ? currentAvatarUrl : metadata.author?.avatarUrl,
+              ) ?? undefined
+            }
             showAuthor={isGroup}
             ownerId={userId}
             isRead={row.isRead || row.status === "READ"}

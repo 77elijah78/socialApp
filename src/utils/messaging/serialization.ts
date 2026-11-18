@@ -79,6 +79,9 @@ export function normalizeRemoteMessage(
         : remoteStatus === "READ"
           ? "DELIVERED"
           : remoteStatus;
+  const senderAvatarUrl = normalizeMediaUrl(
+    payload.sender?.avatarUrl ?? authors?.get(senderId)?.avatarUrl,
+  );
   return {
     localId: payload.id,
     id: payload.id,
@@ -89,6 +92,9 @@ export function normalizeRemoteMessage(
             ...authors?.get(senderId),
             ...payload.sender,
             id: senderId,
+            // Do not write `avatarUrl: null` over a previously hydrated
+            // snapshot: sparse message payloads only carry id/username.
+            ...(senderAvatarUrl ? { avatarUrl: senderAvatarUrl } : {}),
           })
         : null,
     replyData: payload.repliedTo

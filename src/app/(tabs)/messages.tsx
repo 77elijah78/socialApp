@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.xxl,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
     paddingTop: theme.SPACING.lg,
     paddingBottom: theme.SPACING.md,
   },
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
   quickActions: {
     flexDirection: "row",
     gap: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.lg,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
     paddingBottom: theme.SPACING.sm,
   },
   quickAction: {
@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.md,
-    marginHorizontal: theme.SPACING.xxl,
+    marginHorizontal: theme.LAYOUT.listPaddingHorizontal,
     marginTop: theme.SPACING.md,
     paddingHorizontal: theme.SPACING.lg,
     backgroundColor: theme.COLORS.bgWhite,
@@ -595,7 +595,7 @@ const styles = StyleSheet.create({
     fontSize: theme.TYPOGRAPHY.fontSize.lg,
   },
   filterRow: {
-    paddingHorizontal: theme.SPACING.xxl,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
     paddingVertical: theme.SPACING.md,
     gap: theme.SPACING.sm,
   },
@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.xxl,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
     marginBottom: theme.SPACING.sm,
   },
   listTitle: {
@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: theme.SPACING.xxl,
+    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
     paddingTop: theme.SPACING.sm,
     paddingBottom: theme.SPACING.xxxxxxl,
   },

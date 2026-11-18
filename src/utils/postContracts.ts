@@ -26,13 +26,54 @@ function engagementCount(value: unknown): number | null {
     : null;
 }
 
+type LegacyPostMedia = {
+  imageUrl?: unknown;
+  images?: unknown;
+  media?: unknown;
+  mediaUrls?: unknown;
+  attachments?: unknown;
+  video?: unknown;
+};
+
+/** The feed has shipped both `imageUrls: string[]` and legacy single/object
+ * shapes. Accept every media URL the server actually sends, while ignoring
+ * video entries and device-local URIs that cannot be rendered remotely. */
+function mediaUrlValues(value: unknown, depth = 0): string[] {
+  if (depth > 3) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((item) => mediaUrlValues(item, depth + 1));
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  if (type && !type.startsWith("image") && type !== "photo") return [];
+  return [
+    record.url,
+    record.mediaUrl,
+    record.uri,
+    record.src,
+    record.imageUrl,
+  ].flatMap((item) => mediaUrlValues(item, depth + 1));
+}
+
 export function mapPostResponse(
   post: PostResponse,
   source: PostViewSource = "feed",
 ): SocialPost {
-  const imageUrls = (post.imageUrls ?? [])
+  const legacy = post as PostResponse & LegacyPostMedia;
+  const imageUrls = [
+    post.imageUrls,
+    legacy.imageUrl,
+    legacy.images,
+    legacy.mediaUrls,
+    legacy.media,
+    legacy.attachments,
+  ]
+    .flatMap((value) => mediaUrlValues(value))
     .map((url) => normalizeMediaUrl(url))
-    .filter((url): url is string => Boolean(url));
+    .filter(
+      (url, index, all): url is string =>
+        Boolean(url) && all.indexOf(url as string) === index,
+    );
   // Prefer canonical engagement fields; fall back to legacy `_count` and
   // `isLiked`/`isSaved` so older servers keep working.
   const likes = engagementCount(post.likesCount) ?? post._count?.likes ?? 0;
@@ -53,10 +94,29 @@ export function mapPostResponse(
   return {
     ...post,
     imageUrls,
-    videoUrl: normalizeMediaUrl(post.videoUrl),
+    author: post.author
+      ? {
+          ...post.author,
+          avatarUrl: normalizeMediaUrl(post.author.avatarUrl),
+        }
+      : post.author,
+    videoUrl:
+      normalizeMediaUrl(post.videoUrl) ??
+      normalizeMediaUrl((legacy.video as { url?: unknown } | null)?.url),
     timestamp: new Date(post.createdAt).toISOString(),
     imageUrl: imageUrls[0] ?? "",
     tags: post.tags ?? [],
+    comments: post.comments?.map((comment) =>
+      comment.author
+        ? {
+            ...comment,
+            author: {
+              ...comment.author,
+              avatarUrl: normalizeMediaUrl(comment.author.avatarUrl),
+            },
+          }
+        : comment,
+    ),
     likeCount: likes,
     commentCount: comments,
     likesCount: likes,

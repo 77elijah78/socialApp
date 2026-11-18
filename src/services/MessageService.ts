@@ -81,6 +81,7 @@ export class MessageService extends BaseUploader {
   ): NewMessageRow {
     const localId = uid();
     const { sender, ...identity } = meta;
+    const senderAvatarUrl = sender ? normalizeMediaUrl(sender.avatarUrl) : null;
     return {
       localId,
       id: localId,
@@ -90,7 +91,12 @@ export class MessageService extends BaseUploader {
       type: "TEXT",
       status: "SENDING",
       ...identity,
-      senderData: sender ? JSON.stringify(sender) : null,
+      senderData: sender
+        ? JSON.stringify({
+            ...sender,
+            ...(senderAvatarUrl ? { avatarUrl: senderAvatarUrl } : {}),
+          })
+        : null,
       replyData: null,
       attachmentData: null,
       isRead: false,

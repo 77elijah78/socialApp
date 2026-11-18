@@ -1,4 +1,5 @@
 import { api, ApiError } from "./api";
+import { normalizeMediaUrl } from "../utils/mediaUrls";
 
 export type ChannelRole = "owner" | "admin" | "member" | "subscriber";
 export type ChannelPostType = "TEXT" | "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT" | "STICKER";
@@ -119,13 +120,16 @@ function normalizeChannel(dto: ChannelDTO): ChannelDetail {
     id: dto.id,
     name: dto.name ?? "Channel",
     description: dto.description ?? null,
-    avatarUrl: dto.avatarUrl ?? null,
+    avatarUrl: normalizeMediaUrl(dto.avatarUrl),
     isPrivate: Boolean(dto.isPrivate),
     subscriberCount: dto.subscriberCount ?? dto.membersCount ?? 0,
     isSubscribed: dto.isSubscribed ?? dto.subscribed ?? Boolean(dto.role),
     role,
     canPost,
-    admins: dto.admins ?? [],
+    admins: (dto.admins ?? []).map((admin) => ({
+      ...admin,
+      avatarUrl: normalizeMediaUrl(admin.avatarUrl),
+    })),
     createdAt: dto.createdAt ?? null,
   };
 }
@@ -144,15 +148,20 @@ function normalizePost(dto: PostDTO): ChannelPost {
     channelId: dto.channelId ?? "",
     content: dto.content ?? "",
     type,
-    mediaUrl: dto.mediaUrl ?? null,
-    thumbnailUrl: dto.thumbnailUrl ?? null,
+    mediaUrl: normalizeMediaUrl(dto.mediaUrl),
+    thumbnailUrl: normalizeMediaUrl(dto.thumbnailUrl),
     fileName: dto.fileName ?? null,
     fileMimeType: dto.fileMimeType ?? null,
     fileSize: dto.fileSize ?? null,
     duration: dto.duration ?? null,
     pinned: dto.pinned ?? dto.isPinned ?? false,
     createdAt: dto.createdAt ?? new Date().toISOString(),
-    author: dto.author ?? dto.user ?? null,
+    author: (() => {
+      const author = dto.author ?? dto.user ?? null;
+      return author
+        ? { ...author, avatarUrl: normalizeMediaUrl(author.avatarUrl) }
+        : null;
+    })(),
   };
 }
 

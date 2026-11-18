@@ -22,6 +22,7 @@ import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { SocialPost } from "@/types";
 import { subscribePostUpdates } from "@/utils/postUpdates";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
@@ -71,7 +72,9 @@ export default function ProfileScreen() {
     user?.username ||
     "Your profile";
   const username = profileData?.username || user?.username || "";
-  const avatarUrl = profileData?.avatarUrl ?? user?.avatarUrl ?? null;
+  const avatarUrl =
+    normalizeMediaUrl(user?.avatarUrl) ??
+    normalizeMediaUrl(profileData?.avatarUrl);
   const bio = profileData?.bio ?? user?.bio ?? null;
   const initial = displayName.charAt(0).toUpperCase() || "Y";
   const counts = profileData?._count ?? {

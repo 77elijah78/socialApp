@@ -9,6 +9,7 @@ import { api } from "../services/api";
 import { useAppSelector } from "../store/hooks";
 import type { Comment, PostOneResponse } from "../types";
 import { publishPostUpdate } from "../utils/postUpdates";
+import { normalizeMediaUrl } from "../utils/mediaUrls";
 
 const EMPTY_COMMENTS: Comment[] = [];
 type WireComment = Partial<Comment> &
@@ -39,6 +40,9 @@ export function normalizeComment(raw: WireComment, postId: string): Comment {
         : undefined;
   return {
     ...raw,
+    author: raw.author
+      ? { ...raw.author, avatarUrl: normalizeMediaUrl(raw.author.avatarUrl) }
+      : raw.author,
     authorId,
     postId,
     repliedToId: raw.repliedToId ?? null,

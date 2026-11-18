@@ -1,5 +1,6 @@
 import { api, ApiError } from "./api";
 import type { BackendConversation } from "./ConversationService";
+import { normalizeMediaUrl } from "../utils/mediaUrls";
 
 export type GroupRole = "owner" | "admin" | "member";
 
@@ -85,7 +86,7 @@ function normalizeMember(dto: GroupMemberDTO): GroupMember | null {
     userId: user.id,
     username: user.username,
     displayName: user.displayName ?? null,
-    avatarUrl: user.avatarUrl ?? null,
+    avatarUrl: normalizeMediaUrl(user.avatarUrl),
     role: dto.role ?? "member",
     joinedAt: dto.joinedAt ?? null,
   };
@@ -109,7 +110,7 @@ export function normalizeGroup(dto: GroupDTO, currentUserId?: string): GroupInfo
   return {
     id,
     name: dto.name ?? dto.groupName ?? "Group",
-    avatarUrl: dto.avatarUrl ?? dto.groupAvatar ?? null,
+    avatarUrl: normalizeMediaUrl(dto.avatarUrl ?? dto.groupAvatar),
     description: dto.description ?? null,
     memberCount: dto.memberCount ?? members.length,
     members,

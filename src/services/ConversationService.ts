@@ -1,4 +1,5 @@
 import type { RoomRow } from "../db/schema";
+import { normalizeMediaUrl } from "../utils/mediaUrls";
 
 interface BackendParticipant {
   user: {
@@ -54,10 +55,11 @@ export function toRoomRow(
         otherParticipant?.user.username ||
         "Unknown";
 
-  const avatarUrl =
+  const avatarUrl = normalizeMediaUrl(
     conversation.isGroup && conversation.groupAvatar
       ? conversation.groupAvatar
-      : otherParticipant?.user.avatarUrl || "";
+      : otherParticipant?.user.avatarUrl,
+  ) ?? "";
 
   const receiverId = otherParticipant?.user.id;
 
@@ -85,7 +87,14 @@ export function toRoomRow(
     id: conversation.id,
     name,
     isGroup: conversation.isGroup,
-    participantsData: JSON.stringify(conversation.participants.map(({ user }) => ({ id: user.id, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl }))),
+    participantsData: JSON.stringify(
+      conversation.participants.map(({ user }) => ({
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarUrl: normalizeMediaUrl(user.avatarUrl),
+      })),
+    ),
     conversationId: conversation.id,
     avatarUrl,
     lastMessage: lastMessageContent,

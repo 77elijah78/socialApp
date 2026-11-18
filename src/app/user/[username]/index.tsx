@@ -29,6 +29,7 @@ import {
 } from '@/components/ui';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { setCached } from '@/utils/queryCache';
+import { normalizeMediaUrl } from '@/utils/mediaUrls';
 
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
@@ -71,6 +72,7 @@ export default function UserProfileScreen() {
     paginating,
     error: postsError,
     paginationError,
+    total: postsTotal,
     refresh: refreshPosts,
   } = usePosts({ source: 'author', username });
   const { width: screenWidth } = useWindowDimensions();
@@ -80,6 +82,13 @@ export default function UserProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'posts'>('posts');
   const [messaging, setMessaging] = useState(false);
+  // The author feed filters soft-deleted posts, while `_count.posts` on older
+  // servers does not. Prefer the healthy feed total when the two disagree.
+  const postCount = profile
+    ? loadingPosts || postsError
+      ? profile._count.posts
+      : Math.min(profile._count.posts, postsTotal)
+    : 0;
 
   useEffect(() => {
     if (!username) return;
@@ -91,8 +100,12 @@ export default function UserProfileScreen() {
           success: boolean;
           data: SearchedUserProfile;
         }>(`/users/${username}`, token ?? undefined);
-        setProfile(resp.data);
-        setCached(`profile:${username}`, resp.data, 5 * 60_000);
+        const nextProfile = {
+          ...resp.data,
+          avatarUrl: normalizeMediaUrl(resp.data.avatarUrl),
+        };
+        setProfile(nextProfile);
+        setCached(`profile:${username}`, nextProfile, 5 * 60_000);
       } catch (err: any) {
         setError(err.message ?? 'Failed to load profile');
       } finally {
@@ -279,7 +292,7 @@ export default function UserProfileScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
-                  {formatCount(profile._count.posts)}
+                  {formatCount(postCount)}
                 </Text>
                 <Text style={styles.statLabel}>Posts</Text>
               </View>

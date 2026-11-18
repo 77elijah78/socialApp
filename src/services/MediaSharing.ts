@@ -1,5 +1,6 @@
 import { documentDownloads, documentKey, type DocumentSpec } from "./DocumentDownloads";
 import { getAuthGeneration } from "./api";
+import * as Sharing from "expo-sharing";
 
 /** External apps cannot attach our Bearer header. Only an explicit user action
  * downloads the authorized bytes to this account's app-private file, then hands
@@ -11,7 +12,8 @@ export async function shareMediaFile(spec: DocumentSpec): Promise<void> {
   const state = documentDownloads.get(documentKey(spec));
   if (state.status !== "ready" || !state.localUri)
     throw new Error(state.error ?? "This attachment couldn’t be downloaded.");
-  const Sharing = await import("expo-sharing");
+  // Static import keeps Metro's module graph resolvable. The previous dynamic
+  // import produced an unknown numeric module in release/dev-client bundles.
   const available = await Sharing.isAvailableAsync();
   if (generation !== getAuthGeneration()) return;
   if (!available) throw new Error("File sharing requires a compatible native app.");

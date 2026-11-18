@@ -24,6 +24,8 @@ import {
   takePhoto,
 } from "@/hooks/useImagePicker";
 import { api } from "@/services/api";
+import { roomStore } from "@/db/RoomStore";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 import { showAppDialog } from "@/services/AppDialogService";
 import { uploadAvatarAsset } from "@/services/AvatarService";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -37,7 +39,9 @@ export default function EditProfileScreen() {
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
+  const [avatarUrl, setAvatarUrl] = useState(
+    normalizeMediaUrl(user?.avatarUrl),
+  );
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
@@ -60,7 +64,7 @@ export default function EditProfileScreen() {
         setUploadingAvatar(true);
         try {
           const uploaded = await uploadAvatarAsset(asset);
-          setAvatarUrl(uploaded.url);
+          setAvatarUrl(normalizeMediaUrl(uploaded.url) ?? uploaded.url);
         } catch (error) {
           showAppDialog({
             title: "Photo couldn’t be uploaded",
@@ -105,8 +109,9 @@ export default function EditProfileScreen() {
         username: normalizedUsername,
         bio: bio.trim() || null,
       };
-      if (avatarUrl && avatarUrl !== user?.avatarUrl) {
-        body.avatarUrl = avatarUrl;
+      const nextAvatarUrl = normalizeMediaUrl(avatarUrl);
+      if (nextAvatarUrl && nextAvatarUrl !== normalizeMediaUrl(user?.avatarUrl)) {
+        body.avatarUrl = nextAvatarUrl;
       }
 
       const response = await api.patch<{
@@ -129,9 +134,14 @@ export default function EditProfileScreen() {
           displayName: response.data.displayName,
           username: response.data.username,
           bio: response.data.bio ?? null,
-          avatarUrl: response.data.avatarUrl ?? null,
+          avatarUrl:
+            normalizeMediaUrl(response.data.avatarUrl) ?? nextAvatarUrl,
         }),
       );
+      // Message summaries live in SQLite and the group chat caches sender
+      // snapshots. Ask the room layer to reconcile the current server avatar
+      // now rather than waiting for a cold launch.
+      roomStore.requestSync();
       showAppDialog({
         title: "Profile updated",
         message: "Your changes are saved and ready to share.",

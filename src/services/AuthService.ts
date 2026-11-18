@@ -1,3 +1,4 @@
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 import { apiUrl, API_ORIGIN } from "../config/api";
 import { LoginResponse } from "@/types";
 import { useAppDispatch } from "../store/hooks";
@@ -42,7 +43,7 @@ export class AuthService {
           email: user.email,
           displayName: user.displayName ?? null,
           bio: user.bio ?? null,
-          avatarUrl: user.avatarUrl ?? null,
+          avatarUrl: normalizeMediaUrl(user.avatarUrl),
         },
         token: accessToken,
         refreshToken,
