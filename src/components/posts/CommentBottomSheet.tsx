@@ -31,6 +31,11 @@ import {
   CommentThreadNode,
 } from "@/components/posts/CommentThread";
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
+import {
+  SHEET_BACKDROP_PROPS,
+  SHEET_HANDLE,
+  SHEET_SURFACE,
+} from "@/constants/sheets";
 
 export interface CommentBottomSheetRef {
   open: (postId: string) => void;
@@ -247,6 +252,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       total: commentCount,
       refresh: fetchComments,
       send: handleSend,
+      toggleLike,
     } = usePostComments(postId, openSequence);
     const [currentSnapIndex, setCurrentSnapIndex] = useState(0);
 
@@ -351,10 +357,7 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
       (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
         <BottomSheetBackdrop
           {...props}
-          appearsOnIndex={0}
-          disappearsOnIndex={-1}
-          opacity={0.4}
-          pressBehavior="close"
+          {...SHEET_BACKDROP_PROPS}
         />
       ),
       [],
@@ -368,9 +371,16 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
           keyboardIsVisible={keyboardIsVisible}
           onReply={handleReply}
           onProfilePress={handleProfilePress}
+          onLike={(comment) => toggleLike(comment.id)}
         />
       ),
-      [currentUserId, keyboardIsVisible, handleReply, handleProfilePress],
+      [
+        currentUserId,
+        keyboardIsVisible,
+        handleReply,
+        handleProfilePress,
+        toggleLike,
+      ],
     );
 
     const ListEmptyComponent = useCallback(() => {
@@ -426,19 +436,17 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
         backdropComponent={renderBackdrop}
         onChange={handleSheetChange}
         handleIndicatorStyle={{
-          backgroundColor: COLORS.borderGray,
+          ...SHEET_HANDLE,
           width: 36,
+          height: 4,
+          backgroundColor: COLORS.borderGray,
         }}
         handleStyle={{
           backgroundColor: COLORS.bgCard,
           paddingTop: 8,
           paddingBottom: 4,
         }}
-        backgroundStyle={{
-          backgroundColor: COLORS.bgWhite,
-          borderTopLeftRadius: BORDER_RADIUS.lg,
-          borderTopRightRadius: BORDER_RADIUS.lg,
-        }}
+        backgroundStyle={SHEET_SURFACE}
         keyboardBehavior="extend"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
@@ -498,8 +506,8 @@ export const CommentBottomSheet = React.forwardRef<CommentBottomSheetRef>(
             ListFooterComponent={
               commentCount > comments.length ? (
                 <Text style={styles.stateSubtext}>
-                  Showing {comments.length} of {commentCount} comments. More
-                  comments are not yet available from this server.
+                  Showing the latest {comments.length} of {commentCount}{" "}
+                  comments.
                 </Text>
               ) : null
             }

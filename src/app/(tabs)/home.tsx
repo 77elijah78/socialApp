@@ -20,8 +20,8 @@ import { FeedPostSkeleton, OfflineBanner } from "@/components/ui";
 import * as theme from "@/constants/theme";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { usePosts } from "@/hooks/usePosts";
-import { useOverlay, type ActionMenuItem } from "@/providers/OverlayProvider";
-import { showAppDialog } from "@/services/AppDialogService";
+import { useOverlay } from "@/providers/OverlayProvider";
+import { buildPostMenu } from "@/utils/postMenu";
 import { useAppSelector } from "@/store/hooks";
 import { SocialPost } from "@/types";
 
@@ -122,6 +122,9 @@ export default function FeedScreen() {
     (postId: string) => openShare({ postId }),
     [openShare],
   );
+  const openPost = useCallback((postId: string) => {
+    router.push({ pathname: "/posts/[id]", params: { id: postId } });
+  }, []);
   const hasFocusedFeedRef = useRef(false);
 
   useFocusEffect(
@@ -141,92 +144,24 @@ export default function FeedScreen() {
           onShare={handleShare}
           onUserPress={(username) => router.push(`/user/${username}`)}
           onBookmark={(postId, bookmarked) => bookmarked ? save(postId) : unsave(postId)}
+          onOpen={openPost}
           onMenuPress={(postId, anchor) => {
-            const isOwnPost = item.author.id === currentUserId;
-            const actions: ActionMenuItem[] = [
-              {
-                key: "save",
-                icon: "bookmark-outline",
-                label: item.isBookmarked ? "Remove from saved" : "Save post",
-                onPress: () => item.isBookmarked ? unsave(postId) : save(postId),
-              },
-              {
-                key: "share",
-                icon: "share-outline",
-                label: "Share",
-                onPress: () => handleShare(postId),
-              },
-              ...(isOwnPost
-                ? [
-                    {
-                      key: "edit",
-                      icon: "create-outline" as const,
-                      label: "Edit post",
-                      onPress: () => router.push({
-                        pathname: "/posts/create",
-                        params: { postId },
-                      }),
-                    },
-                    {
-                      key: "delete",
-                      icon: "trash-outline" as const,
-                      label: "Delete post",
-                      destructive: true,
-                      onPress: () =>
-                        showAppDialog({
-                          title: "Delete this post?",
-                          message: "This post will be removed from your feed.",
-                          tone: "warning",
-                          buttons: [
-                            { key: "cancel", label: "Cancel", cancel: true },
-                            {
-                              key: "delete",
-                              label: "Delete post",
-                              destructive: true,
-                              onPress: async () => {
-                                try {
-                                  await deletePost(postId);
-                                } catch (error) {
-                                  showAppDialog({
-                                    title: "Couldn’t delete post",
-                                    message: error instanceof Error ? error.message : "Please try again.",
-                                    tone: "error",
-                                  });
-                                }
-                              },
-                            },
-                          ],
-                        }),
-                    },
-                  ]
-                : [
-                    {
-                      key: "report",
-                      icon: "flag-outline" as const,
-                      label: "Report",
-                      onPress: () => {
-                        // TODO: implement report.
-                      },
-                    },
-                    {
-                      key: "hide",
-                      icon: "eye-off-outline" as const,
-                      label: "Hide post",
-                      onPress: () => {
-                        // TODO: implement hide.
-                      },
-                    },
-                    {
-                      key: "unfollow",
-                      icon: "person-remove-outline" as const,
-                      label: "Unfollow",
-                      onPress: () => {
-                        // TODO: implement unfollow.
-                      },
-                    },
-                  ]),
-            ];
-            openActionMenu(actions, anchor);
+            openActionMenu(
+              buildPostMenu({
+                post: item,
+                currentUserId,
+                onSave: () => save(postId),
+                onUnsave: () => unsave(postId),
+                onShare: () => handleShare(postId),
+                onEdit: () =>
+                  router.push({
+                    pathname: "/posts/create",
+                    params: { postId },
+                  }),
+                onDelete: () => deletePost(postId),
+              }),
+              anchor,
+            );
           }}
         />
       </View>
@@ -240,6 +175,7 @@ export default function FeedScreen() {
       currentUserId,
       openActionMenu,
       openComments,
+      openPost,
       handleShare,
     ],
   );

@@ -18,8 +18,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import theme from "@/constants/theme";
 import {
-  createUploadFormData,
-  getAssetMimeType,
   PickedAsset,
   pickFromLibrary,
   showImageSourceActionSheet,
@@ -27,6 +25,7 @@ import {
 } from "@/hooks/useImagePicker";
 import { api } from "@/services/api";
 import { showAppDialog } from "@/services/AppDialogService";
+import { uploadAvatarAsset } from "@/services/AvatarService";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { updateUser } from "@/store/slices/authSlice";
 
@@ -60,9 +59,8 @@ export default function EditProfileScreen() {
 
         setUploadingAvatar(true);
         try {
-          const form = createUploadFormData(asset.uri, getAssetMimeType(asset));
-          const response = await api.upload("/media/upload/avatar", form, token);
-          setAvatarUrl(response.data.url);
+          const uploaded = await uploadAvatarAsset(asset);
+          setAvatarUrl(uploaded.url);
         } catch (error) {
           showAppDialog({
             title: "Photo couldn’t be uploaded",

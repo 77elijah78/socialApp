@@ -20,6 +20,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logout } from "@/store/slices/authSlice";
 import { toggleNotifications } from "@/store/slices/appSlice";
 import PushNotificationSettings from "@/components/notifications/PushNotificationSettings";
+import AutoDownloadSettingsPanel from "@/components/settings/AutoDownloadSettingsPanel";
 
 interface SettingRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -214,8 +215,16 @@ export default function SettingsScreen() {
               ios_backgroundColor="#D8D6E2"
             />
           </View>
+          <SettingRow
+            icon="happy-outline"
+            label="Sticker store"
+            description="Browse, add and remove sticker packs"
+            onPress={() => router.push("/stickers")}
+          />
           <PushNotificationSettings />
         </SettingsSection>
+
+        <AutoDownloadSettingsPanel />
 
         <SettingsSection title="Support">
           <SettingRow

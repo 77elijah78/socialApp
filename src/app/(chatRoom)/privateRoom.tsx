@@ -81,6 +81,9 @@ import { mediaService } from "@/services/MediaService";
 import { useOverlay, useOverlayVisible } from "@/providers/OverlayProvider";
 import { OfflineBanner, ChatBubbleSkeleton } from "@/components/ui";
 import { showAppDialog } from "@/services/AppDialogService";
+import { useAutoDownloadSettings } from "@/hooks/useAutoDownloadSettings";
+import { useNetworkConditions } from "@/hooks/useNetworkConditions";
+import { autoDownloadRunner } from "@/services/AutoDownloadRunner";
 
 interface RoomParams {
   roomId: string;
@@ -90,6 +93,7 @@ interface RoomParams {
   conversationId: string;
   receiverId: string;
   isGroup?: string;
+  memberCount?: string;
 }
 const maintainPosition = { minIndexForVisible: 0 };
 const viewabilityConfig = {
@@ -149,10 +153,18 @@ function Conversation({
     receiverUsername,
     receiverAvatar,
   } = params;
+  const isGroup = params.isGroup === "true";
+  const [groupMeta, setGroupMeta] = useState({
+    name: receiverName,
+    avatar: receiverAvatar ?? "",
+    memberCount: Number(params.memberCount ?? 0),
+  });
   const blockingOverlay = useOverlayVisible();
   const overlayBlocksReads = useRef(blockingOverlay);
   useLayoutEffect(() => { overlayBlocksReads.current = blockingOverlay; }, [blockingOverlay]);
   const [isFocused, setFocused] = useState(false);
+  const autoDownload = useAutoDownloadSettings();
+  const network = useNetworkConditions();
   const [replyingTo, setReplyingTo] = useState<MessageRow | null>(null);
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
@@ -197,6 +209,7 @@ function Conversation({
     replyMsg,
     retry,
     sendMedia,
+    sendSticker,
     onTyping,
     markVisibleRead,
     getLoadedMessage,
@@ -335,6 +348,14 @@ function Conversation({
       );
     }
   }, [messages, userId]);
+  useEffect(() => {
+    autoDownloadRunner.sync(
+      `${network.kind}:${JSON.stringify(autoDownload.networks)}:${JSON.stringify(autoDownload.media)}`,
+    );
+    if (userId)
+      autoDownloadRunner.considerAll(messages, userId, autoDownload, network.kind);
+  }, [messages, userId, autoDownload, network.kind]);
+
   const unread = useMemo(
     () =>
       messages.filter(
@@ -457,6 +478,13 @@ function Conversation({
     },
     [receiverId, sendMedia, scrollLatest],
   );
+  const handleSticker = useCallback(
+    async (sticker: import("@/constants/stickers").Sticker, replyId?: string) => {
+      scrollLatest();
+      await sendSticker(sticker, receiverId, replyId);
+    },
+    [receiverId, scrollLatest, sendSticker],
+  );
   const cancelReply = useCallback(() => setReplyingTo(null), []);
   const onRetry = useCallback(
     (message: MessageRow) => {
@@ -514,6 +542,29 @@ function Conversation({
     }).catch(() => {});
     return () => { active = false; stop(); };
   }, [conversationId, replyLocalId, replyServerId]);
+  const onProfile = useCallback(() => {
+    if (keyboardVisible) Keyboard.dismiss();
+    else if (isGroup)
+      router.push({
+        pathname: "/(chatRoom)/groupInfo",
+        params: {
+          conversationId,
+          name: groupMeta.name,
+          avatarUrl: groupMeta.avatar,
+          memberCount: String(groupMeta.memberCount),
+        },
+      });
+    else if (receiverUsername) router.push(`/user/${receiverUsername}`);
+  }, [
+    conversationId,
+    groupMeta.avatar,
+    groupMeta.memberCount,
+    groupMeta.name,
+    isGroup,
+    keyboardVisible,
+    receiverUsername,
+  ]);
+
   const onMenu = useCallback(
     async (anchor?: { x: number; y: number; width: number; height: number }) => {
       const muted = (await roomStore.findRoom(conversationId).catch(() => []))[0]?.muted ?? false;
@@ -543,6 +594,16 @@ function Conversation({
             label: "Wallpaper",
             onPress: () => {},
           },
+          ...(isGroup
+            ? [
+                {
+                  key: "group-info",
+                  icon: "people-outline" as const,
+                  label: "Group info",
+                  onPress: onProfile,
+                },
+              ]
+            : []),
           {
             key: "delete",
             icon: "trash-outline",
@@ -565,12 +626,41 @@ function Conversation({
         anchor,
       );
     },
-    [conversationId, openActionMenu],
+    [conversationId, isGroup, onProfile, openActionMenu],
   );
-  const onProfile = useCallback(() => {
-    if (keyboardVisible) Keyboard.dismiss();
-    else if (receiverUsername) router.push(`/user/${receiverUsername}`);
-  }, [keyboardVisible, receiverUsername]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!isGroup) return;
+      let active = true;
+      void roomStore
+        .findRoom(conversationId)
+        .then(([room]) => {
+          if (!active || !room) return;
+          let count = 0;
+          try {
+            const participants = JSON.parse(room.participantsData ?? "[]");
+            count = Array.isArray(participants) ? participants.length : 0;
+          } catch {
+            count = 0;
+          }
+          setGroupMeta({
+            name: room.name || receiverName,
+            avatar: room.avatarUrl || receiverAvatar || "",
+            memberCount: count || Number(params.memberCount ?? 0),
+          });
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, [
+      conversationId,
+      isGroup,
+      params.memberCount,
+      receiverAvatar,
+      receiverName,
+    ]),
+  );
   const onBack = useCallback(() => { if (!selectionBack()) router.back(); }, [selectionBack]);
   useEffect(() => {
     if (!isFocused) return;
@@ -769,12 +859,14 @@ function Conversation({
             onCancel={cancelSelection} onCopy={selection.copy} onDelete={selection.requestDelete}
             onForward={selection.openForward} onReply={replySelected} onRetry={retrySelected}
           /> : <ChatHeader
-            receiverName={receiverName}
-            avatarUri={receiverAvatar ?? ""}
+            receiverName={isGroup ? groupMeta.name : receiverName}
+            avatarUri={isGroup ? groupMeta.avatar : receiverAvatar ?? ""}
             onBack={onBack}
             onProfilePress={onProfile}
             onMenuPress={onMenu}
             isTyping={isTyping}
+            isGroup={isGroup}
+            memberCount={groupMeta.memberCount}
           />}
         </View>
       </SafeAreaView>
@@ -991,6 +1083,7 @@ function Conversation({
                 onTyping={onTyping}
                 onSend={handleSend}
                 onSendMedia={handleMedia}
+                onSendSticker={handleSticker}
                 onReplyPress={goToMessage}
               />
             </Animated.View>

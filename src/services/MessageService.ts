@@ -25,6 +25,16 @@ interface SendMeta {
   conversationId: string;
   sender?: MessageAuthorInfo;
 }
+
+export interface StickerSendInput {
+  packId: string;
+  stickerId: string;
+  stickerName: string;
+  mediaUri: string;
+  mimeType: string;
+  width: number;
+  height: number;
+}
 interface ServerCursor {
   lastTimestamp: number;
   lastId: string;
@@ -210,6 +220,42 @@ export class MessageService extends BaseUploader {
     this.validate(text);
     return this.create(meta, { content: text.trim(), repliedToId });
   }
+  /**
+   * Stickers use an existing IMAGE message with a compact content marker
+   * (`[[sticker:pack:id]]`). This keeps old clients and the current backend
+   * schema working; recipients render the marker as artwork without a bubble.
+   */
+  sendSticker(
+    sticker: StickerSendInput,
+    meta: SendMeta,
+    repliedToId?: string,
+  ) {
+    return this.create(meta, {
+      type: "IMAGE",
+      mediaUrl: sticker.mediaUri,
+      duration: null,
+      repliedToId: repliedToId ?? null,
+      content: `[[sticker:${sticker.packId}:${sticker.stickerId}]]`,
+      attachmentData: JSON.stringify({
+        name: `${sticker.stickerId}.${
+          sticker.mimeType === "image/gif"
+            ? "gif"
+            : sticker.mimeType === "image/png"
+              ? "png"
+              : sticker.mimeType === "image/jpeg"
+                ? "jpg"
+                : "webp"
+        }`,
+        mimeType: sticker.mimeType,
+        width: sticker.width,
+        height: sticker.height,
+        packId: sticker.packId,
+        stickerId: sticker.stickerId,
+        stickerName: sticker.stickerName,
+      }),
+    });
+  }
+
   sendMediaRecord(
     type: string,
     mediaUrl: string | null,

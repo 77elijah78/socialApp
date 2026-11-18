@@ -1,6 +1,7 @@
 const { test, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 require("../messaging/harness.cjs");
 const configure = require("../../app.config.ts").default;
 const profile = process.env.EAS_BUILD_PROFILE,
@@ -50,4 +51,25 @@ test("missing config is an actionable request error, not an import/startup crash
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("branding: the circle name, icon set and splash screen are wired to real assets", () => {
+  const app = require("../../app.json").expo;
+  const pngSize = (file) => {
+    const header = fs.readFileSync(file).subarray(0, 24);
+    return [header.readUInt32BE(16), header.readUInt32BE(20)];
+  };
+  assert.equal(app.name, "circle");
+  assert.equal(configure({ config: app }).name, "circle");
+  assert.deepEqual(pngSize(app.icon), [1024, 1024]);
+  assert.deepEqual(pngSize(app.android.adaptiveIcon.foregroundImage), [1024, 1024]);
+  assert.deepEqual(pngSize(app.android.adaptiveIcon.monochromeImage), [1024, 1024]);
+  assert.equal(app.android.adaptiveIcon.backgroundColor, "#14112E");
+  assert.deepEqual(pngSize(app.web.favicon), [128, 128]);
+  const splash = app.plugins.find(
+    (plugin) => Array.isArray(plugin) && plugin[0] === "expo-splash-screen",
+  );
+  assert.equal(splash[1].backgroundColor, "#14112E");
+  assert.equal(splash[1].imageWidth, 220);
+  assert.deepEqual(pngSize(splash[1].image), [1200, 1200]);
 });

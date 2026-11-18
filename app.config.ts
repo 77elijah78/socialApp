@@ -22,11 +22,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     throw new Error("Android production push requires GOOGLE_SERVICES_JSON as an EAS file environment variable and matching FCM V1 credentials in EAS.");
   return {
     ...config,
-    name: config.name ?? "social",
+    name: config.name ?? "circle",
     slug: config.slug ?? "social",
     // Opt-in builds contain a different native notification dispatcher and must
     // never receive an OTA bundle intended for the ordinary native runtime.
-    runtimeVersion: process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" ? "1.1.2-actions-v2" : config.runtimeVersion,
+    runtimeVersion: process.env.EXPO_PUBLIC_ANDROID_NOTIFICATION_ACTIONS === "1" ? "1.2.0-actions-v2" : config.runtimeVersion,
     android: {
       ...config.android,
       // EAS file environment variable; never commit FCM/service-account credentials.

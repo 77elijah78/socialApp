@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useContext,
@@ -41,6 +42,10 @@ import {
   rememberMediaGeometry,
 } from "@/utils/messaging/mediaGeometry";
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
+import {
+  chatMediaSpec,
+  useChatMediaDownload,
+} from "@/services/ChatMediaDownloads";
 
 interface Props {
   uri: string;
@@ -54,6 +59,10 @@ interface Props {
   mediaWidth?: number;
   mediaHeight?: number;
   onLongPress?: () => void;
+  ownerId?: string;
+  id?: string;
+  mimeType?: string | null;
+  isOwn?: boolean;
 }
 function Poster({
   uri,
@@ -269,6 +278,10 @@ function VideoPlayer({
   mediaWidth,
   mediaHeight,
   onLongPress,
+  ownerId,
+  id,
+  mimeType,
+  isOwn = false,
 }: Props) {
   const window = useWindowDimensions();
   const [open, setOpen] = useState(false);
@@ -299,6 +312,45 @@ function VideoPlayer({
     width ?? window.width * 0.72,
     height ?? window.height * 0.5,
   );
+  const [localUri, setLocalUri] = useState<string | null>(null);
+  const spec = useMemo(
+    () =>
+      uri
+        ? chatMediaSpec({
+            ownerId: ownerId ?? "local",
+            id: id ?? playbackId ?? uri,
+            uri,
+            mimeType: mimeType ?? "video/mp4",
+            localSource: isOwn,
+          })
+        : null,
+    [uri, ownerId, id, playbackId, mimeType, isOwn],
+  );
+  const media = useChatMediaDownload(spec);
+  const opening = useRef(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const openPlayer = async () => {
+    if (opening.current || !uri) return;
+    opening.current = true;
+    setOpenError(null);
+    try {
+      let local = media.localUri;
+      if (!media.ready || !local) local = await media.download();
+      if (!local) {
+        setOpenError(
+          media.state.error || "Couldn’t download this video. Tap to retry.",
+        );
+        return;
+      }
+      confirmVisibility(playbackId);
+      releaseReadCover.current?.();
+      releaseReadCover.current = coverReads();
+      setOpen(true);
+      setLocalUri(local);
+    } finally {
+      opening.current = false;
+    }
+  };
   return (
     <View style={style}>
       <View style={[styles.preview, frame, { borderRadius }]}>
@@ -314,23 +366,67 @@ function VideoPlayer({
           </Text>
         </View>
         <TouchableOpacity
-          accessibilityLabel={uri ? "Play video" : "Video unavailable"}
+          accessibilityLabel={
+            !uri
+              ? "Video unavailable"
+              : media.ready
+                ? "Play video"
+                : media.busy
+                  ? "Downloading video"
+                  : media.state.status === "error"
+                    ? "Retry video download"
+                    : "Download video"
+          }
           accessibilityRole="button"
-          disabled={!uri}
+          accessibilityState={{ busy: media.busy, disabled: media.busy || !uri }}
+          disabled={!uri || media.busy}
           onLongPress={onLongPress}
-          onPress={() => {
-            confirmVisibility(playbackId);
-            releaseReadCover.current?.();
-            releaseReadCover.current = coverReads();
-            setOpen(true);
-          }}
-          style={styles.play}
+          onPress={() => void openPlayer()}
+          style={[styles.play, !media.ready && styles.downloadPlay]}
         >
-          <Ionicons name="play" size={28} color={COLORS.white} />
+          {media.busy ? (
+            <ActivityIndicator color={COLORS.white} />
+          ) : (
+            <Ionicons
+              name={
+                media.ready
+                  ? "play"
+                  : media.state.status === "error"
+                    ? "refresh"
+                    : "cloud-download-outline"
+              }
+              size={media.ready ? 28 : 25}
+              color={COLORS.white}
+            />
+          )}
         </TouchableOpacity>
+        {media.busy && (
+          <View style={styles.downloadProgress} pointerEvents="none">
+            <View
+              style={[
+                styles.downloadProgressFill,
+                { width: `${media.percent ?? 0}%` },
+              ]}
+            />
+            <Text style={styles.downloadProgressText}>
+              {media.percent == null ? "Downloading…" : `${media.percent}%`}
+            </Text>
+          </View>
+        )}
         {!uri && <Text style={styles.posterHint}>Video unavailable</Text>}
+        {(openError || media.state.error) && (
+          <Text style={styles.posterHint} accessibilityRole="alert">
+            {openError || media.state.error}
+          </Text>
+        )}
       </View>
-      {open && <VideoModal uri={uri} playbackId={playbackId} onClose={close} />}
+      {open && (
+        <VideoModal
+          uri={localUri ?? media.localUri ?? ""}
+          playbackId={playbackId}
+          onClose={close}
+        />
+      )}
     </View>
   );
 }
@@ -350,6 +446,31 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  downloadPlay: { backgroundColor: "rgba(20,18,42,0.68)" },
+  downloadProgress: {
+    position: "absolute",
+    left: SPACING.lg,
+    right: SPACING.lg,
+    bottom: SPACING.lg,
+    height: 20,
+    borderRadius: BORDER_RADIUS.full,
+    overflow: "hidden",
+    justifyContent: "center",
+    backgroundColor: "rgba(20,18,42,0.55)",
+  },
+  downloadProgressFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: COLORS.primary,
+  },
+  downloadProgressText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: "600",
+    textAlign: "center",
   },
   duration: {
     position: "absolute",

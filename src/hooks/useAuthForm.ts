@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { authService } from "@/services/AuthService";
+import { useGoogleAuth } from "@/hooks/useGoogleAuth";
+import { useRateLimit } from "@/hooks/useRateLimit";
 import { useAppDispatch } from "@/store/hooks";
 import {
   authErrorMessage,
@@ -16,6 +18,8 @@ import {
 // still goes through the same AuthService methods and Redux dispatch contract.
 export function useAuthForm(mode: AuthMode) {
   const dispatch = useAppDispatch();
+  const google = useGoogleAuth();
+  const rateLimit = useRateLimit("auth");
   const [values, setValues] = useState<AuthFormValues>({
     fullName: "",
     email: "",
@@ -87,5 +91,15 @@ export function useAuthForm(mode: AuthMode) {
     }
   };
 
-  return { values, errors, error, isSubmitting, change, blur, submit };
+  return {
+    values,
+    errors,
+    error,
+    isSubmitting,
+    change,
+    blur,
+    submit,
+    google,
+    rateLimited: rateLimit.blocked,
+  };
 }

@@ -1,6 +1,5 @@
 import React from "react";
-import { StatusBar, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Image, StatusBar, StyleSheet, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   SafeAreaView,
@@ -51,16 +50,13 @@ export default function AuthScreen({
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.content}>
-          <View style={styles.brand} accessible accessibilityLabel="Social App">
-            <View style={styles.brandMark}>
-              <Ionicons
-                name="chatbubbles"
-                size={SIZING.iconSm}
-                color={COLORS.textOnPrimary}
-                accessible={false}
-              />
-            </View>
-            <Text style={styles.wordmark}>Social App</Text>
+          <View style={styles.brand} accessible accessibilityLabel="circle">
+            <Image
+              source={require("@/assets/icon.png")}
+              style={styles.brandMark}
+              accessible={false}
+            />
+            <Text style={styles.wordmark}>circle</Text>
           </View>
 
           <View style={styles.introduction}>
@@ -94,10 +90,8 @@ const styles = StyleSheet.create({
   brandMark: {
     width: SIZING.avatarMd,
     height: SIZING.avatarMd,
-    borderRadius: BORDER_RADIUS.xxxl,
+    borderRadius: BORDER_RADIUS.xxl,
     backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
   },
   wordmark: {
     color: COLORS.textPrimary,

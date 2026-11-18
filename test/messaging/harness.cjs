@@ -178,6 +178,7 @@ mock("expo-sqlite", { openDatabaseAsync: async () => sql });
 const files = new Map();
 const fileSystem = {
   documentDirectory: "file:///documents/",
+  cacheDirectory: "file:///cache/",
   async getInfoAsync(uri) {
     return files.get(uri) ?? { exists: false, isDirectory: false };
   },
@@ -273,6 +274,22 @@ mock("react-native-reanimated", {
 mock("expo-linear-gradient", { LinearGradient: "LinearGradient" });
 mock("@expo/vector-icons", { Ionicons: "Ionicons" });
 mock("expo-image", { Image: "ExpoImage" });
+mock("expo-auth-session/providers/google", {
+  useIdTokenAuthRequest: () => [
+    null,
+    null,
+    async () => ({ type: "dismiss" }),
+  ],
+});
+mock("expo-asset", {
+  Asset: {
+    fromModule: (module) => ({
+      downloaded: true,
+      localUri: `file:///stickers/${String(module).split("/").pop() || "sticker.webp"}`,
+      uri: `file:///stickers/${String(module).split("/").pop() || "sticker.webp"}`,
+    }),
+  },
+});
 mock("expo-audio", {
   AudioModule: {
     requestRecordingPermissionsAsync: async () => ({ granted: true }),
@@ -338,6 +355,12 @@ for (const extension of [".ts", ".tsx"])
       },
     });
     module._compile(result.outputText, filename);
+  };
+// React Native resolves image assets to opaque module ids; the test runner only
+// needs a stable value, never the binary.
+for (const extension of [".png", ".jpg", ".jpeg", ".webp", ".gif"])
+  Module._extensions[extension] = function (module, filename) {
+    module.exports = filename;
   };
 global.__DEV__ = false;
 global.IS_REACT_ACT_ENVIRONMENT = true;

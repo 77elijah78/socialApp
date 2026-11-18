@@ -1,6 +1,6 @@
 import { usePosts } from "@/hooks/usePosts";
 import { authorFeedParams } from "@/utils/postContracts";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -14,13 +14,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import * as theme from "@/constants/theme";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { SocialPost } from "@/types";
+import { subscribePostUpdates } from "@/utils/postUpdates";
 
 const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
@@ -57,8 +58,11 @@ export default function ProfileScreen() {
     paginating,
     error: postsError,
     paginationError,
+    total: postsTotal,
+    loading: postsLoading,
   } = usePosts({ source: "author", username: user?.username });
   const [loading, setLoading] = useState(true);
+  const focusedOnce = useRef(false);
 
   const currentUsername = user?.username ?? "";
   const displayName =
@@ -75,6 +79,12 @@ export default function ProfileScreen() {
     followers: 0,
     following: 0,
   };
+  // The author feed owns the live total; profile stats are the fallback while
+  // that page is still loading or failed.
+  const postCount =
+    postsLoading || postsError
+      ? counts.posts
+      : Math.min(counts.posts, postsTotal);
   const gridItemSize =
     (screenWidth -
       theme.LAYOUT.listPaddingHorizontal * 2 -
@@ -117,6 +127,37 @@ export default function ProfileScreen() {
   const onRefresh = useCallback(async () => {
     await Promise.all([fetchProfile(), refreshPosts()]);
   }, [fetchProfile, refreshPosts]);
+
+  // A deletion can happen from the home feed or a selected-post screen. Reflect
+  // the confirmed event immediately, then reconcile server stats on return.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribePostUpdates((event) => {
+      if (event.accountId !== user.id || !event.deleted) return;
+      setProfileData((current) =>
+        current
+          ? {
+              ...current,
+              _count: {
+                posts: Math.max(0, (current._count?.posts ?? postsTotal) - 1),
+                followers: current._count?.followers ?? 0,
+                following: current._count?.following ?? 0,
+              },
+            }
+          : current,
+      );
+    });
+  }, [postsTotal, user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
+      void Promise.all([fetchProfile(), refreshPosts()]);
+    }, [fetchProfile, refreshPosts]),
+  );
 
   const renderProfileHeader = useCallback(
     () => (
@@ -176,7 +217,7 @@ export default function ProfileScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
-                  {formatCount(counts.posts ?? posts.length)}
+                  {formatCount(postCount)}
                 </Text>
                 <Text style={styles.statLabel}>Posts</Text>
               </View>
@@ -238,7 +279,7 @@ export default function ProfileScreen() {
               Posts
             </Text>
             <Text style={[styles.profileTabCount, styles.profileTabTextActive]}>
-              {formatCount(counts.posts)}
+              {formatCount(postCount)}
             </Text>
           </View>
         </View>
@@ -251,10 +292,9 @@ export default function ProfileScreen() {
       profileData?.isVerified,
       username,
       bio,
-      counts.posts,
+      postCount,
       counts.followers,
       counts.following,
-      posts.length,
     ],
   );
 

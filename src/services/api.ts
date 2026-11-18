@@ -1,6 +1,14 @@
 import { normalizeMediaUrl, requireRemoteMediaUrl } from "../utils/mediaUrls";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiUrl } from "../config/api";
+import {
+  formatCooldown,
+  friendlyRateLimitMessage,
+  RateLimitScope,
+  rateLimitStore,
+  retryAfterMsFromHeaders,
+  scopeForPath,
+} from "./RateLimitService";
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
@@ -11,6 +19,65 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** A server-reported cooldown. Extends ApiError so existing status handling
+ * keeps working, and carries the retry window for countdown UI. */
+export class RateLimitError extends ApiError {
+  constructor(
+    message: string,
+    readonly scope: RateLimitScope,
+    readonly retryAfterMs: number,
+  ) {
+    super(message, 429);
+    this.name = "RateLimitError";
+  }
+}
+
+function rateLimitError(
+  scope: RateLimitScope,
+  retryAfterMs: number,
+  serverMessage?: string | null,
+): RateLimitError {
+  const notice = rateLimitStore.apply(scope, retryAfterMs, serverMessage);
+  return new RateLimitError(
+    friendlyRateLimitMessage(Math.max(0, notice.blockedUntil - Date.now())),
+    scope,
+    Math.max(0, notice.blockedUntil - Date.now()),
+  );
+}
+
+function assertRateLimitAllows(scope: RateLimitScope) {
+  const remaining = rateLimitStore.blockedFor(scope);
+  if (remaining > 0) {
+    throw new RateLimitError(
+      `Too many requests. Try again in ${formatCooldown(remaining)}.`,
+      scope,
+      remaining,
+    );
+  }
+}
+
+/** Shared with the auth screen's raw fetch calls so a 429 never bypasses the
+ * global cooldown just because it did not use the api helper. */
+export function applyRateLimitResponse(
+  response: Response,
+  path: string,
+  body?: unknown,
+): RateLimitError {
+  const scope = scopeForPath(path);
+  const retryAfterMs = retryAfterMsFromHeaders((name) =>
+    response.headers.get(name),
+  );
+  const message =
+    body && typeof body === "object"
+      ? String(
+          (body as Record<string, unknown>).message ??
+            (body as Record<string, unknown>).error ??
+            "",
+        )
+      : "";
+  return rateLimitError(scope, retryAfterMs, message || null);
 }
 
 let currentToken: string | null = null;
@@ -125,7 +192,14 @@ async function request<T>(
     return pendingGetRequests.get(dedupeKey) as Promise<T>;
   }
 
+  const scope = scopeForPath(path);
+
   const work = (async (): Promise<T> => {
+    // Do not hammer an endpoint whose cooldown the server already told us
+    // about. The request fails fast with the same friendly message and the
+    // countdown UI stays authoritative.
+    assertRateLimitAllows(scope);
+
     // Create abort controller for timeout
     const controller = new AbortController();
 
@@ -171,27 +245,11 @@ async function request<T>(
         throw err;
       }
 
-      // Handle 429 rate limiting with retry
+      // Never retry a rate-limited request automatically: a blind retry
+      // consumes the next window and hides the cooldown from the user.
       if (response.status === 429) {
-        console.log(
-          "[api.ts] 429 rate limited for",
-          path,
-          "- retrying after 1s",
-        );
-        const retryAfter = response.headers.get("Retry-After");
-        const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000;
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.min(delay, 3000)),
-        );
-
-        if (generation !== authGeneration)
-          throw new Error("Authentication changed during request");
-        const retry = await performRequest(authToken);
-        if (!retry.ok) {
-          const error = await retry.json().catch(() => ({}));
-          throw new ApiError(error.message || `Request failed [${retry.status}]`, retry.status);
-        }
-        return await retry.json();
+        const body = await response.json().catch(() => ({}));
+        throw applyRateLimitResponse(response, path, body);
       }
 
       // Handle 401 with token refresh
@@ -204,16 +262,26 @@ async function request<T>(
         if (!newToken || generation !== authGeneration)
           throw new Error("Authentication failed");
         const retry = await performRequest(newToken);
+        if (retry.status === 429) {
+          const body = await retry.json().catch(() => ({}));
+          throw applyRateLimitResponse(retry, path, body);
+        }
         if (!retry.ok) {
           const error = await retry.json().catch(() => ({}));
-          throw new ApiError(error.message || `Request failed [${retry.status}]`, retry.status);
+          throw new ApiError(
+            error.message || error.error || `Request failed [${retry.status}]`,
+            retry.status,
+          );
         }
         return await retry.json();
       }
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new ApiError(error.message || `Request failed [${response.status}]`, response.status);
+        throw new ApiError(
+          error.message || error.error || `Request failed [${response.status}]`,
+          response.status,
+        );
       }
 
       return await response.json();
@@ -262,6 +330,11 @@ async function refreshAccessToken(generation: number): Promise<string | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: currentRefreshToken }),
     });
+    if (resp.status === 429) {
+      const body = await resp.json().catch(() => ({}));
+      applyRateLimitResponse(resp, "/auth/refresh", body);
+      return null;
+    }
     if (!resp.ok) {
       const errBody = await resp.json().catch(() => ({}));
       console.warn(
@@ -348,11 +421,12 @@ export const api = {
     path: string,
     formData: FormData,
     token?: string,
+    onProgress?: (percent: number) => void,
   ): Promise<{
     success: boolean;
     data: MediaUploadResponse;
     message?: string;
-  }> => _uploadFile(path, formData, token),
+  }> => _uploadFile(path, formData, token, onProgress),
 
   /**
    * Upload file from URI
@@ -364,6 +438,7 @@ export const api = {
     fieldName: string = "file",
     filename?: string,
     token?: string,
+    onProgress?: (percent: number) => void,
   ): Promise<{
     success: boolean;
     data: MediaUploadResponse;
@@ -373,6 +448,7 @@ export const api = {
       path,
       _buildFormData(uri, mimeType, fieldName, filename),
       token,
+      onProgress,
     ),
 };
 
@@ -380,6 +456,7 @@ async function _uploadFile(
   path: string,
   formData: FormData,
   token?: string,
+  onProgress?: (percent: number) => void,
 ): Promise<{ success: boolean; data: MediaUploadResponse; message?: string }> {
   const generation = authGeneration;
   const url = apiUrl(path);
@@ -389,7 +466,8 @@ async function _uploadFile(
     throw new Error("No authentication token available");
   }
 
-  const response = await uploadMultipart<{ success: boolean; data: MediaUploadResponse; message?: string }>(url, formData, authToken, undefined, generation);
+  assertRateLimitAllows(scopeForPath(path));
+  const response = await uploadMultipart<{ success: boolean; data: MediaUploadResponse; message?: string }>(url, formData, authToken, onProgress, generation);
   if (!response.success || !response.data) throw new Error(response.message || "Upload was not confirmed");
   return { ...response, data: { ...response.data, url: requireRemoteMediaUrl(response.data.url),
     thumbnailUrl: normalizeMediaUrl(response.data.thumbnailUrl) ?? undefined } };
@@ -412,12 +490,25 @@ export async function uploadMultipart<T = unknown>(
     if (generation !== authGeneration) throw new Error("Authentication changed during upload");
     return response;
   } catch (error) {
+    if (error instanceof UploadHttpError && error.status === 429) {
+      throw rateLimitError("media", error.retryAfterMs, error.message);
+    }
     if (error instanceof UploadHttpError && error.status === 401 && generation === authGeneration) {
       const newToken = await _getRefreshedToken();
       if (newToken && generation === authGeneration) {
-        const response = await _sendXHR<T>(url, formData, newToken, onProgress);
-        if (generation !== authGeneration) throw new Error("Authentication changed during upload");
-        return response;
+        try {
+          const response = await _sendXHR<T>(url, formData, newToken, onProgress);
+          if (generation !== authGeneration)
+            throw new Error("Authentication changed during upload");
+          return response;
+        } catch (retryError) {
+          // A refreshed retry can itself be rate-limited; keep the same global
+          // cooldown contract as the first upload attempt.
+          if (retryError instanceof UploadHttpError && retryError.status === 429) {
+            throw rateLimitError("media", retryError.retryAfterMs, retryError.message);
+          }
+          throw retryError;
+        }
       }
     }
     throw error;
@@ -425,7 +516,11 @@ export async function uploadMultipart<T = unknown>(
 }
 
 class UploadHttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly retryAfterMs = 0,
+  ) {
     super(message);
   }
 }
@@ -474,11 +569,17 @@ function _sendXHR<T>(
         }
       } else {
         let errorMsg = `Request failed [${xhr.status}]`;
+        let retryAfterMs = 0;
+        if (xhr.status === 429) {
+          retryAfterMs = retryAfterMsFromHeaders((name) =>
+            xhr.getResponseHeader(name),
+          );
+        }
         try {
           const error = JSON.parse(xhr.responseText);
-          errorMsg = `${errorMsg}: ${error.message || "Unknown error"}`;
+          errorMsg = `${errorMsg}: ${error.message || error.error || "Unknown error"}`;
         } catch {}
-        reject(new UploadHttpError(xhr.status, errorMsg));
+        reject(new UploadHttpError(xhr.status, errorMsg, retryAfterMs));
       }
     };
 
