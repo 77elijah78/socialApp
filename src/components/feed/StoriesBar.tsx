@@ -12,13 +12,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import { StoriesBarSkeleton } from "@/components/ui/Skeleton";
+import { FEED } from "@/constants/feedTheme";
 import theme from "@/constants/theme";
 import { useStories } from "@/hooks/useStories";
 import { useAppSelector } from "@/store/hooks";
 import { StoryItem } from "@/types";
 import { subscribeStoryCreated } from "@/utils/storyUpdates";
 
-const STORY_SIZE = theme.SIZING.storyItem;
+const STORY_SIZE = 66;
 
 function StoryRing({
   isViewed,
@@ -37,11 +38,27 @@ function StoryRing({
   hasStory: boolean;
   storyCount: number;
 }) {
+  if (isMe && !hasStory) {
+    return (
+      <View
+        style={[
+          styles.addStoryCircle,
+          { width: size, height: size, borderRadius: size / 2 },
+        ]}
+      >
+        <Ionicons name="add" size={27} color={FEED.text} />
+      </View>
+    );
+  }
+
   const innerSize = size - 8;
   const avatar = avatarUrl ? (
     <Image
       source={{ uri: avatarUrl }}
-      style={[styles.avatarImage, { width: innerSize, height: innerSize, borderRadius: innerSize / 2 }]}
+      style={[
+        styles.avatarImage,
+        { width: innerSize, height: innerSize, borderRadius: innerSize / 2 },
+      ]}
     />
   ) : (
     <View
@@ -65,17 +82,6 @@ function StoryRing({
     </View>
   );
 
-  if (isMe && !hasStory) {
-    return (
-      <View style={[styles.addStoryRing, { width: size, height: size, borderRadius: size / 2 }]}>
-        {avatarContent}
-        <View style={styles.plusBadge}>
-          <Ionicons name="add" size={15} color={theme.COLORS.white} />
-        </View>
-      </View>
-    );
-  }
-
   const ringContent = (
     <View
       style={[
@@ -90,22 +96,32 @@ function StoryRing({
   return (
     <View style={styles.ringWrap}>
       {isViewed && !isMe ? (
-        <View style={[styles.viewedRing, { width: size, height: size, borderRadius: size / 2 }]}>
+        <View
+          style={[
+            styles.viewedRing,
+            { width: size, height: size, borderRadius: size / 2 },
+          ]}
+        >
           {ringContent}
         </View>
       ) : (
         <LinearGradient
-          colors={[theme.STORY.gradientStart, theme.STORY.gradientEnd]}
+          colors={[FEED.accent, "#72B7FF"]}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.unviewedRing, { width: size, height: size, borderRadius: size / 2 }]}
+          style={[
+            styles.unviewedRing,
+            { width: size, height: size, borderRadius: size / 2 },
+          ]}
         >
           {ringContent}
         </LinearGradient>
       )}
       {storyCount > 1 ? (
         <View style={styles.storyCountBadge}>
-          <Text style={styles.storyCountText}>{storyCount > 9 ? "9+" : storyCount}</Text>
+          <Text style={styles.storyCountText}>
+            {storyCount > 9 ? "9+" : storyCount}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -116,7 +132,9 @@ export default function StoriesBar() {
   const { groupedStories, storyCounts, loading, refetch, stories } = useStories();
   const token = useAppSelector((state) => state.auth.token);
   const currentUserId = useAppSelector((state) => state.auth.user?.id);
-  const currentAvatarUrl = useAppSelector((state) => state.auth.user?.avatarUrl ?? null);
+  const currentAvatarUrl = useAppSelector(
+    (state) => state.auth.user?.avatarUrl ?? null,
+  );
   const handleCreateStory = useCallback(() => {
     if (!token) return;
     router.push("/stories/create");
@@ -124,17 +142,19 @@ export default function StoriesBar() {
 
   // A confirmed publish refreshes the real `/posts/stories` list once, without
   // polling or refetching every time Home regains focus.
-  useEffect(
-    () => subscribeStoryCreated(() => void refetch()),
-    [refetch],
-  );
+  useEffect(() => subscribeStoryCreated(() => void refetch()), [refetch]);
 
   const handleStoryPress = useCallback(
     (story: StoryItem) => {
       if (story.id === "me" || story.userId === currentUserId) {
-        const ownStoryIndex = stories.findIndex((item) => item.userId === currentUserId);
+        const ownStoryIndex = stories.findIndex(
+          (item) => item.userId === currentUserId,
+        );
         if (ownStoryIndex >= 0) {
-          router.push({ pathname: "/stories/viewer", params: { index: String(ownStoryIndex) } });
+          router.push({
+            pathname: "/stories/viewer",
+            params: { index: String(ownStoryIndex) },
+          });
         } else {
           handleCreateStory();
         }
@@ -151,7 +171,9 @@ export default function StoriesBar() {
   );
 
   const ownStoryCount = storyCounts[currentUserId ?? ""] ?? 0;
-  const latestOwnStory = stories.find((story) => story.userId === currentUserId);
+  const latestOwnStory = stories.find(
+    (story) => story.userId === currentUserId,
+  );
   const ownItem: StoryItem = {
     id: "me",
     userId: currentUserId ?? "me",
@@ -169,35 +191,9 @@ export default function StoriesBar() {
     ownItem,
     ...groupedStories.filter((story) => story.userId !== currentUserId),
   ];
-  const newStoryCount = groupedStories.filter(
-    (story) => story.userId !== currentUserId && !story.isViewed,
-  ).length;
 
   return (
     <View style={styles.container}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Stories</Text>
-          <Text style={styles.sectionSubtitle}>Little moments from your circle</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <View style={styles.updatesBadge}>
-            <View style={[styles.updatesDot, newStoryCount === 0 && styles.updatesDotQuiet]} />
-            <Text style={styles.updatesText}>
-              {newStoryCount > 0 ? `${newStoryCount} new` : "Your circle"}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Create a story"
-            onPress={handleCreateStory}
-            style={({ pressed }) => [styles.addStory, pressed && styles.storyPressed]}
-          >
-            <Ionicons name="add" size={17} color={theme.COLORS.primary} />
-          </Pressable>
-        </View>
-      </View>
-
       {loading ? (
         <StoriesBarSkeleton count={4} />
       ) : (
@@ -209,19 +205,28 @@ export default function StoriesBar() {
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const isMe = item.id === "me" || item.userId === currentUserId;
-            const count = isMe ? ownStoryCount : storyCounts[item.userId] ?? 0;
+            const count = isMe
+              ? ownStoryCount
+              : storyCounts[item.userId] ?? 0;
             const label = isMe
               ? ownStoryCount > 0
                 ? "Your story"
-                : "Add story"
+                : "Add Story"
               : item.displayName ?? item.username;
-            const initial = (item.displayName ?? item.username ?? "?").charAt(0).toUpperCase();
+            const initial = (item.displayName ?? item.username ?? "?")
+              .charAt(0)
+              .toUpperCase();
 
             return (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={isMe ? label : `View ${label}'s story`}
-                style={({ pressed }) => [styles.storyItem, pressed && styles.storyPressed]}
+                accessibilityLabel={
+                  isMe ? label : `View ${label}'s story`
+                }
+                style={({ pressed }) => [
+                  styles.storyItem,
+                  pressed && styles.storyPressed,
+                ]}
                 onPress={() => handleStoryPress(isMe ? ownItem : item)}
                 onLongPress={isMe ? handleCreateStory : undefined}
                 accessibilityHint={
@@ -241,7 +246,10 @@ export default function StoriesBar() {
                     storyCount={count}
                   />
                 </View>
-                <Text style={[styles.storyLabel, isMe && styles.ownStoryLabel]} numberOfLines={1}>
+                <Text
+                  style={[styles.storyLabel, isMe && styles.ownStoryLabel]}
+                  numberOfLines={1}
+                >
                   {label}
                 </Text>
               </Pressable>
@@ -255,76 +263,15 @@ export default function StoriesBar() {
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: theme.LAYOUT.contentPadding,
-    marginBottom: theme.SPACING.md,
-    paddingTop: theme.SPACING.lg,
-    paddingBottom: theme.SPACING.md,
-    borderRadius: 22,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-    ...theme.SHADOWS.sm,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.lg,
-    marginBottom: theme.SPACING.md,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.sm,
-  },
-  addStory: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
-  },
-  sectionTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  sectionSubtitle: {
-    marginTop: 3,
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-  },
-  updatesBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.xs,
-    paddingHorizontal: theme.SPACING.sm,
-    paddingVertical: theme.SPACING.xs,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  updatesDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: theme.COLORS.primary,
-  },
-  updatesDotQuiet: {
-    backgroundColor: theme.COLORS.textMuted,
-  },
-  updatesText: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    paddingTop: theme.SPACING.sm,
+    paddingBottom: theme.SPACING.sm,
   },
   listContent: {
-    paddingHorizontal: theme.SPACING.md,
+    paddingHorizontal: theme.LAYOUT.contentPadding,
+    gap: theme.SPACING.md,
   },
   storyItem: {
-    width: STORY_SIZE + 20,
+    width: STORY_SIZE + 18,
     alignItems: "center",
     paddingVertical: theme.SPACING.xs,
   },
@@ -337,36 +284,36 @@ const styles = StyleSheet.create({
   ringWrap: {
     position: "relative",
   },
-  addStoryRing: {
+  addStoryCircle: {
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1.5,
-    borderColor: theme.COLORS.borderDivider,
-    backgroundColor: theme.COLORS.bgInput,
+    borderColor: FEED.border,
+    backgroundColor: FEED.surface,
   },
   avatarFrame: {
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    backgroundColor: theme.COLORS.bgInput,
+    backgroundColor: FEED.imageFallback,
   },
   avatarImage: {
-    backgroundColor: theme.COLORS.bgInput,
+    backgroundColor: FEED.imageFallback,
   },
   avatarFallback: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: FEED.accentSoft,
   },
   avatarInitial: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    color: FEED.accent,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   storyRingInner: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: FEED.surface,
   },
   unviewedRing: {
     alignItems: "center",
@@ -377,21 +324,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
-    borderColor: theme.COLORS.borderGray,
-    backgroundColor: theme.COLORS.bgWhite,
-  },
-  plusBadge: {
-    position: "absolute",
-    right: -1,
-    bottom: -1,
-    width: 23,
-    height: 23,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primary,
-    borderWidth: 2,
-    borderColor: theme.COLORS.bgWhite,
+    borderColor: FEED.border,
+    backgroundColor: FEED.surface,
   },
   storyCountBadge: {
     position: "absolute",
@@ -403,9 +337,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.BORDER_RADIUS.full,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.textPrimary,
+    backgroundColor: FEED.text,
     borderWidth: 2,
-    borderColor: theme.COLORS.bgWhite,
+    borderColor: FEED.surface,
   },
   storyCountText: {
     color: theme.COLORS.white,
@@ -414,14 +348,14 @@ const styles = StyleSheet.create({
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   storyLabel: {
-    width: STORY_SIZE + 12,
+    width: STORY_SIZE + 10,
     marginTop: theme.SPACING.sm,
-    color: theme.COLORS.textSecondary,
+    color: FEED.muted,
     fontSize: theme.TYPOGRAPHY.fontSize.xs,
     textAlign: "center",
   },
   ownStoryLabel: {
-    color: theme.COLORS.textPrimary,
+    color: FEED.text,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
 });

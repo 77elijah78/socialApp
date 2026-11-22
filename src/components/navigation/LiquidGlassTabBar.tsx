@@ -9,6 +9,7 @@ import {
 import { BlurView } from "expo-blur";
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs/types";
 
+import { FEED } from "@/constants/feedTheme";
 import theme from "@/constants/theme";
 
 export function LiquidGlassTabBar({
@@ -38,7 +39,7 @@ export function LiquidGlassTabBar({
           {state.routes.map((route, index) => {
             const focused = state.index === index;
             const { options } = descriptors[route.key];
-            const color = focused ? theme.COLORS.primary : theme.COLORS.textMutedGray;
+            const color = focused ? FEED.accent : FEED.muted;
             const label =
               typeof options.tabBarLabel === "string"
                 ? options.tabBarLabel
@@ -73,7 +74,6 @@ export function LiquidGlassTabBar({
                 onLongPress={handleLongPress}
                 style={({ pressed }) => [
                   styles.tab,
-                  focused && styles.tabActive,
                   pressed && styles.tabPressed,
                 ]}
               >
@@ -106,43 +106,32 @@ export function LiquidGlassTabBar({
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingHorizontal: 0,
+    paddingTop: 0,
     backgroundColor: "transparent",
   },
   surface: {
     position: "relative",
-    minHeight: 66,
-    borderRadius: 24,
+    minHeight: 62,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(108, 92, 231, 0.12)",
-    backgroundColor: Platform.OS === "ios" ? "rgba(255,255,255,0.76)" : "#FFFFFF",
-    shadowColor: "rgba(35, 28, 75, 0.16)",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    elevation: 12,
+    borderTopWidth: 1,
+    borderColor: FEED.border,
+    backgroundColor: Platform.OS === "ios" ? "rgba(255,255,255,0.94)" : FEED.surface,
   },
   row: {
-    minHeight: 66,
+    minHeight: 62,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
   tab: {
     flex: 1,
     minWidth: 0,
     minHeight: 52,
-    marginHorizontal: 2,
-    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-  },
-  tabActive: {
-    backgroundColor: theme.COLORS.primaryGhost,
+    gap: 3,
   },
   tabPressed: {
     opacity: 0.72,
@@ -155,13 +144,13 @@ const styles = StyleSheet.create({
   },
   label: {
     maxWidth: "100%",
-    color: theme.COLORS.textMutedGray,
+    color: FEED.muted,
     fontSize: 9,
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
     letterSpacing: 0.1,
   },
   labelActive: {
-    color: theme.COLORS.primary,
+    color: FEED.accent,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   badge: {

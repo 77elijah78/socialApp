@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import type { ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { FEED } from "@/constants/feedTheme";
 import * as theme from "@/constants/theme";
 import { SocialPost } from "@/types";
 import { formatCount } from "@/utils/format";
@@ -219,18 +220,35 @@ function PostCard({
           </Text>
         </View>
 
-        <TouchableOpacity
-          ref={menuButtonRef}
-          onPress={handleMenuPress}
-          style={styles.menuBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons
-            name="ellipsis-horizontal"
-            size={20}
-            color={theme.COLORS.textMutedGray}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={handleBookmark}
+            accessibilityRole="button"
+            accessibilityLabel={bookmarked ? "Remove bookmark" : "Bookmark post"}
+            style={styles.headerAction}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={bookmarked ? "bookmark" : "bookmark-outline"}
+              size={20}
+              color={bookmarked ? FEED.accent : FEED.text}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            ref={menuButtonRef}
+            onPress={handleMenuPress}
+            style={styles.headerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Post options"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color={FEED.muted}
+            />
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
 
       {/* Body */}
@@ -413,24 +431,6 @@ function PostCard({
           </TouchableOpacity>
         </View>
 
-        {/* Bookmark */}
-        <TouchableOpacity
-          onPress={handleBookmark}
-          accessibilityRole="button"
-          accessibilityLabel={bookmarked ? "Remove bookmark" : "Bookmark post"}
-          style={[styles.actionBtn, bookmarked && styles.actionBtnBookmarked]}
-          activeOpacity={theme.OPACITY.semiTransparent}
-        >
-          <Ionicons
-            name={bookmarked ? "bookmark" : "bookmark-outline"}
-            size={20}
-            color={
-              bookmarked
-                ? theme.COLORS.accentPurple
-                : theme.COLORS.textMutedGray
-            }
-          />
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -453,10 +453,10 @@ const styles = StyleSheet.create({
     marginBottom: theme.SPACING.lg,
   },
   card: {
-    backgroundColor: theme.COLORS.bgWhite,
-    borderRadius: theme.BORDER_RADIUS.xxxxxxl,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: theme.COLORS.cardBorder,
+    backgroundColor: FEED.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: FEED.border,
     marginBottom: theme.SPACING.lg,
     overflow: "hidden",
     ...theme.SHADOWS.sm,
@@ -464,19 +464,19 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.SPACING.xl,
-    paddingTop: theme.SPACING.xl,
+    paddingHorizontal: 14,
+    paddingTop: 14,
     paddingBottom: theme.SPACING.md,
-    gap: theme.SPACING.lg,
+    gap: theme.SPACING.md,
   },
   avatarWrapper: {
     position: "relative",
   },
   avatar: {
-    width: theme.SIZING.avatarLg,
-    height: theme.SIZING.avatarLg,
-    borderRadius: theme.SIZING.avatarLg / 2,
-    backgroundColor: theme.COLORS.bgLight,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: FEED.imageFallback,
   },
   verifiedBadge: {
     position: "absolute",
@@ -492,21 +492,29 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    color: theme.COLORS.textDark,
-    lineHeight: 20,
+    color: FEED.text,
+    lineHeight: 19,
   },
   userHandle: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textMuted,
-    marginTop: theme.SPACING.xs,
+    color: FEED.muted,
+    marginTop: 2,
   },
-  menuBtn: {
-    padding: theme.SPACING.sm,
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  headerAction: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: theme.BORDER_RADIUS.full,
   },
   body: {
-    paddingHorizontal: theme.SPACING.xl,
-    paddingBottom: theme.SPACING.lg,
+    paddingHorizontal: 14,
+    paddingBottom: theme.SPACING.md,
     gap: theme.SPACING.md,
   },
   content: {
@@ -533,15 +541,15 @@ const styles = StyleSheet.create({
     fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
   },
   imageWrapper: {
-    marginHorizontal: theme.SPACING.xl,
-    marginBottom: theme.SPACING.lg,
-    borderRadius: theme.BORDER_RADIUS.xxxl,
+    marginHorizontal: 14,
+    marginBottom: theme.SPACING.md,
+    borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: theme.COLORS.bgImageWrapper,
+    backgroundColor: FEED.imageFallback,
   },
   postImage: {
     width: "100%",
-    height: theme.SIZING.postImage,
+    aspectRatio: 1,
   },
   imageLoadingOverlay: {
     position: "absolute",
@@ -590,16 +598,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   divider: {
-    height: theme.BORDER.width.xs,
-    marginHorizontal: theme.SPACING.xl,
-    backgroundColor: theme.COLORS.bgDivider,
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 14,
+    backgroundColor: FEED.border,
   },
   actions: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.xl,
-    paddingVertical: theme.SPACING.md,
+    paddingHorizontal: 10,
+    paddingVertical: theme.SPACING.sm,
   },
   actionsLeft: {
     flexDirection: "row",
@@ -610,7 +618,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.lg,
+    paddingHorizontal: theme.SPACING.md,
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.xl,
   },
