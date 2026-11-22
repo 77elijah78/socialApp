@@ -155,9 +155,12 @@ test("login opens empty, with real fields/navigation and no demo credentials or 
   assert.equal(input("auth-password").props.value, "");
   assert.equal(input("auth-email").props.accessibilityLabel, "Email or username");
   assert.equal(input("auth-password").props.secureTextEntry, true);
-  assert.equal(renderer.root.findAllByType("Image").length, 0);
+  const brandImages = renderer.root.findAllByType("Image");
+  assert.equal(brandImages.length, 2, "brand mark plus the Google provider mark");
+  assert.match(String(brandImages[0].props.source), /icon\.png$/);
+  assert.match(String(brandImages[1].props.source), /google\.png$/);
   assert.equal(hasText("Welcome back."), true);
-  assert.equal(hasText("Google"), false);
+  assert.equal(hasText("Continue with Google"), true);
   assert.equal(hasText("Apple"), false);
   assert.equal(submitButton().props.accessibilityState.busy, false);
 });

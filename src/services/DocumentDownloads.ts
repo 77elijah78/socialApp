@@ -1,5 +1,10 @@
 import { getAccessToken, getAuthGeneration, refreshMediaAccessToken } from "./api";
-import { isAuthenticatedMediaUrl, mediaHttpStatus, mediaRequestSource } from "../utils/mediaRequests";
+import {
+  isAuthenticatedMediaUrl,
+  mediaHttpStatus,
+  mediaRequestSource,
+  mediaTokenExpired,
+} from "../utils/mediaRequests";
 import * as FileSystem from "expo-file-system/legacy";
 
 export interface DocumentSpec {
@@ -8,6 +13,9 @@ export interface DocumentSpec {
   uri: string;
   name: string;
   localSource?: boolean;
+  /** Automatic transfers stop at the per-category Auto Download limit; a
+   * manual tap omits this and is always allowed. */
+  maxBytes?: number;
 }
 export interface DocumentDownloadState {
   status: "idle" | "queued" | "downloading" | "ready" | "error";
@@ -164,8 +172,15 @@ export class DocumentDownloads {
         const partial = `${path}.part`;
         await FileSystem.deleteAsync(partial, { idempotent: true });
         let expected: number | undefined;
-        if (/^(file|content):\/\//i.test(spec.uri))
+        let limitExceeded = false;
+        if (/^(file|content):\/\//i.test(spec.uri)) {
           await FileSystem.copyAsync({ from: spec.uri, to: partial });
+          if (spec.maxBytes) {
+            const staged = await FileSystem.getInfoAsync(partial);
+            if (staged.exists && (staged.size ?? 0) > spec.maxBytes)
+              limitExceeded = true;
+          }
+        }
         else {
           let token = getAccessToken();
           for (let attempt = 0; attempt < 2; attempt++) {
@@ -183,6 +198,15 @@ export class DocumentDownloads {
                 const total = progress.totalBytesExpectedToWrite > 0
                   ? progress.totalBytesExpectedToWrite : undefined;
                 expected = total;
+                if (
+                  spec.maxBytes &&
+                  ((total ?? 0) > spec.maxBytes ||
+                    progress.totalBytesWritten > spec.maxBytes)
+                ) {
+                  limitExceeded = true;
+                  void job.pause?.();
+                  return;
+                }
                 const bucket = total ? Math.floor((progress.totalBytesWritten / total) * 100)
                   : Math.floor(progress.totalBytesWritten / 65536);
                 if (bucket === lastBucket) return;
@@ -194,9 +218,15 @@ export class DocumentDownloads {
             let failure: unknown;
             const result = await transfer.downloadAsync().catch(error => { failure = error; return undefined; });
             if (!current()) return;
+            if (limitExceeded) break;
             const status = result?.status ?? mediaHttpStatus(failure);
+            const authFailure =
+              status === 401 ||
+              status === 403 ||
+              // Expo Audio can surface only "Source error" for an expired JWT.
+              (!status && token !== null && mediaTokenExpired(token));
             if (attempt === 0 && token && isAuthenticatedMediaUrl(source.uri) &&
-                (status === 401 || status === 403)) {
+                authFailure) {
               const fresh = await refreshMediaAccessToken(token, authEpoch);
               if (!current()) return;
               if (fresh) {
@@ -216,6 +246,10 @@ export class DocumentDownloads {
           }
         }
         if (!current()) return;
+        if (limitExceeded)
+          throw new Error(
+            "This file is larger than your Auto Download limit. Tap to download it manually.",
+          );
         const completed = await FileSystem.getInfoAsync(partial);
         if (
           !completed.exists ||

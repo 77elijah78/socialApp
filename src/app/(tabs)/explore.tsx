@@ -1,393 +1,525 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
+  Platform,
   Pressable,
-  ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 
-import theme from "@/constants/theme";
+import ExploreTile from "@/components/explore/ExploreTile";
+import PeopleSearchResults from "@/components/explore/PeopleSearchResults";
+import PostCard from "@/components/feed/PostCard";
+import { ExploreGridSkeleton } from "@/components/ui";
+import { FEED } from "@/constants/feedTheme";
+import * as theme from "@/constants/theme";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useExploreFeed } from "@/hooks/useExploreFeed";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
+import type { SocialPost } from "@/types";
+import { publishPostUpdate } from "@/utils/postUpdates";
 
-interface SearchedUser {
-  id: string;
-  username: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-  isVerified: boolean;
-  _count: { followers: number; following: number; posts: number };
-  isFollowing: boolean;
-}
-
-const CATEGORIES = [
-  { id: "photo", label: "Photography", icon: "camera-outline" as const, color: theme.COLORS.primary },
-  { id: "tech", label: "Technology", icon: "laptop-outline" as const, color: theme.COLORS.accentBlue },
-  { id: "travel", label: "Travel", icon: "airplane-outline" as const, color: theme.COLORS.secondary },
-  { id: "food", label: "Food", icon: "restaurant-outline" as const, color: theme.COLORS.accentPurple },
-  { id: "art", label: "Art & design", icon: "color-palette-outline" as const, color: theme.COLORS.accentLightPurple },
-  { id: "music", label: "Music", icon: "musical-notes-outline" as const, color: theme.COLORS.indigo },
-];
-
-const TRENDING_TOPICS = [
-  { id: "01", title: "Everyday frames", subtitle: "Photography · Creative" },
-  { id: "02", title: "Small weekend escapes", subtitle: "Travel · Community pick" },
-  { id: "03", title: "What we’re making", subtitle: "Art & design · Growing" },
-];
-
-function formatCount(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return String(count);
-}
+const GRID_GAP = 2;
+const TAB_BAR_SPACE = 112;
+const GRID_PADDING = theme.LAYOUT.contentPadding;
 
 export default function ExploreScreen() {
+  const { width } = useWindowDimensions();
+  const columns = width >= 700 ? 4 : width >= 340 ? 3 : 2;
+  // Align the grid with the header/search gutters instead of running tiles to
+  // the physical screen edge. Three 2px gaps stay inside the content width.
+  const gridWidth = Math.max(0, width - GRID_PADDING * 2);
+  const tileSize = Math.max(
+    0,
+    (gridWidth - GRID_GAP * (columns - 1)) / columns,
+  );
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<"grid" | "posts">("grid");
   const token = useAppSelector((state) => state.auth.token);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [busyFollowIds, setBusyFollowIds] = useState<string[]>([]);
-  const latestQueryRef = useRef("");
-  const debouncedQuery = useDebounce(searchQuery, 300);
+  const accountId = useAppSelector((state) => state.auth.user?.id);
+  const debouncedQuery = useDebounce(query, 300);
   const normalizedQuery = debouncedQuery.trim();
-  const isSearching = searchQuery.trim().length > 0;
+  const isSearching = query.trim().length > 0;
 
-  const handleSearchChange = useCallback((value: string) => {
-    latestQueryRef.current = value;
-    setSearchQuery(value);
-    setSearchResults([]);
-    setSearchLoading(value.trim().length > 0);
+  const {
+    posts,
+    loading,
+    refreshing,
+    paginating,
+    error,
+    paginationError,
+    cursorExpired,
+    hasMore,
+    exhausted,
+    refresh,
+    loadMore,
+    retryPagination,
+  } = useExploreFeed({ limit: 24 });
+
+  const openPost = useCallback((postId: string) => {
+    router.push({ pathname: "/posts/[id]", params: { id: postId } });
   }, []);
 
-  useEffect(() => {
-    if (!normalizedQuery || latestQueryRef.current.trim() !== normalizedQuery) return;
-
-    const controller = new AbortController();
-    setSearchLoading(true);
-
-    api
-      .get<{ success: boolean; data: SearchedUser[] }>(
-        `/users/search?q=${encodeURIComponent(normalizedQuery)}`,
-        token ?? undefined,
-        { signal: controller.signal },
-      )
-      .then((response) => {
-        if (
-          !controller.signal.aborted &&
-          latestQueryRef.current.trim() === normalizedQuery
-        ) {
-          setSearchResults(response.data ?? []);
-        }
-      })
-      .catch(() => {
-        if (
-          !controller.signal.aborted &&
-          latestQueryRef.current.trim() === normalizedQuery
-        ) {
-          setSearchResults([]);
-        }
-      })
-      .finally(() => {
-        if (
-          !controller.signal.aborted &&
-          latestQueryRef.current.trim() === normalizedQuery
-        ) {
-          setSearchLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [normalizedQuery, token]);
-
-  const handleFollow = useCallback(
-    async (user: SearchedUser) => {
-      if (busyFollowIds.includes(user.id)) return;
-      setBusyFollowIds((previous) => [...previous, user.id]);
-
-      try {
-        if (user.isFollowing) {
-          await api.delete(`/users/${user.username}/follow`, token ?? undefined);
-        } else {
-          await api.post(`/users/${user.username}/follow`, {}, token ?? undefined);
-        }
-
-        const isFollowing = !user.isFollowing;
-        setSearchResults((previous) =>
-          previous.map((result) =>
-            result.id === user.id
-              ? {
-                  ...result,
-                  isFollowing,
-                  _count: {
-                    ...result._count,
-                    followers: Math.max(
-                      0,
-                      result._count.followers + (isFollowing ? 1 : -1),
-                    ),
-                  },
-                }
-              : result,
-          ),
+  const toggleLike = useCallback(
+    async (postId: string, liked: boolean) => {
+      if (!token || !accountId) throw new Error("Sign in to update posts");
+      const target = posts.find((post) => post.id === postId);
+      let confirmed: any;
+      if (liked) {
+        confirmed = await api.post(
+          `/posts/${encodeURIComponent(postId)}/like`,
+          {},
+          token,
         );
-      } catch {
-        // Keep the search results unchanged if the follow request fails.
-      } finally {
-        setBusyFollowIds((previous) => previous.filter((id) => id !== user.id));
+      } else {
+        confirmed = await api.delete(
+          `/posts/${encodeURIComponent(postId)}/like`,
+          token,
+        );
       }
+      const canonical =
+        confirmed?.data?.likesCount ?? confirmed?.data?._count?.likes;
+      const likeCount =
+        Number.isSafeInteger(canonical) && canonical >= 0
+          ? canonical
+          : Math.max(
+              0,
+              (target?.likeCount ?? 0) + (liked ? (target?.isLiked ? 0 : 1) : target?.isLiked ? -1 : 0),
+            );
+      publishPostUpdate({
+        postId,
+        accountId,
+        patch: {
+          isLiked: liked,
+          likeCount,
+          likesCount: likeCount,
+          likeStateKnown: true,
+        },
+      });
     },
-    [busyFollowIds, token],
+    [accountId, posts, token],
   );
 
-  const renderUserCard = useCallback(
-    ({ item }: { item: SearchedUser }) => {
-      const displayName = item.displayName || item.username;
-      const isBusy = busyFollowIds.includes(item.id);
+  const toggleBookmark = useCallback(
+    async (postId: string, bookmarked: boolean) => {
+      if (!token || !accountId) throw new Error("Sign in to update posts");
+      if (bookmarked) {
+        await api.post(`/posts/${encodeURIComponent(postId)}/save`, {}, token);
+      } else {
+        await api.delete(`/posts/${encodeURIComponent(postId)}/save`, token);
+      }
+      publishPostUpdate({
+        postId,
+        accountId,
+        patch: { isBookmarked: bookmarked, saveStateKnown: true },
+      });
+    },
+    [accountId, token],
+  );
 
-      return (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(`/user/${item.username}`)}
-          style={({ pressed }) => [styles.userCard, pressed && styles.userCardPressed]}
-        >
-          <View style={styles.userInfo}>
-            <View style={styles.userAvatarWrap}>
-              {item.avatarUrl ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.userAvatar} />
-              ) : (
-                <View style={[styles.userAvatar, styles.userAvatarFallback]}>
-                  <Text style={styles.userAvatarInitial}>
-                    {displayName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.userDetails}>
-              <View style={styles.userNameRow}>
-                <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
-                {item.isVerified ? (
-                  <Ionicons name="checkmark-circle" size={15} color={theme.COLORS.primary} />
-                ) : null}
-              </View>
-              <Text style={styles.userUsername} numberOfLines={1}>@{item.username}</Text>
-              <Text style={styles.userStats} numberOfLines={1}>
-                {formatCount(item._count.posts)} posts · {formatCount(item._count.followers)} followers
-              </Text>
-            </View>
+  const sharePost = useCallback(
+    async (postId: string) => {
+      const target = posts.find((post) => post.id === postId);
+      await Share.share({
+        message: target?.content?.trim() || "Check out this post",
+      });
+    },
+    [posts],
+  );
+
+  const openComments = useCallback((postId: string) => {
+    router.push({
+      pathname: "/posts/[id]/comments" as never,
+      params: { id: postId } as never,
+    });
+  }, []);
+
+  const renderPostItem = useCallback(
+    ({ item }: { item: SocialPost }) => (
+      <View style={styles.postCardWrap}>
+        <PostCard
+          post={item}
+          onLike={toggleLike}
+          onBookmark={toggleBookmark}
+          onComment={openComments}
+          onShare={sharePost}
+          onOpen={openPost}
+          onUserPress={(username) => router.push(`/user/${username}`)}
+        />
+      </View>
+    ),
+    [openComments, openPost, sharePost, toggleBookmark, toggleLike],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: SocialPost }) => (
+      <ExploreTile post={item} size={tileSize} onOpen={openPost} />
+    ),
+    [openPost, tileSize],
+  );
+
+  const listHeader = useMemo(
+    () => (
+      <View style={styles.gridIntro}>
+        <View style={styles.gridHeadingRow}>
+          <View style={styles.gridHeadingCopy}>
+            <Text style={styles.eyebrow}>RECOMMENDED FOR YOU</Text>
+            <Text style={styles.gridTitle}>Beyond your feed</Text>
+            <Text style={styles.gridSubtitle}>
+              Ranked posts from beyond your usual circle.
+            </Text>
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={item.isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`}
+            accessibilityLabel="Refresh recommendations"
+            accessibilityState={{ busy: refreshing }}
+            disabled={refreshing || loading}
+            onPress={() => void refresh()}
             style={({ pressed }) => [
-              styles.followButton,
-              item.isFollowing && styles.followButtonFollowing,
-              pressed && styles.followButtonPressed,
+              styles.refreshButton,
+              pressed && styles.pressed,
+              (refreshing || loading) && styles.refreshDisabled,
             ]}
-            onPress={(event) => {
-              event.stopPropagation();
-              void handleFollow(item);
-            }}
-            disabled={isBusy}
           >
-            {isBusy ? (
-              <ActivityIndicator size="small" color={item.isFollowing ? theme.COLORS.primary : theme.COLORS.white} />
+            {refreshing ? (
+              <ActivityIndicator size="small" color={theme.COLORS.primary} />
             ) : (
-              <Text style={[styles.followButtonText, item.isFollowing && styles.followButtonTextFollowing]}>
-                {item.isFollowing ? "Following" : "Follow"}
-              </Text>
+              <Ionicons
+                name="refresh"
+                size={18}
+                color={theme.COLORS.primary}
+              />
             )}
           </Pressable>
+        </View>
+        {error && posts.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry recommendations"
+            onPress={() => void refresh()}
+            style={styles.inlineError}
+          >
+            <Ionicons
+              name="cloud-offline-outline"
+              size={15}
+              color={theme.COLORS.danger}
+            />
+            <Text numberOfLines={2} style={styles.inlineErrorText}>
+              {error.message}
+            </Text>
+            <Text style={styles.inlineRetry}>Retry</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    ),
+    [error, loading, posts.length, refresh, refreshing],
+  );
+
+  const emptyState = useMemo(() => {
+    if (loading) {
+      return (
+        <View style={styles.skeletonWrap}>
+          <ExploreGridSkeleton
+            count={columns * 3}
+            columns={columns}
+            tileSize={tileSize}
+            gap={GRID_GAP}
+          />
+        </View>
+      );
+    }
+    if (error) {
+      return (
+        <View style={styles.state} accessibilityRole="alert">
+          <View style={styles.stateIcon}>
+            <Ionicons
+              name="cloud-offline-outline"
+              size={26}
+              color={theme.COLORS.primary}
+            />
+          </View>
+          <Text style={styles.stateTitle}>Couldn’t load Explore</Text>
+          <Text style={styles.stateText}>
+            {error.message ||
+              "Check your connection and try loading recommendations again."}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Try again"
+            onPress={() => void refresh()}
+            style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color={theme.COLORS.white} />
+            ) : (
+              <Text style={styles.primaryActionText}>Try again</Text>
+            )}
+          </Pressable>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.state}>
+        <View style={styles.stateIcon}>
+          <Ionicons
+            name="compass-outline"
+            size={26}
+            color={theme.COLORS.primary}
+          />
+        </View>
+        <Text style={styles.stateTitle}>Nothing new right now</Text>
+        <Text style={styles.stateText}>
+          You’ve seen everything in this batch. Refresh for a fresh set of
+          recommendations.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Refresh recommendations"
+          onPress={() => void refresh()}
+          style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={theme.COLORS.white} />
+          ) : (
+            <Text style={styles.primaryActionText}>Refresh recommendations</Text>
+          )}
+        </Pressable>
+      </View>
+    );
+  }, [columns, error, loading, refresh, refreshing, tileSize]);
+
+  const footer = useMemo(() => {
+    if (!posts.length) return null;
+    if (paginating) {
+      return (
+        <View style={styles.footer}>
+          <ActivityIndicator color={theme.COLORS.primary} />
+          <Text style={styles.footerText}>Loading more</Text>
+        </View>
+      );
+    }
+    if (paginationError) {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            cursorExpired
+              ? "Refresh expired recommendations"
+              : "Retry loading more recommendations"
+          }
+          onPress={() => void retryPagination()}
+          style={styles.footer}
+        >
+          <Ionicons
+            name="alert-circle-outline"
+            size={16}
+            color={theme.COLORS.textSecondary}
+          />
+          <Text style={styles.footerAction}>
+            {cursorExpired
+              ? "These recommendations expired · Refresh"
+              : `${paginationError.message} · Retry`}
+          </Text>
         </Pressable>
       );
-    },
-    [busyFollowIds, handleFollow],
-  );
-
-  const renderSearchResults = () => {
-    if (searchLoading) {
+    }
+    if (exhausted || !hasMore) {
       return (
-        <View style={styles.searchLoading}>
-          <ActivityIndicator size="large" color={theme.COLORS.primary} />
-          <Text style={styles.searchLoadingText}>Finding your people…</Text>
+        <View style={styles.footer}>
+          <Ionicons
+            name="checkmark-circle-outline"
+            size={16}
+            color={theme.COLORS.textMuted}
+          />
+          <Text style={styles.footerText}>
+            You’re caught up on recommendations
+          </Text>
         </View>
       );
     }
-
-    if (searchResults.length === 0) {
-      return (
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="people-outline" size={25} color={theme.COLORS.primary} />
-          </View>
-          <Text style={styles.emptyTitle}>No creators found</Text>
-          <Text style={styles.emptySubtitle}>Try a different name or username.</Text>
-        </View>
-      );
-    }
-
-    return (
-      <FlatList
-        style={styles.searchResultsList}
-        data={searchResults}
-        keyExtractor={(item) => item.id}
-        renderItem={renderUserCard}
-        contentContainerStyle={styles.searchResultsContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={
-          <View style={styles.resultsHeading}>
-            <Text style={styles.sectionTitle}>People</Text>
-            <Text style={styles.resultsCount}>{searchResults.length} found</Text>
-          </View>
-        }
-      />
-    );
-  };
-
-  const renderDiscovery = () => (
-    <ScrollView
-      style={styles.discoveryScroll}
-      contentContainerStyle={styles.discoveryContent}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      <LinearGradient
-        colors={[theme.COLORS.primary, theme.COLORS.accentPurple, "#8B74E8"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.heroCard}
-      >
-        <View style={styles.heroOrbLarge} />
-        <View style={styles.heroOrbSmall} />
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroTag}>
-            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
-            <Text style={styles.heroTagText}>A WORLD OF IDEAS</Text>
-          </View>
-          <Ionicons name="compass-outline" size={24} color="rgba(255,255,255,0.85)" />
-        </View>
-        <Text style={styles.heroTitle}>Find your next{`\n`}favorite thing.</Text>
-        <Text style={styles.heroSubtitle}>
-          Fresh voices, creative corners, and moments worth discovering.
-        </Text>
-        <View style={styles.heroFooter}>
-          <View style={styles.heroFooterLine} />
-          <Text style={styles.heroFooterText}>Made for curious minds</Text>
-        </View>
-      </LinearGradient>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeading}>
-          <View>
-            <Text style={styles.sectionTitle}>Explore by interest</Text>
-            <Text style={styles.sectionSubtitle}>A few places to start</Text>
-          </View>
-          <View style={styles.sectionAccent}>
-            <Ionicons name="apps-outline" size={16} color={theme.COLORS.primary} />
-          </View>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryList}
-        >
-          {CATEGORIES.map((category) => (
-            <View key={category.id} style={styles.categoryCard}>
-              <View style={[styles.categoryIcon, { backgroundColor: `${category.color}15` }]}>
-                <Ionicons name={category.icon} size={20} color={category.color} />
-              </View>
-              <Text style={styles.categoryLabel} numberOfLines={1}>{category.label}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
-
-      <View style={[styles.section, styles.trendingSection]}>
-        <View style={styles.sectionHeading}>
-          <View>
-            <Text style={styles.sectionTitle}>Popular conversations</Text>
-            <Text style={styles.sectionSubtitle}>Community picks this week</Text>
-          </View>
-          <View style={styles.trendingIcon}>
-            <Ionicons name="trending-up" size={17} color={theme.COLORS.primary} />
-          </View>
-        </View>
-        <View style={styles.topicList}>
-          {TRENDING_TOPICS.map((topic) => (
-            <View key={topic.id} style={styles.topicCard}>
-              <View style={styles.topicRank}>
-                <Text style={styles.topicRankText}>{topic.id}</Text>
-              </View>
-              <View style={styles.topicCopy}>
-                <Text style={styles.topicTitle}>{topic.title}</Text>
-                <Text style={styles.topicSubtitle}>{topic.subtitle}</Text>
-              </View>
-              <View style={styles.topicArrow}>
-                <Ionicons name="sparkles-outline" size={16} color={theme.COLORS.primary} />
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-      <View style={styles.bottomSpace} />
-    </ScrollView>
-  );
+    return <View style={styles.footerSpacer} />;
+  }, [
+    cursorExpired,
+    exhausted,
+    hasMore,
+    paginating,
+    paginationError,
+    posts.length,
+    retryPagination,
+  ]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerEyebrow}>FIND YOUR PEOPLE</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerEyebrow}>DISCOVER</Text>
           <Text style={styles.headerTitle}>Explore</Text>
         </View>
         <View style={styles.headerMark}>
-          <Ionicons name="compass" size={19} color={theme.COLORS.primary} />
+          <Ionicons
+            name="compass-outline"
+            size={21}
+            color={theme.COLORS.primary}
+          />
         </View>
       </View>
 
-      <View style={styles.searchSection}>
+      <View style={styles.searchWrap}>
         <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={19} color={theme.COLORS.textMuted} />
+          <Ionicons
+            name="search"
+            size={18}
+            color={theme.COLORS.textMuted}
+          />
           <TextInput
             style={styles.searchInput}
             placeholder="Search people"
             placeholderTextColor={theme.COLORS.textMuted}
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-            returnKeyType="search"
-            autoCorrect={false}
+            value={query}
+            onChangeText={setQuery}
             autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
             accessibilityLabel="Search people"
+            maxLength={50}
           />
-          {searchQuery.length > 0 ? (
+          {query.length > 0 ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Clear search"
-              onPress={() => handleSearchChange("")}
-              hitSlop={8}
+              onPress={() => setQuery("")}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="close-circle" size={19} color={theme.COLORS.textMuted} />
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={theme.COLORS.textMuted}
+              />
             </Pressable>
           ) : null}
         </View>
+
+        <View style={styles.viewSwitch}>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Show grid"
+            accessibilityState={{ selected: view === "grid" }}
+            onPress={() => setView("grid")}
+            style={[styles.viewSwitchBtn, view === "grid" && styles.viewSwitchActive]}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={15}
+              color={view === "grid" ? theme.COLORS.white : FEED.muted}
+            />
+            <Text
+              style={[
+                styles.viewSwitchText,
+                view === "grid" && styles.viewSwitchTextActive,
+              ]}
+            >
+              Grid
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Show posts"
+            accessibilityState={{ selected: view === "posts" }}
+            onPress={() => setView("posts")}
+            style={[styles.viewSwitchBtn, view === "posts" && styles.viewSwitchActive]}
+          >
+            <Ionicons
+              name="albums-outline"
+              size={15}
+              color={view === "posts" ? theme.COLORS.white : FEED.muted}
+            />
+            <Text
+              style={[
+                styles.viewSwitchText,
+                view === "posts" && styles.viewSwitchTextActive,
+              ]}
+            >
+              Posts
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
-      {isSearching ? renderSearchResults() : renderDiscovery()}
+      {isSearching ? (
+        normalizedQuery ? (
+          <PeopleSearchResults query={normalizedQuery} />
+        ) : (
+          <View style={styles.state}>
+            <ActivityIndicator color={theme.COLORS.primary} />
+          </View>
+        )
+      ) : view === "grid" ? (
+        <FlatList
+          key={`explore-${columns}`}
+          data={posts}
+          renderItem={renderItem}
+          keyExtractor={(post) => post.id}
+          numColumns={columns}
+          columnWrapperStyle={
+            columns > 1 ? { gap: GRID_GAP } : undefined
+          }
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyState}
+          ListFooterComponent={footer}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+          onEndReached={() => {
+            if (hasMore && posts.length > 0) void loadMore();
+          }}
+          onEndReachedThreshold={0.5}
+          initialNumToRender={columns * 3}
+          maxToRenderPerBatch={columns * 3}
+          updateCellsBatchingPeriod={50}
+          windowSize={9}
+          removeClippedSubviews={Platform.OS === "android"}
+        />
+      ) : (
+        <FlatList
+          key="explore-posts"
+          data={posts}
+          renderItem={renderPostItem}
+          keyExtractor={(post) => post.id}
+          style={styles.list}
+          contentContainerStyle={styles.postListContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyState}
+          ListFooterComponent={footer}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+          onEndReached={() => {
+            if (hasMore && posts.length > 0) void loadMore();
+          }}
+          onEndReachedThreshold={0.5}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
     backgroundColor: theme.COLORS.bgLight,
   },
@@ -399,6 +531,10 @@ const styles = StyleSheet.create({
     paddingTop: theme.SPACING.md,
     paddingBottom: theme.SPACING.sm,
   },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   headerEyebrow: {
     color: theme.COLORS.textSecondary,
     fontSize: theme.TYPOGRAPHY.fontSize.xs,
@@ -408,7 +544,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     marginTop: 2,
     color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl8,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     letterSpacing: -0.3,
   },
@@ -422,18 +558,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.COLORS.primaryGhostBorder,
   },
-  searchSection: {
+  searchWrap: {
     paddingHorizontal: theme.LAYOUT.contentPadding,
     paddingTop: theme.SPACING.sm,
-    paddingBottom: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.md,
   },
   searchBar: {
-    minHeight: 50,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.md,
     paddingHorizontal: theme.SPACING.lg,
-    borderRadius: 17,
+    borderRadius: 16,
     backgroundColor: theme.COLORS.bgWhite,
     borderWidth: 1,
     borderColor: theme.COLORS.borderDivider,
@@ -446,361 +582,184 @@ const styles = StyleSheet.create({
     color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
-  discoveryScroll: {
+  viewSwitch: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    marginTop: theme.SPACING.md,
+    padding: 3,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: FEED.surface,
+    borderWidth: 1,
+    borderColor: FEED.border,
+    gap: 2,
+  },
+  viewSwitchBtn: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: theme.BORDER_RADIUS.full,
+  },
+  viewSwitchActive: {
+    backgroundColor: FEED.accent,
+  },
+  viewSwitchText: {
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  viewSwitchTextActive: {
+    color: theme.COLORS.white,
+  },
+  list: {
     flex: 1,
   },
-  discoveryContent: {
-    paddingTop: theme.SPACING.xs,
+  listContent: {
+    flexGrow: 1,
+    paddingHorizontal: GRID_PADDING,
+    paddingBottom: TAB_BAR_SPACE,
   },
-  heroCard: {
-    minHeight: 226,
-    marginHorizontal: theme.LAYOUT.contentPadding,
-    padding: theme.SPACING.xl,
-    borderRadius: 24,
-    overflow: "hidden",
-    ...theme.SHADOWS.primary,
+  postListContent: {
+    flexGrow: 1,
+    paddingHorizontal: GRID_PADDING + 4,
+    paddingBottom: TAB_BAR_SPACE,
   },
-  heroOrbLarge: {
-    position: "absolute",
-    top: -44,
-    right: -22,
-    width: 168,
-    height: 168,
-    borderRadius: 84,
-    backgroundColor: "rgba(255,255,255,0.10)",
+  postCardWrap: {
+    paddingTop: theme.SPACING.lg,
   },
-  heroOrbSmall: {
-    position: "absolute",
-    right: 72,
-    bottom: -44,
-    width: 114,
-    height: 114,
-    borderRadius: 57,
-    backgroundColor: "rgba(255,255,255,0.08)",
+  gridIntro: {
+    paddingBottom: theme.SPACING.md,
   },
-  heroTopRow: {
+  gridHeadingRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: theme.SPACING.md,
+    paddingTop: theme.SPACING.sm,
   },
-  heroTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.xs,
-    paddingHorizontal: theme.SPACING.sm,
-    paddingVertical: 5,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: "rgba(255,255,255,0.16)",
+  gridHeadingCopy: {
+    flex: 1,
+    minWidth: 0,
   },
-  heroTagText: {
-    color: theme.COLORS.white,
+  eyebrow: {
+    color: theme.COLORS.primary,
     fontSize: 9,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
-  heroTitle: {
-    marginTop: theme.SPACING.lg,
-    color: theme.COLORS.white,
-    fontSize: 27,
-    lineHeight: 31,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    letterSpacing: -0.4,
-  },
-  heroSubtitle: {
-    maxWidth: 280,
-    marginTop: theme.SPACING.sm,
-    color: "rgba(255,255,255,0.82)",
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    lineHeight: 18,
-  },
-  heroFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.sm,
-    marginTop: theme.SPACING.lg,
-  },
-  heroFooterLine: {
-    width: 24,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: "rgba(255,255,255,0.75)",
-  },
-  heroFooterText: {
-    color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  section: {
-    marginTop: theme.SPACING.xl,
-  },
-  sectionHeading: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    marginBottom: theme.SPACING.md,
-  },
-  sectionTitle: {
+  gridTitle: {
+    marginTop: 2,
     color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl4,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
-  sectionSubtitle: {
-    marginTop: 3,
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-  },
-  sectionAccent: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  categoryList: {
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    gap: theme.SPACING.sm,
-  },
-  categoryCard: {
-    minWidth: 96,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.md,
-    borderRadius: 18,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-  },
-  categoryIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryLabel: {
-    maxWidth: 94,
-    marginTop: theme.SPACING.sm,
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  trendingSection: {
-    marginTop: theme.SPACING.xxl,
-  },
-  trendingIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  topicList: {
-    gap: theme.SPACING.sm,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-  },
-  topicCard: {
-    minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.md,
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
-    borderRadius: 18,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-  },
-  topicRank: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  topicRankText: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  topicCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  topicTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  topicSubtitle: {
-    marginTop: 3,
-    color: theme.COLORS.textMutedGray,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-  },
-  topicArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.COLORS.bgLight,
-  },
-  searchResultsList: {
-    flex: 1,
-  },
-  searchResultsContent: {
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingBottom: 96,
-  },
-  resultsHeading: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: theme.SPACING.sm,
-    marginBottom: theme.SPACING.xs,
-  },
-  resultsCount: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  userCard: {
-    minHeight: 84,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: theme.SPACING.md,
-    marginBottom: theme.SPACING.sm,
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.sm,
-    borderRadius: 18,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-  },
-  userCardPressed: {
-    opacity: theme.OPACITY.pressed,
-  },
-  userInfo: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.md,
-  },
-  userAvatarWrap: {
-    width: 50,
-    height: 50,
-    padding: 2,
-    borderRadius: 25,
-    backgroundColor: theme.COLORS.primaryGhost,
-  },
-  userAvatar: {
-    width: "100%",
-    height: "100%",
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.bgInput,
-  },
-  userAvatarFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userAvatarInitial: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  userDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-  userNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.xs,
-  },
-  userName: {
-    flexShrink: 1,
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  userUsername: {
+  gridSubtitle: {
     marginTop: 2,
     color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    lineHeight: 16,
   },
-  userStats: {
-    marginTop: 3,
-    color: theme.COLORS.textMuted,
-    fontSize: 9,
-  },
-  followButton: {
-    minWidth: 84,
-    height: 36,
+  refreshButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: theme.SPACING.md,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
-  },
-  followButtonFollowing: {
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: theme.COLORS.bgWhite,
     borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
+    borderColor: theme.COLORS.cardBorder,
   },
-  followButtonPressed: {
-    opacity: theme.OPACITY.pressed,
+  refreshDisabled: {
+    opacity: theme.OPACITY.disabled,
   },
-  followButtonText: {
-    color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  followButtonTextFollowing: {
-    color: theme.COLORS.primary,
-  },
-  searchLoading: {
-    flex: 1,
+  inlineError: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: theme.SPACING.md,
+    gap: theme.SPACING.sm,
+    marginTop: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.md,
+    paddingVertical: theme.SPACING.sm,
+    borderRadius: theme.BORDER_RADIUS.md,
+    backgroundColor: theme.COLORS.dangerLight,
   },
-  searchLoadingText: {
-    color: theme.COLORS.textSecondary,
+  inlineErrorText: {
+    flex: 1,
+    color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
   },
-  emptyState: {
-    flex: 1,
+  inlineRetry: {
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  skeletonWrap: {
+    paddingTop: theme.SPACING.xs,
+  },
+  state: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: theme.LAYOUT.contentPadding,
+    gap: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.xxl,
+    paddingVertical: theme.SPACING.xxxxxl,
   },
-  emptyIcon: {
-    width: 58,
-    height: 58,
+  stateIcon: {
+    width: 56,
+    height: 56,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.primaryGhost,
+    marginBottom: theme.SPACING.xs,
   },
-  emptyTitle: {
-    marginTop: theme.SPACING.md,
+  stateTitle: {
     color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
-  emptySubtitle: {
-    marginTop: theme.SPACING.xs,
+  stateText: {
     color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    lineHeight: 18,
     textAlign: "center",
   },
-  bottomSpace: {
-    height: 32,
+  primaryAction: {
+    minHeight: 44,
+    marginTop: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: theme.COLORS.primary,
+    ...theme.SHADOWS.primary,
+  },
+  primaryActionText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  pressed: {
+    opacity: theme.OPACITY.pressed,
+  },
+  footer: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    paddingHorizontal: theme.SPACING.xl,
+    paddingVertical: theme.SPACING.lg,
+  },
+  footerText: {
+    color: theme.COLORS.textMuted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  footerAction: {
+    flexShrink: 1,
+    color: theme.COLORS.primary,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  footerSpacer: {
+    height: theme.SPACING.xl,
   },
 });

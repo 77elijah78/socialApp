@@ -19,6 +19,7 @@ import theme from "@/constants/theme";
  *   StorySkeleton             -> components/feed/StoriesBar (StoryRing)
  *   ProfileSkeleton           -> app/user/[username] (profile header)
  *   ProfileGridSkeleton       -> app/user/[username] (post grid)
+ *   ExploreGridSkeleton       -> app/(tabs)/explore (recommendation grid)
  *   ConversationRowSkeleton   -> components/messages/PrivateMessageCard
  *   ChatBubbleSkeleton        -> components/chat/MessageBubble
  *   CommentsSkeleton          -> app/posts/[id]/comments (CommentItem)
@@ -511,6 +512,41 @@ export function ProfileGridSkeleton({ count = 9 }: { count?: number }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Explore -> ExploreTile (edge-to-edge responsive grid)                       */
+/* -------------------------------------------------------------------------- */
+
+export function ExploreGridSkeleton({
+  count = 9,
+  columns = 3,
+  tileSize,
+  gap = 2,
+}: {
+  count?: number;
+  columns?: number;
+  tileSize?: number;
+  gap?: number;
+}) {
+  const size =
+    tileSize ?? (SCREEN_WIDTH - gap * Math.max(0, columns - 1)) / columns;
+  return (
+    <SkeletonRoot
+      label="Loading recommendations"
+      testID="explore-skeleton"
+      style={{ ...styles.exploreGrid, gap }}
+    >
+      {Array.from({ length: count }).map((_, index) => (
+        <SkeletonBox
+          key={index}
+          width={size}
+          height={size}
+          borderRadius={theme.BORDER_RADIUS.md}
+        />
+      ))}
+    </SkeletonRoot>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Conversations -> PrivateMessageCard                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -794,6 +830,10 @@ const styles = StyleSheet.create({
     gap: GRID_GAP,
     marginTop: theme.SPACING.md,
     paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+  },
+  exploreGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
 
   /* PrivateMessageCard */

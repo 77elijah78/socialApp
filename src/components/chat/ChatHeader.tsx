@@ -8,6 +8,8 @@ interface ChatHeaderProps {
   avatarUri: string;
   isOnline?: boolean;
   isTyping?: boolean;
+  isGroup?: boolean;
+  memberCount?: number;
   onBack: () => void;
   onProfilePress?: () => void;
   onMenuPress?: (anchor?: { x: number; y: number; width: number; height: number }) => void;
@@ -18,6 +20,8 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   avatarUri,
   isOnline = false,
   isTyping = false,
+  isGroup = false,
+  memberCount = 0,
   onBack,
   onProfilePress,
   onMenuPress,
@@ -78,7 +82,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
               isTyping && styles.typingText,
             ]}
           >
-            {isTyping ? "Typing…" : isOnline ? "Active now" : "Direct message"}
+            {isTyping
+              ? "Typing…"
+              : isGroup
+                ? `${memberCount || 0} member${memberCount === 1 ? "" : "s"}`
+                : isOnline
+                  ? "Active now"
+                  : "Direct message"}
           </Text>
         </View>
       </TouchableOpacity>

@@ -7,7 +7,7 @@ import {
 } from "react";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
-import type { SocialPost } from "@/types";
+import type { PostResponse, SocialPost } from "@/types";
 import { getCached, setCached } from "@/utils/queryCache";
 import {
   normalizePostsPage,
@@ -298,10 +298,24 @@ export function usePosts({
       const work = (async () => {
         if (!token || !accountId) throw new Error("Sign in to update posts");
         let alreadyApplied = false;
+        let confirmed: (Partial<PostResponse> & { message?: string }) | undefined;
         try {
           const path = `/posts/${encodeURIComponent(postId)}${kind === "delete" ? "" : `/${kind}`}`;
-          if (kind !== "delete" && value) await api.post(path, {}, token);
-          else await api.delete(path, token);
+          if (kind !== "delete" && value)
+            confirmed = (
+              await api.post<{ success?: boolean; data?: Partial<PostResponse> }>(
+                path,
+                {},
+                token,
+              )
+            )?.data;
+          else
+            confirmed = (
+              await api.delete<{ success?: boolean; data?: Partial<PostResponse> }>(
+                path,
+                token,
+              )
+            )?.data;
         } catch (cause) {
           // Verified conflict responses establish the requested state, without a fake increment.
           const message = cause instanceof Error ? cause.message : "";
@@ -314,18 +328,59 @@ export function usePosts({
           else throw cause;
         }
         if (epoch !== session.current) return;
+        // The recommendation backend returns the enriched post on a confirmed
+        // like/save. Prefer those canonical counts/flags over a local guess.
+        const canonicalCount =
+          kind === "like"
+            ? (Number.isSafeInteger(confirmed?.likesCount) &&
+              (confirmed?.likesCount as number) >= 0
+                ? (confirmed?.likesCount as number)
+                : Number.isSafeInteger(confirmed?._count?.likes) &&
+                    (confirmed?._count?.likes as number) >= 0
+                  ? (confirmed?._count?.likes as number)
+                  : null)
+            : null;
+        const canonicalLiked =
+          kind === "like" &&
+          (typeof confirmed?.isLikedByCurrentUser === "boolean"
+            ? confirmed.isLikedByCurrentUser
+            : typeof confirmed?.isLiked === "boolean"
+              ? confirmed.isLiked
+              : null);
+        const canonicalSaved =
+          kind === "save" &&
+          (typeof confirmed?.isBookmarkedByCurrentUser === "boolean"
+            ? confirmed.isBookmarkedByCurrentUser
+            : typeof confirmed?.isSaved === "boolean"
+              ? confirmed.isSaved
+              : null);
         let count = Math.max(
           0,
           (post?.likeCount ?? 0) + (alreadyApplied ? 0 : value ? 1 : -1),
         );
-        if (kind === "like" && post?.likeStateKnown === false) {
-          // GET /posts/:id omits membership flags. An idempotent LIKE may
+        if (kind === "like" && canonicalCount !== null)
+          count = canonicalCount;
+        else if (kind === "like" && post?.likeStateKnown === false) {
+          // Legacy GET /posts/:id omits membership flags. An idempotent LIKE may
           // already exist, so never invent an increment for a detail entry.
           count = post.likeCount;
           try {
-            const response = await api.get<{ data: { _count: { likes: number } } }>(`/posts/${encodeURIComponent(postId)}`, token, { deduplicate: false });
-            if (Number.isSafeInteger(response.data?._count?.likes) && response.data._count.likes >= 0) count = response.data._count.likes;
-          } catch { /* The write succeeded. Keep the last real count until refresh. */ }
+            const response = await api.get<{
+              data: {
+                _count?: { likes: number };
+                likesCount?: number;
+                isLikedByCurrentUser?: boolean;
+              };
+            }>(`/posts/${encodeURIComponent(postId)}`, token, {
+              deduplicate: false,
+            });
+            const likes =
+              response.data?.likesCount ?? response.data?._count?.likes;
+            if (Number.isSafeInteger(likes) && (likes as number) >= 0)
+              count = likes as number;
+          } catch {
+            /* The write succeeded. Keep the last real count until refresh. */
+          }
         }
         if (epoch !== session.current) return;
         publishPostUpdate({
@@ -334,9 +389,17 @@ export function usePosts({
           deleted: kind === "delete",
           patch:
             kind === "like"
-              ? { isLiked: value, likeCount: count, likeStateKnown: true }
+              ? {
+                  isLiked: canonicalLiked ?? value,
+                  likeCount: count,
+                  likesCount: count,
+                  likeStateKnown: true,
+                }
               : kind === "save"
-                ? { isBookmarked: value, saveStateKnown: true }
+                ? {
+                    isBookmarked: canonicalSaved ?? value,
+                    saveStateKnown: true,
+                  }
                 : undefined,
         });
       })();

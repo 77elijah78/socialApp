@@ -8,8 +8,9 @@ export default function CreatePostRoute() {
       <Stack.Screen
         options={{
           headerShown: false,
-          presentation: "modal",
-          animation: "slide_from_bottom",
+          presentation: "transparentModal",
+          animation: "none",
+          gestureEnabled: false,
         }}
       />
       <CreatePostScreen />

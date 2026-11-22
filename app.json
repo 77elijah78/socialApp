@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "social",
+    "name": "circle",
     "slug": "social",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/favicon.png",
+    "icon": "./src/assets/icon.png",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
       "**/*"
@@ -16,13 +16,15 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./src/assets/adaptive-icon.png",
+        "backgroundColor": "#14112E",
+        "monochromeImage": "./src/assets/monochrome-icon.png"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_NETWORK_STATE"
       ],
       "package": "com.elijah77.social",
       "multidex": true
@@ -31,7 +33,13 @@
       "favicon": "./src/assets/favicon.png"
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Circle to record voice messages.",
+          "enableBackgroundPlayback": true
+        }
+      ],
       "expo-video",
       [
         "expo-build-properties",
@@ -41,10 +49,38 @@
           }
         }
       ],
+      "./plugins/withNetworkConditions.cjs",
+      [
+        "expo-share-intent",
+        {
+          "disableIOS": true,
+          "androidIntentFilters": [
+            "text/plain",
+            "image/*",
+            "video/*",
+            "audio/*",
+            "application/*"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*",
+            "video/*",
+            "audio/*",
+            "application/*"
+          ]
+        }
+      ],
       "expo-font",
       "expo-image",
       "expo-router",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./src/assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#14112E"
+        }
+      ],
       "expo-sqlite",
       "expo-status-bar",
       "expo-web-browser",
@@ -52,9 +88,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Social to select photos and videos for posts and messages.",
-          "cameraPermission": "Allow Social to take photos for posts and messages.",
-          "microphonePermission": "Allow Social to record voice messages."
+          "photosPermission": "Allow Circle to select photos and videos for posts and messages.",
+          "cameraPermission": "Allow Circle to take photos for posts and messages.",
+          "microphonePermission": "Allow Circle to record voice messages."
         }
       ],
       [
@@ -71,7 +107,7 @@
         "projectId": "fa49de58-e64b-450a-9401-1f29da85af02"
       }
     },
-    "runtimeVersion": "1.1.2",
+    "runtimeVersion": "1.2.0",
     "updates": {
       "url": "https://u.expo.dev/fa49de58-e64b-450a-9401-1f29da85af02"
     }

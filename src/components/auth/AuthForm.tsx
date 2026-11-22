@@ -6,6 +6,7 @@ import { router } from "expo-router";
 import AuthField from "./AuthField";
 import AuthScreen from "./AuthScreen";
 import PrimaryButton from "@/components/common/PrimaryButton";
+import GoogleAuthButton from "./GoogleAuthButton";
 import {
   BORDER_RADIUS,
   COLORS,
@@ -51,8 +52,19 @@ function PasswordFeedback({ password }: { password: string }) {
 
 export default function AuthForm({ mode }: { mode: AuthMode }) {
   const isRegister = mode === "register";
-  const { values, errors, error, isSubmitting, change, blur, submit } =
-    useAuthForm(mode);
+  const {
+    values,
+    errors,
+    error,
+    isSubmitting,
+    change,
+    blur,
+    submit,
+    google,
+    rateLimited,
+  } = useAuthForm(mode);
+  const busy = isSubmitting || google.loading || rateLimited;
+  const visibleError = error ?? google.error;
   const nameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
@@ -80,12 +92,12 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
             {isRegister ? "Already a member?" : "New here?"}
           </Text>
           <Pressable
-            disabled={isSubmitting}
+            disabled={busy}
             accessibilityRole="link"
             accessibilityLabel={
               isRegister ? "Log in instead" : "Create an account"
             }
-            accessibilityState={{ disabled: isSubmitting }}
+            accessibilityState={{ disabled: busy }}
             style={({ pressed }) => [
               styles.textAction,
               pressed && styles.pressed,
@@ -108,6 +120,17 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
       }
     >
       <View style={styles.form} testID={`${mode}-form`}>
+        <GoogleAuthButton
+          onPress={() => void google.signIn()}
+          loading={google.loading}
+          disabled={busy}
+          label={isRegister ? "Sign up with Google" : "Continue with Google"}
+        />
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or use your email</Text>
+          <View style={styles.dividerLine} />
+        </View>
         {isRegister ? (
           <AuthField
             ref={nameRef}
@@ -130,7 +153,7 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
             returnKeyType="next"
             submitBehavior="submit"
             onSubmitEditing={() => emailRef.current?.focus()}
-            editable={!isSubmitting}
+            editable={!busy}
           />
         ) : null}
 
@@ -154,7 +177,7 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
           returnKeyType="next"
           submitBehavior="submit"
           onSubmitEditing={() => passwordRef.current?.focus()}
-          editable={!isSubmitting}
+          editable={!busy}
         />
 
         <View style={styles.passwordGroup}>
@@ -176,7 +199,7 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
             returnKeyType={isRegister ? "done" : "go"}
             submitBehavior="submit"
             onSubmitEditing={() => void handleSubmit()}
-            editable={!isSubmitting}
+            editable={!busy}
           />
 
           {isRegister ? (
@@ -184,10 +207,10 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
           ) : (
             <Pressable
               onPress={() => router.push("/(auth)/forgot-password")}
-              disabled={isSubmitting}
+              disabled={busy}
               accessibilityRole="link"
               accessibilityLabel="Forgot password?"
-              accessibilityState={{ disabled: isSubmitting }}
+              accessibilityState={{ disabled: busy }}
               style={({ pressed }) => [
                 styles.forgotAction,
                 pressed && styles.pressed,
@@ -198,7 +221,7 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
           )}
         </View>
 
-        {error ? (
+        {visibleError ? (
           <View
             style={styles.errorBanner}
             accessibilityRole="alert"
@@ -212,19 +235,27 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
             />
             <View style={styles.errorCopy}>
               <Text style={styles.errorTitle}>
-                {isRegister
-                  ? "Couldn’t create your account"
-                  : "Couldn’t log you in"}
+                {google.error
+                  ? "Couldn’t connect to Google"
+                  : isRegister
+                    ? "Couldn’t create your account"
+                    : "Couldn’t log you in"}
               </Text>
-              <Text style={styles.errorText}>{error}</Text>
+              <Text style={styles.errorText}>{visibleError}</Text>
             </View>
           </View>
+        ) : null}
+        {google.cancelled ? (
+          <Text style={styles.cancelText} accessibilityLiveRegion="polite">
+            Google sign-in was cancelled. You can try again or use your email.
+          </Text>
         ) : null}
 
         <PrimaryButton
           title={isRegister ? "Create account" : "Log in"}
           onPress={() => void handleSubmit()}
           loading={isSubmitting}
+          disabled={busy}
           loadingLabel={
             isRegister ? "Creating your account…" : "Logging you in…"
           }
@@ -237,6 +268,22 @@ export default function AuthForm({ mode }: { mode: AuthMode }) {
 
 const styles = StyleSheet.create({
   form: { gap: SPACING.xxl },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.md,
+  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLORS.borderGray },
+  dividerText: {
+    color: COLORS.textMuted,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
+  },
+  cancelText: {
+    color: COLORS.textSecondary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    textAlign: "center",
+  },
   passwordGroup: { gap: SPACING.md },
   accountRow: {
     flexDirection: "row",

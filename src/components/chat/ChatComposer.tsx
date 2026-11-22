@@ -28,6 +28,9 @@ import {
 } from "@/constants/theme";
 import { showAppDialog } from "@/services/AppDialogService";
 import MediaPickerModal from "../messages/MediaPickerModal";
+import StickerPickerModal from "../stickers/StickerPickerModal";
+import type { Sticker } from "@/constants/stickers";
+import { useRateLimit } from "@/hooks/useRateLimit";
 
 interface Props {
   replyingTo: MessageRow | null;
@@ -43,26 +46,36 @@ interface Props {
     replyId?: string,
     attachment?: AttachmentInfo,
   ) => Promise<void>;
+  onSendSticker: (sticker: Sticker, replyId?: string) => Promise<void>;
   onReplyPress?: (id: string) => void;
 }
 function ChatComposer({
   replyingTo,
-  disabled = false,
+  disabled: interactionDisabled = false,
   userId,
   onCancelReply,
   onTyping,
   onSend,
   onSendMedia,
+  onSendSticker,
   onReplyPress,
 }: Props) {
+  const messagingLimit = useRateLimit("messaging");
+  const mediaLimit = useRateLimit("media");
+  // A server cooldown is a hard stop for submissions. Draft text is preserved;
+  // a media-only cooldown disables attachments without blocking text chat.
+  const disabled = interactionDisabled || messagingLimit.blocked;
+  const attachmentsDisabled = disabled || mediaLimit.blocked;
   const [text, setText] = useState("");
   const draft = useRef("");
   const disabledRef = useRef(disabled);
   useLayoutEffect(() => { disabledRef.current = disabled; }, [disabled]);
   const [picker, setPicker] = useState(false);
+  const [stickerPicker, setStickerPicker] = useState(false);
   // Adjust derived sheet state before committing a disabled composer. Keeping
   // the composer itself mounted preserves the draft and avoids a layout jump.
   if (disabled && picker) setPicker(false);
+  if (disabled && stickerPicker) setStickerPicker(false);
   const coverReads = useContext(ChatReadVisibility);
   const releasePicker = useRef<(() => void) | null>(null);
   const closePicker = () => {
@@ -128,7 +141,7 @@ function ChatComposer({
     }
   };
   const startRecording = async () => {
-    if (disabledRef.current) return;
+    if (disabledRef.current || mediaLimit.blocked) return;
     recordingHeld.current = true;
     if (preparing.current || recorder.isRecording) return;
     preparing.current = true;
@@ -159,7 +172,7 @@ function ChatComposer({
   };
   const sendFiles = async (files: PickedFile[]) => {
     closePicker();
-    if (disabledRef.current) return;
+    if (disabledRef.current || mediaLimit.blocked) return;
     const replyId = replyingTo?.id ?? undefined;
     onCancelReply();
     try {
@@ -213,10 +226,22 @@ function ChatComposer({
         <View style={styles.inputRow}>
           <TouchableOpacity
             accessibilityRole="button"
-            accessibilityLabel="Attach media"
-            disabled={disabled}
+            accessibilityLabel="Open stickers"
+            disabled={attachmentsDisabled}
             onPress={() => {
-              if (disabledRef.current) return;
+              if (disabledRef.current || mediaLimit.blocked) return;
+              setStickerPicker(true);
+            }}
+            style={styles.attachButton}
+          >
+            <Ionicons name="happy-outline" size={22} color={COLORS.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Attach media"
+            disabled={attachmentsDisabled}
+            onPress={() => {
+              if (disabledRef.current || mediaLimit.blocked) return;
               releasePicker.current?.();
               releasePicker.current = coverReads();
               setPicker(true);
@@ -248,7 +273,7 @@ function ChatComposer({
           {!text.trim() ? (
             <Pressable
               accessibilityLabel="Hold to record a voice message"
-              disabled={disabled}
+              disabled={attachmentsDisabled}
               style={[
                 styles.sendButton,
                 recording.isRecording && styles.micButtonActive,
@@ -285,6 +310,16 @@ function ChatComposer({
         onClose={closePicker}
         onSend={(files) => {
           void sendFiles(files);
+        }}
+      />
+      <StickerPickerModal
+        visible={stickerPicker}
+        userId={userId}
+        onClose={() => setStickerPicker(false)}
+        onSelect={(sticker) => {
+          const replyId = replyingTo?.id ?? undefined;
+          onCancelReply();
+          void onSendSticker(sticker, replyId).catch(failed);
         }}
       />
     </>

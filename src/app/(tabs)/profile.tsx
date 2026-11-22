@@ -1,10 +1,8 @@
 import { usePosts } from "@/hooks/usePosts";
-import { authorFeedParams } from "@/utils/postContracts";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -13,17 +11,27 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  filterProfilePosts,
+  ProfileActionButton,
+  ProfileGridItem,
+  ProfileHeaderContent,
+  profileGridItemSize,
+  PROFILE_GRID_COLUMNS,
+  PROFILE_GRID_GAP,
+  PROFILE_GRID_PADDING,
+  type ProfileFilter,
+} from "@/components/profile/ProfileView";
+import { FEED } from "@/constants/feedTheme";
 import * as theme from "@/constants/theme";
 import { api } from "@/services/api";
 import { useAppSelector } from "@/store/hooks";
 import { SocialPost } from "@/types";
-
-const GRID_GAP = theme.SPACING.sm;
-const GRID_COLUMNS = 3;
+import { subscribePostUpdates } from "@/utils/postUpdates";
+import { normalizeMediaUrl } from "@/utils/mediaUrls";
 
 interface ProfileData {
   id: string;
@@ -35,17 +43,14 @@ interface ProfileData {
   _count?: { posts: number; followers: number; following: number };
 }
 
-function formatCount(count: number): string {
-  if (count >= 1_000_000)
-    return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (count >= 1_000)
-    return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return String(count);
-}
-
 export default function ProfileScreen() {
   const user = useAppSelector((state) => state.auth.user);
   const token = useAppSelector((state) => state.auth.token);
+  const unread = useAppSelector((state) =>
+    state.notifications?.accountId === state.auth.user?.id
+      ? (state.notifications?.unreadCount ?? 0)
+      : 0,
+  );
   const { width: screenWidth } = useWindowDimensions();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const {
@@ -57,8 +62,12 @@ export default function ProfileScreen() {
     paginating,
     error: postsError,
     paginationError,
+    total: postsTotal,
+    loading: postsLoading,
   } = usePosts({ source: "author", username: user?.username });
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<ProfileFilter>("posts");
+  const focusedOnce = useRef(false);
 
   const currentUsername = user?.username ?? "";
   const displayName =
@@ -67,7 +76,9 @@ export default function ProfileScreen() {
     user?.username ||
     "Your profile";
   const username = profileData?.username || user?.username || "";
-  const avatarUrl = profileData?.avatarUrl ?? user?.avatarUrl ?? null;
+  const avatarUrl =
+    normalizeMediaUrl(user?.avatarUrl) ??
+    normalizeMediaUrl(profileData?.avatarUrl);
   const bio = profileData?.bio ?? user?.bio ?? null;
   const initial = displayName.charAt(0).toUpperCase() || "Y";
   const counts = profileData?._count ?? {
@@ -75,11 +86,24 @@ export default function ProfileScreen() {
     followers: 0,
     following: 0,
   };
-  const gridItemSize =
-    (screenWidth -
-      theme.LAYOUT.listPaddingHorizontal * 2 -
-      GRID_GAP * (GRID_COLUMNS - 1)) /
-    GRID_COLUMNS;
+  // The author feed owns the live total; profile stats are the fallback while
+  // that page is still loading or failed.
+  const postCount =
+    postsLoading || postsError
+      ? counts.posts
+      : Math.min(counts.posts, postsTotal);
+
+  const memories = useMemo(
+    () => posts.filter((post) => post.imageUrls.length > 0).slice(0, 10),
+    [posts],
+  );
+
+  const filteredPosts = useMemo(
+    () => filterProfilePosts(posts, filter),
+    [posts, filter],
+  );
+
+  const gridItemSize = profileGridItemSize(screenWidth);
 
   const fetchProfile = useCallback(async () => {
     if (!token || !currentUsername) return;
@@ -118,131 +142,68 @@ export default function ProfileScreen() {
     await Promise.all([fetchProfile(), refreshPosts()]);
   }, [fetchProfile, refreshPosts]);
 
+  // A deletion can happen from the home feed or a selected-post screen. Reflect
+  // the confirmed event immediately, then reconcile server stats on return.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribePostUpdates((event) => {
+      if (event.accountId !== user.id || !event.deleted) return;
+      setProfileData((current) =>
+        current
+          ? {
+              ...current,
+              _count: {
+                posts: Math.max(0, (current._count?.posts ?? postsTotal) - 1),
+                followers: current._count?.followers ?? 0,
+                following: current._count?.following ?? 0,
+              },
+            }
+          : current,
+      );
+    });
+  }, [postsTotal, user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
+      void Promise.all([fetchProfile(), refreshPosts()]);
+    }, [fetchProfile, refreshPosts]),
+  );
+
   const renderProfileHeader = useCallback(
     () => (
-      <View>
-        <View style={styles.profileCard}>
-          <LinearGradient
-            colors={[
-              theme.COLORS.primary,
-              theme.COLORS.accentPurple,
-              "#8B74E8",
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cover}
-          >
-            <View style={styles.coverOrbLarge} />
-            <View style={styles.coverOrbSmall} />
-            <View style={styles.coverLabel}>
-              <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
-              <Text style={styles.coverLabelText}>YOUR CREATOR SPACE</Text>
-            </View>
-            <Ionicons
-              name="aperture-outline"
-              size={24}
-              color="rgba(255,255,255,0.8)"
+      <ProfileHeaderContent
+        avatarUrl={avatarUrl}
+        initial={initial}
+        displayName={displayName}
+        username={username}
+        bio={bio}
+        isVerified={profileData?.isVerified}
+        postCount={postCount}
+        followers={counts.followers ?? 0}
+        following={counts.following ?? 0}
+        memories={memories}
+        filter={filter}
+        onFilterChange={setFilter}
+        actions={
+          <>
+            <ProfileActionButton
+              label="Edit profile"
+              icon="create-outline"
+              variant="secondary"
+              onPress={() => router.push("/editProfile")}
             />
-          </LinearGradient>
-
-          <View style={styles.profileContent}>
-            <View style={styles.avatarOverlapRow}>
-              <View style={styles.avatarShell}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <View style={[styles.avatar, styles.avatarFallback]}>
-                    <Text style={styles.avatarInitial}>{initial}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.nameRow}>
-              <Text style={styles.displayName} numberOfLines={1}>
-                {displayName}
-              </Text>
-              {profileData?.isVerified ? (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={18}
-                  color={theme.COLORS.primary}
-                />
-              ) : null}
-            </View>
-            {username ? <Text style={styles.username}>@{username}</Text> : null}
-            {bio ? <Text style={styles.bio}>{bio}</Text> : null}
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {formatCount(counts.posts ?? posts.length)}
-                </Text>
-                <Text style={styles.statLabel}>Posts</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {formatCount(counts.followers ?? 0)}
-                </Text>
-                <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {formatCount(counts.following ?? 0)}
-                </Text>
-                <Text style={styles.statLabel}>Following</Text>
-              </View>
-            </View>
-
-            <View style={styles.actionsRow}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push("/editProfile")}
-                style={({ pressed }) => [
-                  styles.primaryAction,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={17}
-                  color={theme.COLORS.white}
-                />
-                <Text style={styles.primaryActionText}>Edit profile</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push("/posts/create")}
-                style={({ pressed }) => [
-                  styles.secondaryAction,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="add" size={19} color={theme.COLORS.primary} />
-                <Text style={styles.secondaryActionText}>New post</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.tabsSection}>
-          <View style={[styles.profileTab, styles.profileTabActive]}>
-            <Ionicons
-              name="grid-outline"
-              size={17}
-              color={theme.COLORS.primary}
+            <ProfileActionButton
+              label="New post"
+              icon="add"
+              onPress={() => router.push("/posts/create")}
             />
-            <Text style={[styles.profileTabText, styles.profileTabTextActive]}>
-              Posts
-            </Text>
-            <Text style={[styles.profileTabCount, styles.profileTabTextActive]}>
-              {formatCount(counts.posts)}
-            </Text>
-          </View>
-        </View>
-      </View>
+          </>
+        }
+      />
     ),
     [
       avatarUrl,
@@ -251,61 +212,23 @@ export default function ProfileScreen() {
       profileData?.isVerified,
       username,
       bio,
-      counts.posts,
+      postCount,
       counts.followers,
       counts.following,
-      posts.length,
+      memories,
+      filter,
     ],
   );
 
   const renderGridItem = useCallback(
-    ({ item, index }: { item: SocialPost; index: number }) => {
-      const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? "";
-      return (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open post by ${item.author.displayName ?? item.author.username}`}
-          style={[
-            styles.gridItem,
-            { width: gridItemSize, height: gridItemSize },
-          ]}
-          onPress={() =>
-            router.push(authorFeedParams(username, item.id, index))
-          }
-        >
-          {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.gridImage} />
-          ) : (
-            <LinearGradient
-              colors={[theme.COLORS.primary, theme.COLORS.accentPurple]}
-              style={styles.textPostTile}
-            >
-              <Ionicons
-                name="chatbubble-ellipses-outline"
-                size={19}
-                color="rgba(255,255,255,0.85)"
-              />
-              <Text style={styles.textPostContent} numberOfLines={5}>
-                {item.content}
-              </Text>
-            </LinearGradient>
-          )}
-          {imageUrl ? <View style={styles.gridScrim} /> : null}
-          <View style={styles.gridStats}>
-            <View style={styles.gridStat}>
-              <Ionicons
-                name="chatbubble"
-                size={12}
-                color={theme.COLORS.white}
-              />
-              <Text style={styles.gridStatText}>
-                {formatCount(item.commentCount ?? 0)}
-              </Text>
-            </View>
-          </View>
-        </Pressable>
-      );
-    },
+    ({ item, index }: { item: SocialPost; index: number }) => (
+      <ProfileGridItem
+        post={item}
+        index={index}
+        size={gridItemSize}
+        username={username}
+      />
+    ),
     [gridItemSize, username],
   );
 
@@ -314,18 +237,46 @@ export default function ProfileScreen() {
       <View style={styles.emptyState}>
         <View style={styles.emptyIcon}>
           <Ionicons
-            name="images-outline"
+            name={
+              filter === "videos"
+                ? "videocam-outline"
+                : filter === "photos"
+                  ? "images-outline"
+                  : filter === "text"
+                    ? "text-outline"
+                    : "camera-outline"
+            }
             size={25}
-            color={theme.COLORS.primary}
+            color={FEED.accent}
           />
         </View>
-        <Text style={styles.emptyTitle}>Your first post starts here</Text>
+        <Text style={styles.emptyTitle}>
+          {filter === "videos"
+            ? "No videos yet"
+            : filter === "photos"
+              ? "No photos yet"
+              : filter === "text"
+                ? "No text posts yet"
+                : "Your first post starts here"}
+        </Text>
         <Text style={styles.emptySubtitle}>
-          Share your first post and make this space yours.
+          {filter === "posts"
+            ? "Share your first post and make this space yours."
+            : filter === "text"
+              ? "Share a thought and it will appear here."
+              : `Share a ${filter === "videos" ? "video" : "photo"} to see it here.`}
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push("/posts/create")}
+          onPress={() =>
+            router.push({
+              pathname: "/posts/create",
+              params:
+                filter === "posts" || filter === "text"
+                  ? undefined
+                  : { mode: filter },
+            })
+          }
           style={({ pressed }) => [
             styles.emptyButton,
             pressed && styles.pressed,
@@ -336,20 +287,19 @@ export default function ProfileScreen() {
         </Pressable>
       </View>
     ),
-    [],
+    [filter],
   );
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerEyebrow}>YOUR SPACE</Text>
-            <Text style={styles.headerTitle}>Profile</Text>
-          </View>
+        <View style={styles.topBar}>
+          <View style={styles.topBarSpacer} />
+          <Text style={styles.topBarTitle}>Profile</Text>
+          <View style={styles.topBarSpacer} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.COLORS.primary} />
+          <ActivityIndicator size="large" color={FEED.accent} />
           <Text style={styles.loadingText}>Getting your profile ready…</Text>
         </View>
       </SafeAreaView>
@@ -358,48 +308,51 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerEyebrow}>YOUR SPACE</Text>
-          <Text style={styles.headerTitle}>Profile</Text>
-        </View>
-        <View style={styles.headerActions}>
+      <View style={styles.topBar}>
+        <View style={styles.topBarActions}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Bookmarks"
             onPress={() => router.push("/bookmarks")}
             style={({ pressed }) => [
-              styles.headerIconButton,
+              styles.circleButton,
               pressed && styles.pressed,
             ]}
           >
-            <Ionicons
-              name="bookmark-outline"
-              size={20}
-              color={theme.COLORS.textPrimary}
-            />
+            <Ionicons name="bookmark-outline" size={20} color={FEED.text} />
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Settings"
-            onPress={() => router.push("/settings")}
+            accessibilityLabel={
+              unread > 0 ? `Activity, ${unread} unread` : "Activity"
+            }
+            onPress={() => router.push("/notifications")}
             style={({ pressed }) => [
-              styles.headerIconButton,
+              styles.circleButton,
               pressed && styles.pressed,
             ]}
           >
-            <Ionicons
-              name="settings-outline"
-              size={20}
-              color={theme.COLORS.textPrimary}
-            />
+            <Ionicons name="heart-outline" size={20} color={FEED.text} />
+            {unread > 0 ? <View style={styles.activityDot} /> : null}
           </Pressable>
         </View>
+        <Text style={styles.topBarTitle}>Profile</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          onPress={() => router.push("/settings")}
+          style={({ pressed }) => [
+            styles.circleButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color={FEED.text} />
+        </Pressable>
       </View>
 
       <FlatList
         style={styles.list}
-        data={posts}
+        data={filteredPosts}
         ListHeaderComponent={renderProfileHeader}
         onEndReached={() => {
           if (hasMore) void loadMore();
@@ -408,7 +361,7 @@ export default function ProfileScreen() {
         ListFooterComponent={
           <View style={styles.footerSpace}>
             {paginating ? (
-              <ActivityIndicator color={theme.COLORS.primary} />
+              <ActivityIndicator color={FEED.accent} />
             ) : null}
             {postsError || paginationError ? (
               <Pressable
@@ -424,15 +377,17 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.listContent}
         renderItem={renderGridItem}
         keyExtractor={(item) => item.id}
-        numColumns={GRID_COLUMNS}
+        numColumns={PROFILE_GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
-        ListEmptyComponent={renderEmptyState}
+        ListEmptyComponent={
+          postsLoading && posts.length === 0 ? null : renderEmptyState
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={theme.COLORS.primary}
-            colors={[theme.COLORS.primary]}
+            tintColor={FEED.accent}
+            colors={[FEED.accent]}
           />
         }
         showsVerticalScrollIndicator={false}
@@ -444,311 +399,298 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgLight,
+    backgroundColor: FEED.background,
   },
-  header: {
+  topBar: {
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
+    paddingTop: theme.SPACING.sm,
     paddingBottom: theme.SPACING.sm,
   },
-  headerEyebrow: {
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-    letterSpacing: 1,
-  },
-  headerTitle: {
-    marginTop: 2,
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-  },
-  headerActions: {
+  topBarActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.sm,
   },
-  headerIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
+  activityDot: {
+    position: "absolute",
+    top: 9,
+    right: 9,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.COLORS.secondary,
+    borderWidth: 1.5,
+    borderColor: FEED.surface,
+  },
+  topBarTitle: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    color: FEED.text,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    letterSpacing: -0.2,
+  },
+  topBarSpacer: {
+    width: 42,
+    height: 42,
+  },
+  circleButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: FEED.surface,
     borderWidth: 1,
-    borderColor: theme.COLORS.borderDivider,
+    borderColor: FEED.border,
   },
   list: {
     flex: 1,
-  },
-  listContent: {
-    paddingTop: theme.SPACING.sm,
-    paddingBottom: theme.SPACING.xxxxl,
-  },
-  profileCard: {
-    marginHorizontal: theme.LAYOUT.contentPadding,
-    marginBottom: theme.SPACING.md,
-    borderRadius: 23,
-    backgroundColor: theme.COLORS.bgWhite,
-    borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-    overflow: "visible",
-    ...theme.SHADOWS.sm,
-  },
-  cover: {
-    height: 112,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingHorizontal: theme.SPACING.lg,
-    paddingTop: theme.SPACING.lg,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    backgroundColor: FEED.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     overflow: "hidden",
   },
-  coverOrbLarge: {
-    position: "absolute",
-    right: 26,
-    top: -72,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "rgba(255,255,255,0.11)",
+  listContent: {
+    paddingBottom: theme.SPACING.xxxxl,
   },
-  coverOrbSmall: {
-    position: "absolute",
-    right: -32,
-    bottom: -54,
-    width: 126,
-    height: 126,
-    borderRadius: 63,
-    backgroundColor: "rgba(255,255,255,0.09)",
+  profileHeader: {
+    paddingTop: theme.SPACING.xxl,
+    paddingBottom: theme.SPACING.sm,
+    backgroundColor: FEED.surface,
   },
-  coverLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.SPACING.xs,
-    paddingHorizontal: theme.SPACING.sm,
-    paddingVertical: 5,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: "rgba(255,255,255,0.16)",
-  },
-  coverLabelText: {
-    color: theme.COLORS.white,
-    fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    letterSpacing: 0.8,
-  },
-  profileContent: {
-    paddingHorizontal: theme.SPACING.lg,
-    paddingBottom: theme.SPACING.lg,
-  },
-  avatarOverlapRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-    marginTop: -38,
-    marginBottom: theme.SPACING.sm,
-  },
-  avatarShell: {
-    width: 84,
-    height: 84,
-    padding: 4,
-    borderRadius: 42,
-    backgroundColor: theme.COLORS.bgWhite,
-    ...theme.SHADOWS.md,
+  avatarRing: {
+    alignSelf: "center",
+    width: 94,
+    height: 94,
+    padding: 3,
+    borderRadius: 47,
+    borderWidth: 2,
+    borderColor: FEED.accent,
+    backgroundColor: FEED.surface,
   },
   avatar: {
     width: "100%",
     height: "100%",
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.bgInput,
+    borderRadius: 44,
+    backgroundColor: FEED.imageFallback,
   },
   avatarFallback: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: FEED.accentSoft,
   },
   avatarInitial: {
-    color: theme.COLORS.primary,
+    color: FEED.accent,
     fontSize: theme.TYPOGRAPHY.fontSize.xl7,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.SPACING.xs,
+    justifyContent: "center",
+    gap: theme.SPACING.sm,
+    marginTop: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.xxl,
   },
   displayName: {
     flexShrink: 1,
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
+    color: FEED.text,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl6,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+    letterSpacing: -0.3,
   },
   username: {
-    marginTop: 3,
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginTop: 2,
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    textAlign: "center",
   },
   bio: {
     marginTop: theme.SPACING.sm,
-    color: theme.COLORS.textSecondary,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    marginHorizontal: theme.SPACING.xxxxxl,
+    color: FEED.secondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
     lineHeight: theme.TYPOGRAPHY.lineHeight.md,
+    textAlign: "center",
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.xxxxxl,
     marginTop: theme.SPACING.lg,
-    paddingVertical: theme.SPACING.md,
-    borderRadius: 16,
-    backgroundColor: theme.COLORS.bgLight,
   },
   statItem: {
-    flex: 1,
     alignItems: "center",
+    minWidth: 58,
   },
   statValue: {
-    color: theme.COLORS.textPrimary,
+    color: FEED.text,
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
   },
   statLabel: {
-    marginTop: 2,
-    color: theme.COLORS.textSecondary,
-    fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: theme.COLORS.borderDivider,
+    marginTop: 1,
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
   },
   actionsRow: {
     flexDirection: "row",
-    gap: theme.SPACING.sm,
-    marginTop: theme.SPACING.md,
+    gap: theme.SPACING.md,
+    marginTop: theme.SPACING.lg,
+    marginHorizontal: theme.SPACING.xxl,
   },
   primaryAction: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: theme.SPACING.xs,
-    borderRadius: 14,
-    backgroundColor: theme.COLORS.primary,
-  },
-  primaryActionText: {
-    color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  secondaryAction: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: theme.SPACING.xs,
-    borderRadius: 14,
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
-  },
-  secondaryActionText: {
-    color: theme.COLORS.primary,
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
-  },
-  tabsSection: {
-    flexDirection: "row",
-    marginHorizontal: theme.LAYOUT.contentPadding,
-    marginBottom: theme.SPACING.sm,
-    padding: 4,
-    borderRadius: 17,
-    backgroundColor: "#EAE8F2",
-  },
-  profileTab: {
     flex: 1,
     minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: theme.SPACING.xs,
-    borderRadius: 13,
+    borderRadius: 12,
+    backgroundColor: FEED.accent,
   },
-  profileTabActive: {
-    backgroundColor: theme.COLORS.bgWhite,
-    ...theme.SHADOWS.sm,
-  },
-  profileTabText: {
-    color: theme.COLORS.textMuted,
-    fontSize: theme.TYPOGRAPHY.fontSize.xs,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
-  },
-  profileTabTextActive: {
-    color: theme.COLORS.primary,
+  primaryActionText: {
+    color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
-  profileTabCount: {
-    color: theme.COLORS.textMuted,
-    fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+  secondaryAction: {
+    flex: 1,
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: theme.SPACING.xs,
+    borderRadius: 12,
+    backgroundColor: FEED.surface,
+    borderWidth: 1,
+    borderColor: FEED.border,
+  },
+  secondaryActionText: {
+    color: FEED.text,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  memoriesSection: {
+    marginTop: theme.SPACING.xxl,
+  },
+  sectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.SPACING.xxl,
+    marginBottom: theme.SPACING.md,
+  },
+  sectionTitle: {
+    color: FEED.text,
+    fontSize: theme.TYPOGRAPHY.fontSize.lg,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
+  },
+  sectionMeta: {
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+  },
+  memoriesList: {
+    paddingHorizontal: theme.SPACING.xxl,
+    gap: theme.SPACING.lg,
+  },
+  memoryItem: {
+    width: 66,
+    alignItems: "center",
+  },
+  memoryImage: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: FEED.imageFallback,
+  },
+  memoryLabel: {
+    width: 66,
+    marginTop: theme.SPACING.xs,
+    color: FEED.secondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    textAlign: "center",
+  },
+  filters: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: theme.SPACING.xxl,
+    paddingTop: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.md,
+    gap: theme.SPACING.sm,
+  },
+  filter: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: theme.SPACING.xl,
+    borderRadius: theme.BORDER_RADIUS.full,
+  },
+  filterActive: {
+    backgroundColor: FEED.accent,
+  },
+  filterText: {
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  filterTextActive: {
+    color: theme.COLORS.white,
   },
   gridRow: {
-    gap: GRID_GAP,
-    marginBottom: GRID_GAP,
-    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+    gap: PROFILE_GRID_GAP,
+    marginBottom: PROFILE_GRID_GAP,
+    paddingHorizontal: PROFILE_GRID_PADDING,
   },
   gridItem: {
     position: "relative",
-    borderRadius: 12,
+    borderRadius: 6,
     overflow: "hidden",
-    backgroundColor: theme.COLORS.bgInput,
+    backgroundColor: FEED.imageFallback,
   },
   gridImage: {
     width: "100%",
     height: "100%",
   },
-  gridScrim: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(26,26,46,0.12)",
-  },
-  textPostTile: {
-    flex: 1,
-    alignItems: "flex-start",
+  videoTile: {
+    alignItems: "center",
     justifyContent: "center",
+    gap: theme.SPACING.xs,
+    backgroundColor: "#E8EAF0",
+  },
+  gridTileLabel: {
+    color: FEED.secondary,
+    fontSize: theme.TYPOGRAPHY.fontSize.xs,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  textTile: {
+    alignItems: "flex-start",
+    justifyContent: "space-between",
     padding: theme.SPACING.md,
-    gap: theme.SPACING.sm,
+    backgroundColor: "#F0F1F4",
   },
   textPostContent: {
-    color: theme.COLORS.white,
+    color: FEED.secondary,
     fontSize: theme.TYPOGRAPHY.fontSize.xs,
     lineHeight: theme.TYPOGRAPHY.lineHeight.md,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
-  gridStats: {
+  videoBadge: {
     position: "absolute",
+    top: 6,
     right: 6,
-    bottom: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: "rgba(26,26,46,0.55)",
-  },
-  gridStat: {
-    flexDirection: "row",
+    width: 19,
+    height: 19,
+    borderRadius: 10,
     alignItems: "center",
-    gap: 4,
-  },
-  gridStatText: {
-    color: theme.COLORS.white,
-    fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    justifyContent: "center",
+    backgroundColor: "rgba(17,17,20,0.55)",
   },
   emptyState: {
     alignItems: "center",
@@ -758,14 +700,14 @@ const styles = StyleSheet.create({
   emptyIcon: {
     width: 58,
     height: 58,
-    borderRadius: 20,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.COLORS.primaryGhost,
+    backgroundColor: FEED.accentSoft,
   },
   emptyTitle: {
     marginTop: theme.SPACING.md,
-    color: theme.COLORS.textPrimary,
+    color: FEED.text,
     fontSize: theme.TYPOGRAPHY.fontSize.xl,
     fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     textAlign: "center",
@@ -773,7 +715,7 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     maxWidth: 280,
     marginTop: theme.SPACING.xs,
-    color: theme.COLORS.textSecondary,
+    color: FEED.muted,
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
     lineHeight: theme.TYPOGRAPHY.lineHeight.md,
     textAlign: "center",
@@ -786,7 +728,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.SPACING.lg,
     paddingVertical: theme.SPACING.sm,
     borderRadius: theme.BORDER_RADIUS.full,
-    backgroundColor: theme.COLORS.primary,
+    backgroundColor: FEED.accent,
   },
   emptyButtonText: {
     color: theme.COLORS.white,
@@ -794,16 +736,19 @@ const styles = StyleSheet.create({
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   footerSpace: {
-    height: 12,
+    height: 24,
   },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: theme.SPACING.md,
+    backgroundColor: FEED.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
   },
   loadingText: {
-    color: theme.COLORS.textSecondary,
+    color: FEED.muted,
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
   },
   pressed: {

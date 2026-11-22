@@ -1,14 +1,9 @@
-import { useMediaSource } from "@/hooks/useMediaSource";
-import { getAccessToken } from "@/services/api";
-import { mediaRequestSource } from "@/utils/mediaRequests";
 import {
   memo,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
-  useContext,
 } from "react";
 import {
   ActivityIndicator,
@@ -18,11 +13,6 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import {
-  useAudioPlayer,
-  useAudioPlayerStatus,
-  setAudioModeAsync,
-} from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import {
   BORDER_RADIUS,
@@ -31,12 +21,12 @@ import {
   SPACING,
   TYPOGRAPHY,
 } from "@/constants/theme";
-import { ChatMediaInteraction } from "@/components/chat/ChatReadVisibility";
+import { useChatAudio } from "@/hooks/useChatAudio";
 import {
-  claimChatPlayback,
-  useChatMediaPlayback,
-} from "@/hooks/useChatMediaPlayback";
-import { useMediaVisibility } from "@/utils/messaging/mediaVisibility";
+  chatMediaSpec,
+  useChatMediaDownload,
+} from "@/services/ChatMediaDownloads";
+import { chatAudio } from "@/services/ChatAudioPlayer";
 import { formatDuration, waveformPeaks } from "@/utils/messaging/presentation";
 
 interface Props {
@@ -49,6 +39,10 @@ interface Props {
   isRead?: boolean;
   style?: ViewStyle;
   onLongPress?: () => void;
+  /** Message author; needed to partition authenticated downloads by account. */
+  ownerId?: string;
+  name?: string | null;
+  mimeType?: string | null;
 }
 interface TrackProps {
   peaks: number[] | null;
@@ -144,157 +138,136 @@ const VoiceTrack = memo(function VoiceTrack({
     </View>
   );
 });
-function ActiveVoice({
-  audioUri,
-  playbackId,
-  duration,
-  waveform,
-  style,
-  onLongPress,
-}: Props) {
-  const visible = useMediaVisibility(playbackId);
-  const { isCurrent, retryAfterAuthError, ownerId, resetAuthRetry } = useMediaSource(audioUri);
-  const player = useAudioPlayer(null, { updateInterval: 200 });
-  const status = useAudioPlayerStatus(player);
-  const allowed = useChatMediaPlayback(player, visible);
-  const pendingError = useRef<unknown>(null);
-  const loadAttempt = useRef(0);
-  const handledError = useRef<{ attempt: number; error: unknown } | null>(null);
-  const loaded = useRef(false),
-    loading = useRef(false),
-    alive = useRef(true);
-  useEffect(
-    () => () => {
-      alive.current = false;
-    },
-    [],
+
+function VoiceMessage(props: Props) {
+  const key = props.playbackId || props.audioUri;
+  const spec = useMemo(
+    () =>
+      props.audioUri
+        ? chatMediaSpec({
+            ownerId: props.ownerId ?? "local",
+            id: key,
+            uri: props.audioUri,
+            name:
+              props.name ||
+              (props.mimeType?.startsWith("audio/") ? "voice.m4a" : undefined),
+            mimeType: props.mimeType,
+            localSource: props.isOwn,
+          })
+        : null,
+    [props.audioUri, props.ownerId, key, props.name, props.mimeType, props.isOwn],
   );
-  const [failed, setFailed] = useState(false);
-  const [starting, setStarting] = useState(true);
-  const peaks = useMemo(() => waveformPeaks(waveform), [waveform]);
-  const total = status.duration > 0 ? status.duration : duration;
-  const elapsed = Math.max(
-    0,
-    Math.min(total || Infinity, status.currentTime || 0),
-  );
-  const error =
-    failed || Boolean(status.error) || status.playbackState === "error";
-  const busy = !error && (starting || status.isBuffering);
-  const wantsPlayback = useRef(true);
-  const retryPlay = useRef<() => Promise<void>>(async () => {});
-  const recover = useCallback(async (failure: unknown) => {
-    const retried = await retryAfterAuthError(failure, () => {
-      loaded.current = false;
-      if (allowed() && wantsPlayback.current) {
-        player.pause();
-        void retryPlay.current();
-      }
-    });
-    if (!retried && alive.current && isCurrent()) setFailed(true);
-  }, [retryAfterAuthError, isCurrent, allowed, player]);
-  useEffect(() => {
-    if (status.error || status.playbackState === "error") {
-      if (handledError.current?.attempt === loadAttempt.current && handledError.current.error === status.error) return;
-      handledError.current = { attempt: loadAttempt.current, error: status.error };
-      if (loading.current) pendingError.current = status.error ?? new Error("This audio couldn’t be loaded.");
-      else void recover(status.error);
-    }
-  }, [status, recover]);
-  const play = useCallback(async () => {
-    if (loading.current) return;
-    if (!allowed() || !isCurrent()) {
-      if (alive.current) setStarting(false);
-      return;
-    }
-    loading.current = true;
-    pendingError.current = null;
-    let failure: unknown;
+  const media = useChatMediaDownload(spec);
+  const { download: downloadMedia } = media;
+  const audio = useChatAudio(key);
+  const [starting, setStarting] = useState(false);
+  const pending = useRef(false);
+  const peaks = useMemo(() => waveformPeaks(props.waveform), [props.waveform]);
+
+  const active = audio.key === key;
+  const total =
+    (active && audio.duration > 0 ? audio.duration : 0) || props.duration || 0;
+  const elapsed = active ? Math.max(0, Math.min(total || Infinity, audio.currentTime)) : 0;
+  const playing = active && audio.playing;
+  const error = media.state.error || (active ? audio.error : null);
+  const busy =
+    starting ||
+    media.busy ||
+    (active && audio.buffering && !audio.error);
+
+  const play = useCallback(async (downloadedUri?: string) => {
+    const uri = downloadedUri ?? media.localUri;
+    if (!uri) return;
+    pending.current = true;
+    setStarting(true);
     try {
-      setFailed(false);
-      if (player.playing) {
-        wantsPlayback.current = false;
-        player.pause();
-        return;
-      }
-      wantsPlayback.current = true;
-      setStarting(true);
-      await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-        interruptionMode: "doNotMix",
-        shouldPlayInBackground: false,
+      await chatAudio.play({
+        key,
+        uri,
+        title: props.name || "Voice message",
+        subtitle: props.isOwn ? "You" : "Voice message",
+        duration: props.duration,
+        waveform: props.waveform,
       });
-      if (!allowed() || !isCurrent()) return;
-      if (!loaded.current || status.error || status.playbackState === "error") {
-        loadAttempt.current++;
-        player.replace(mediaRequestSource(audioUri, ownerId ? getAccessToken() : null));
-        loaded.current = true;
-      }
-      if (status.didJustFinish) await player.seekTo(0);
-      if (allowed() && isCurrent()) {
-        claimChatPlayback(player);
-        player.play();
-      }
-    } catch (error) {
-      loaded.current = false;
-      failure = error;
     } finally {
-      loading.current = false;
-      if (alive.current) setStarting(false);
+      pending.current = false;
+      setStarting(false);
     }
-    failure ??= pendingError.current;
-    if (failure) await recover(failure);
   }, [
-    allowed,
-    player,
-    audioUri,
-    status.didJustFinish,
-    status.error,
-    status.playbackState,
-    isCurrent,
-    ownerId,
-    recover,
+    key,
+    media.localUri,
+    props.duration,
+    props.isOwn,
+    props.name,
+    props.waveform,
   ]);
-  useEffect(() => { retryPlay.current = play; }, [play]);
-  // This child is created only by an explicit play tap, not while scrolling.
-  const initialPlay = useRef(play);
-  useEffect(() => {
-    void initialPlay.current();
-  }, []);
+
+  const download = useCallback(async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setStarting(true);
+    try {
+      const localUri = await downloadMedia();
+      if (localUri) await play(localUri);
+    } finally {
+      pending.current = false;
+      setStarting(false);
+    }
+  }, [downloadMedia, play]);
+
   const seek = (ratio: number) => {
-    if (loaded.current && total > 0)
-      void player.seekTo(ratio * total).catch(() => {
-        if (allowed()) setFailed(true);
-      });
+    if (active && total > 0) chatAudio.seek(ratio * total);
   };
+
+  const label = media.ready
+    ? audio.error
+      ? "Retry voice message"
+      : playing
+        ? "Pause voice message"
+        : "Play voice message"
+    : media.state.status === "error"
+      ? "Retry voice message download"
+      : "Download voice message";
+
   return (
-    <View style={[styles.wrapper, style]}>
+    <View style={[styles.wrapper, props.style]}>
       <View style={styles.row}>
         <TouchableOpacity
-          onLongPress={onLongPress}
-          style={styles.play}
+          onLongPress={props.onLongPress}
+          style={[
+            styles.play,
+            !media.ready && styles.downloadButton,
+            !props.audioUri && styles.disabled,
+          ]}
           onPress={() => {
-            if (error) resetAuthRetry();
-            void play();
+            if (!media.ready) void download();
+            else void play();
           }}
-          disabled={busy}
+          disabled={busy || !props.audioUri}
           accessibilityRole="button"
-          accessibilityState={{ busy, disabled: busy }}
-          accessibilityLabel={
-            error
-              ? "Retry voice message"
-              : status.playing
-                ? "Pause voice message"
-                : "Play voice message"
-          }
+          accessibilityState={{ busy, disabled: busy || !props.audioUri }}
+          accessibilityLabel={label}
         >
           {busy ? (
-            <ActivityIndicator color={COLORS.white} size="small" />
+            <ActivityIndicator
+              color={media.ready ? COLORS.white : COLORS.primary}
+              size="small"
+            />
           ) : (
             <Ionicons
-              name={error ? "refresh" : status.playing ? "pause" : "play"}
+              name={
+                !media.ready
+                  ? media.state.status === "error"
+                    ? "refresh"
+                    : "cloud-download-outline"
+                  : audio.error
+                    ? "refresh"
+                    : playing
+                      ? "pause"
+                      : "play"
+              }
               size={21}
-              color={COLORS.white}
+              color={media.ready ? COLORS.white : COLORS.primaryDark}
             />
           )}
         </TouchableOpacity>
@@ -303,50 +276,35 @@ function ActiveVoice({
           progress={total ? Math.max(0, Math.min(1, elapsed / total)) : 0}
           elapsed={elapsed}
           total={total}
-          onSeek={seek}
-          onLongPress={onLongPress}
+          onSeek={media.ready ? seek : undefined}
+          onLongPress={props.onLongPress}
         />
       </View>
-      {error && (
-        <Text style={styles.error} accessibilityRole="alert">
-          Couldn’t play this audio. Tap retry.
-        </Text>
-      )}
-    </View>
-  );
-}
-function VoiceMessage(props: Props) {
-  const confirmVisibility = useContext(ChatMediaInteraction);
-  const [activeUri, setActiveUri] = useState<string | null>(null);
-  const peaks = useMemo(() => waveformPeaks(props.waveform), [props.waveform]);
-  if (activeUri) return <ActiveVoice {...props} audioUri={activeUri} />;
-  return (
-    <View style={[styles.wrapper, props.style]}>
-      <View style={styles.row}>
-        <TouchableOpacity
-          onLongPress={props.onLongPress}
-          style={styles.play}
-          onPress={() => {
-            confirmVisibility(props.playbackId);
-            setActiveUri(props.audioUri);
-          }}
-          disabled={!props.audioUri}
-          accessibilityRole="button"
-          accessibilityLabel={
-            props.audioUri ? "Play voice message" : "Audio unavailable"
+      {media.busy && (
+        <View
+          style={styles.track}
+          accessibilityRole="progressbar"
+          accessibilityValue={
+            media.percent == null
+              ? { text: "Downloading voice message" }
+              : { min: 0, max: 100, now: media.percent }
           }
         >
-          <Ionicons name="play" size={21} color={COLORS.white} />
-        </TouchableOpacity>
-        <VoiceTrack
-          peaks={peaks}
-          progress={0}
-          elapsed={0}
-          total={props.duration}
-          onLongPress={props.onLongPress}
-        />
-      </View>
-      {!props.audioUri && <Text style={styles.error}>Audio unavailable</Text>}
+          {media.percent != null && (
+            <View style={[styles.progress, { width: `${media.percent}%` }]} />
+          )}
+        </View>
+      )}
+      {error && (
+        <Text style={styles.error} accessibilityRole="alert">
+          {media.state.status === "error"
+            ? media.state.error
+            : "Couldn’t play this audio. Tap retry."}
+        </Text>
+      )}
+      {!props.audioUri && (
+        <Text style={styles.error}>Audio unavailable</Text>
+      )}
     </View>
   );
 }
@@ -367,6 +325,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  downloadButton: { backgroundColor: COLORS.primaryGhost },
+  disabled: { opacity: 0.5 },
   trackColumn: { flex: 1, minWidth: 0 },
   waveform: {
     height: 44,
@@ -386,4 +346,11 @@ const styles = StyleSheet.create({
   fill: { height: "100%", backgroundColor: COLORS.primaryDark },
   duration: { fontSize: TYPOGRAPHY.fontSize.md, color: COLORS.textGray },
   error: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.fontSize.md },
+  track: {
+    height: 3,
+    overflow: "hidden",
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primaryGhostBorder,
+  },
+  progress: { height: "100%", backgroundColor: COLORS.primary },
 });

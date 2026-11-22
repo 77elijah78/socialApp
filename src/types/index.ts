@@ -78,9 +78,13 @@ export interface Comment {
   repliedToId: string | null;
   author?: Partial<User> & Pick<User, "id" | "username">;
   post?: Post;
-  /** Legacy optional engagement fields; current backend exposes no comment-like mutation. */
+  /** Backend comment engagement (legacy names are also accepted when present). */
+  likesCount?: number;
+  isLikedByCurrentUser?: boolean;
   likeCount?: number;
   isLiked?: boolean;
+  /** Client-only: proves the server returned an authoritative like membership flag. */
+  likeStateKnown?: boolean;
   repliesCount?: number;
   replies?: Comment[];
   _count?: { likes?: number; replies?: number };
@@ -219,6 +223,12 @@ export interface PostResponse {
   isLiked: boolean;
   isSaved: boolean;
   shareCount: number;
+  /** Canonical engagement fields returned by the recommendation backend. */
+  likesCount?: number;
+  commentsCount?: number;
+  isLikedByCurrentUser?: boolean;
+  isBookmarkedByCurrentUser?: boolean;
+  tags?: string[];
   comments?: Comment[];
 }
 

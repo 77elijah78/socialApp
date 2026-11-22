@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -14,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRooms } from "@/hooks/useRooms";
 import { ChatReadVisibility } from "./ChatReadVisibility";
 import { BORDER_RADIUS, COLORS, SPACING, TYPOGRAPHY } from "@/constants/theme";
+import { SHEET_BACKDROP_COLOR, SHEET_SURFACE } from "@/constants/sheets";
 
 /** Existing conversation cache/API, including groups. This does not create a
  * new sharing protocol or manufacture a destination conversation. */
@@ -55,6 +57,12 @@ function ForwardMessagePicker({
       statusBarTranslucent
     >
       <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close forward picker"
+        />
         <View
           style={[
             styles.sheet,
@@ -169,14 +177,12 @@ export default memo(ForwardMessagePicker);
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(26,26,46,0.35)",
+    backgroundColor: SHEET_BACKDROP_COLOR,
     justifyContent: "flex-end",
   },
   sheet: {
+    ...SHEET_SURFACE,
     height: "70%",
-    backgroundColor: COLORS.bgWhite,
-    borderTopLeftRadius: BORDER_RADIUS.xxl,
-    borderTopRightRadius: BORDER_RADIUS.xxl,
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.md,
   },

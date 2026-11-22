@@ -344,7 +344,7 @@ test("upload timeout/network/abort errors propagate for a visible retry", async 
   }
 });
 
-test("image bubble loads the original; thumbnail is only a placeholder and retry still targets the full image", async () => {
+test("image bubble previews the thumbnail, downloads the original, then opens the local file", async () => {
   await act(async () => {
     renderer = create(
       React.createElement(ImageMessage, {
@@ -356,18 +356,18 @@ test("image bubble loads the original; thumbnail is only a placeholder and retry
     );
   });
   let image = renderer.root.findByType("ExpoImage");
-  assert.equal(image.props.source.uri, `${ORIGIN}/full.jpg`);
-  assert.equal(image.props.placeholder.uri, `${ORIGIN}/small.jpg`);
-  await act(async () => image.props.onError());
-  await act(async () =>
+  assert.equal(image.props.source.uri, `${ORIGIN}/small.jpg`);
+  await act(async () => {
     renderer.root
-      .findByProps({ accessibilityLabel: "Retry photo" })
-      .props.onPress(),
-  );
+      .findByProps({ accessibilityLabel: "Download photo" })
+      .props.onPress();
+    await new Promise((done) => setImmediate(done));
+    await new Promise((done) => setImmediate(done));
+  });
   image = renderer.root.findByType("ExpoImage");
-  assert.equal(image.props.source.uri, `${ORIGIN}/full.jpg`);
+  assert.match(image.props.source.uri, /^file:\/\/\/documents\/chat-downloads\//);
+  assert.doesNotMatch(image.props.source.uri, /small\.jpg/);
 });
-
 test("native picker failures and denied library access surface real errors without sending, and retry retains a usable selector", async () => {
   const { mock } = require("./harness.cjs");
   const Module = require("node:module");

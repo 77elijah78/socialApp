@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as theme from "@/constants/theme";
 import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 
@@ -53,6 +54,12 @@ export default function SharedStoryCard({
             <Text style={styles.unavailableText}>{video ? "Video story · Tap to watch" : "Media unavailable"}</Text>
           </View>
         )}
+        <LinearGradient
+          pointerEvents="none"
+          colors={["rgba(0,0,0,0.6)", "transparent"]}
+          style={styles.headerScrim}
+        />
+
         <View style={styles.overlay}>
           <View style={styles.headerRow}>
             <View style={styles.avatar}>
@@ -80,38 +87,54 @@ export default function SharedStoryCard({
             <Text style={styles.storyBadgeText}>Story</Text>
           </View>
         </View>
-      </View>
 
-      {caption ? (
-        <View style={styles.captionContainer}>
-          <Text style={styles.caption} numberOfLines={2}>
-            {caption}
-          </Text>
-        </View>
-      ) : null}
+        <LinearGradient
+          pointerEvents="none"
+          colors={["transparent", "rgba(0,0,0,0.85)"]}
+          style={styles.captionScrim}
+        />
+
+        {caption ? (
+          <View style={styles.captionContainer}>
+            <Text style={styles.caption} numberOfLines={3}>
+              {caption}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: "#111114",
     borderRadius: theme.BORDER_RADIUS.lg,
     borderWidth: theme.BORDER.width.xs,
     borderColor: theme.COLORS.borderDivider,
     overflow: "hidden",
+    width: 240,
     maxWidth: 260,
   },
   mediaWrapper: {
     position: "relative",
+    width: "100%",
+    height: 300,
+    justifyContent: "space-between",
   },
   media: {
-    width: "100%",
-    height: 200,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   mediaPlaceholder: {
-    width: "100%",
-    height: 200,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.COLORS.bgChat,
@@ -177,12 +200,30 @@ const styles = StyleSheet.create({
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     color: theme.COLORS.textWhite,
   },
+  headerScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 110,
+  },
+  captionScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 140,
+  },
   captionContainer: {
-    padding: theme.SPACING.md,
+    paddingHorizontal: theme.SPACING.md,
+    paddingBottom: theme.SPACING.md,
   },
   caption: {
     fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.textSecondary,
+    color: theme.COLORS.textWhite,
     lineHeight: theme.TYPOGRAPHY.lineHeight.md,
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });

@@ -86,7 +86,15 @@ test("message media wiring preserves playback identity, aspect-aware image geome
       React.createElement(Card, { ...props, type: "image/jpeg" }),
     );
   });
+  await act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: "Download photo" })
+      .props.onPress();
+    await new Promise((done) => setImmediate(done));
+    await new Promise((done) => setImmediate(done));
+  });
   const image = renderer.root.findByType("ExpoImage");
+  assert.match(image.props.source.uri, /^file:\/\/\/documents\/chat-downloads\//);
   assert.equal(image.props.cachePolicy, "memory-disk");
   assert.equal(image.props.contentFit, "contain");
   assert.equal(image.props.transition, 120);

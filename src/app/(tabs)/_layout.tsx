@@ -74,6 +74,7 @@ export default function TabLayout() {
         name="notifications"
         options={{
           headerShown: false,
+          href: null,
           title: "Activity",
           tabBarBadge: unread > 99 ? "99+" : unread || undefined,
           tabBarAccessibilityLabel: unread ? `Activity, ${unread} unread` : "Activity",

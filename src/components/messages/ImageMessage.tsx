@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { Image } from "expo-image";
 import AuthenticatedImage from "@/components/common/AuthenticatedImage";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -22,6 +23,10 @@ import {
   getMediaGeometry,
   rememberMediaGeometry,
 } from "@/utils/messaging/mediaGeometry";
+import {
+  chatMediaSpec,
+  useChatMediaDownload,
+} from "@/services/ChatMediaDownloads";
 
 interface Props {
   uri: string;
@@ -31,6 +36,10 @@ interface Props {
   mediaWidth?: number;
   mediaHeight?: number;
   onLongPress?: () => void;
+  ownerId?: string;
+  id?: string;
+  mimeType?: string | null;
+  isOwn?: boolean;
 }
 function ImageMessage({
   uri,
@@ -40,6 +49,10 @@ function ImageMessage({
   mediaWidth,
   mediaHeight,
   onLongPress,
+  ownerId,
+  id,
+  mimeType,
+  isOwn = false,
 }: Props) {
   const { height } = useWindowDimensions();
   const [dimensions, setDimensions] = useState(() =>
@@ -47,20 +60,34 @@ function ImageMessage({
       ? { width: mediaWidth, height: mediaHeight }
       : getMediaGeometry(uri),
   );
-  const [state, setState] = useState<"loading" | "ready" | "error">(
-    uri ? "loading" : "error",
+  const [imageError, setImageError] = useState(false);
+  const spec = useMemo(
+    () =>
+      uri
+        ? chatMediaSpec({
+            ownerId: ownerId ?? "local",
+            id: id ?? uri,
+            uri,
+            mimeType: mimeType ?? "image/jpeg",
+            localSource: isOwn,
+          })
+        : null,
+    [uri, ownerId, id, mimeType, isOwn],
   );
-  const [attempt, setAttempt] = useState(0);
+  const media = useChatMediaDownload(spec);
   const frame = fitMedia(
     dimensions?.width ?? 4,
     dimensions?.height ?? 3,
     maxWidth,
     height * 0.5,
   );
-  const source = uri;
+  const localUri = media.localUri;
+  const previewUri =
+    thumbnail && thumbnail !== uri ? thumbnail : undefined;
+
   return (
     <View style={[styles.frame, frame]}>
-      {state !== "error" && (
+      {media.ready && localUri ? (
         <TouchableOpacity
           onLongPress={onLongPress}
           style={StyleSheet.absoluteFill}
@@ -70,19 +97,16 @@ function ImageMessage({
           onPress={() =>
             router.push({
               pathname: "/(chatRoom)/imageViewer",
-              params: { uri, name },
+              params: { uri: localUri, name },
             })
           }
         >
-          <AuthenticatedImage
-            key={`${source}:${attempt}`}
-            uri={source}
-            placeholderUri={thumbnail && thumbnail !== uri ? thumbnail : undefined}
-            placeholderContentFit="contain"
+          <Image
+            source={{ uri: localUri }}
             style={styles.image}
             contentFit="contain"
             cachePolicy="memory-disk"
-            recyclingKey={source}
+            recyclingKey={localUri}
             transition={120}
             allowDownscaling
             onLoad={(event) => {
@@ -90,39 +114,81 @@ function ImageMessage({
               rememberMediaGeometry(uri, width, sourceHeight);
               if (width > 0 && sourceHeight > 0)
                 setDimensions({ width, height: sourceHeight });
-              setState("ready");
+              setImageError(false);
             }}
-            onError={() => setState("error")}
+            onError={() => setImageError(true)}
           />
         </TouchableOpacity>
-      )}
-      {state === "loading" && (
-        <View style={styles.overlay} pointerEvents="none">
-          <ActivityIndicator color={COLORS.primary} />
-          <Text style={styles.hint}>Loading photo</Text>
-        </View>
-      )}
-      {state === "error" && (
-        <View style={styles.overlay}>
-          <Ionicons
-            name="image-outline"
-            size={28}
-            color={COLORS.textSecondary}
-          />
-          <Text style={styles.hint}>Photo unavailable</Text>
-          {!!uri && (
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Retry photo"
-              style={styles.retry}
-              onPress={() => {
-                setAttempt((value) => value + 1);
-                setState("loading");
+      ) : (
+        <>
+          {/* Only the small preview is fetched before the photo is downloaded.
+              Playback/opening always uses the downloaded local file. */}
+          {previewUri ? (
+            <AuthenticatedImage
+              uri={previewUri}
+              style={styles.image}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={previewUri}
+              transition={120}
+              onLoad={(event) => {
+                const { width, height: sourceHeight } = event.source;
+                rememberMediaGeometry(uri, width, sourceHeight);
+                if (width > 0 && sourceHeight > 0)
+                  setDimensions({ width, height: sourceHeight });
               }}
-            >
-              <Text style={styles.retryText}>Retry</Text>
-            </TouchableOpacity>
+            />
+          ) : (
+            <View style={styles.placeholder}>
+              <Ionicons name="image-outline" size={30} color={COLORS.textSecondary} />
+            </View>
           )}
+          <TouchableOpacity
+            style={styles.downloadOverlay}
+            accessibilityRole="button"
+            accessibilityState={{ busy: media.busy, disabled: media.busy }}
+            accessibilityLabel={
+              media.busy
+                ? media.percent == null
+                  ? "Downloading photo"
+                  : `Downloading photo, ${media.percent} percent`
+                : media.state.status === "error"
+                  ? "Retry photo download"
+                  : "Download photo"
+            }
+            disabled={media.busy}
+            onPress={() => void media.download()}
+            activeOpacity={0.8}
+          >
+            {media.busy ? (
+              <ActivityIndicator color={COLORS.white} />
+            ) : (
+              <Ionicons
+                name={
+                  media.state.status === "error"
+                    ? "refresh"
+                    : "cloud-download-outline"
+                }
+                size={26}
+                color={COLORS.white}
+              />
+            )}
+            <Text style={styles.downloadText}>
+              {media.busy
+                ? media.percent == null
+                  ? "Downloading…"
+                  : `${media.percent}%`
+                : media.state.status === "error"
+                  ? "Download failed · Retry"
+                  : "Tap to download"}
+            </Text>
+          </TouchableOpacity>
+        </>
+      )}
+      {media.ready && imageError && (
+        <View style={styles.errorOverlay}>
+          <Ionicons name="image-outline" size={28} color={COLORS.textSecondary} />
+          <Text style={styles.hint}>Photo unavailable</Text>
         </View>
       )}
     </View>
@@ -137,24 +203,38 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgChat,
   },
   image: { width: "100%", height: "100%" },
-  overlay: {
+  placeholder: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.bgInput,
+  },
+  downloadOverlay: {
+    position: "absolute",
+    alignSelf: "center",
+    top: "50%",
+    marginTop: -33,
+    minWidth: 66,
+    minHeight: 66,
+    paddingHorizontal: SPACING.md,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: "rgba(20,18,42,0.72)",
+  },
+  downloadText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  hint: { color: COLORS.textGray, fontSize: TYPOGRAPHY.fontSize.lg },
+  errorOverlay: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     gap: SPACING.md,
-  },
-  hint: { color: COLORS.textGray, fontSize: TYPOGRAPHY.fontSize.lg },
-  retry: {
-    minHeight: 44,
-    minWidth: 64,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: BORDER_RADIUS.full,
-    backgroundColor: COLORS.bgWhite,
-  },
-  retryText: {
-    color: COLORS.primaryDark,
-    fontWeight: "600",
-    fontSize: TYPOGRAPHY.fontSize.lg,
+    backgroundColor: COLORS.bgChat,
   },
 });

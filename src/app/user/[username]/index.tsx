@@ -1,6 +1,6 @@
 import { usePosts } from '@/hooks/usePosts';
 import { authorFeedParams } from '@/utils/postContracts';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { api } from '@/services/api';
@@ -20,6 +19,7 @@ import { mediaService } from '@/services/MediaService';
 import { messageStore } from '@/db/MessageStore';
 import { setRecentMessageCache } from '@/utils/recentMessageCache';
 import { useAppSelector } from '@/store/hooks';
+import { FEED } from '@/constants/feedTheme';
 import * as theme from '@/constants/theme';
 import { SocialPost, Conversation } from '@/types';
 import {
@@ -29,8 +29,18 @@ import {
 } from '@/components/ui';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { setCached } from '@/utils/queryCache';
+import { normalizeMediaUrl } from '@/utils/mediaUrls';
+import {
+  filterProfilePosts,
+  ProfileActionButton,
+  ProfileGridItem,
+  ProfileHeaderContent,
+  profileGridItemSize,
+  PROFILE_GRID_GAP,
+  PROFILE_GRID_PADDING,
+  type ProfileFilter,
+} from '@/components/profile/ProfileView';
 
-const GRID_GAP = theme.SPACING.sm;
 const GRID_COLUMNS = 3;
 const GRID_SKELETON_DATA = Array.from(
   { length: 9 },
@@ -49,13 +59,6 @@ interface SearchedUserProfile {
   isFollowing: boolean;
 }
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000)
-    return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
-}
-
 export default function UserProfileScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const token = useAppSelector((s) => s.auth.token);
@@ -71,15 +74,31 @@ export default function UserProfileScreen() {
     paginating,
     error: postsError,
     paginationError,
+    total: postsTotal,
     refresh: refreshPosts,
   } = usePosts({ source: 'author', username });
   const { width: screenWidth } = useWindowDimensions();
-  const gridItemSize =
-    (screenWidth - theme.LAYOUT.listPaddingHorizontal * 2 - GRID_GAP * 2) / 3;
+  const gridItemSize = profileGridItemSize(screenWidth);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'posts'>('posts');
+  const [filter, setFilter] = useState<ProfileFilter>('posts');
   const [messaging, setMessaging] = useState(false);
+  // The author feed filters soft-deleted posts, while `_count.posts` on older
+  // servers does not. Prefer the healthy feed total when the two disagree.
+  const postCount = profile
+    ? loadingPosts || postsError
+      ? profile._count.posts
+      : Math.min(profile._count.posts, postsTotal)
+    : 0;
+
+  const filteredPosts = useMemo(
+    () => filterProfilePosts(posts, filter),
+    [posts, filter],
+  );
+  const memories = useMemo(
+    () => posts.filter((post) => post.imageUrls.length > 0).slice(0, 10),
+    [posts],
+  );
 
   useEffect(() => {
     if (!username) return;
@@ -91,8 +110,12 @@ export default function UserProfileScreen() {
           success: boolean;
           data: SearchedUserProfile;
         }>(`/users/${username}`, token ?? undefined);
-        setProfile(resp.data);
-        setCached(`profile:${username}`, resp.data, 5 * 60_000);
+        const nextProfile = {
+          ...resp.data,
+          avatarUrl: normalizeMediaUrl(resp.data.avatarUrl),
+        };
+        setProfile(nextProfile);
+        setCached(`profile:${username}`, nextProfile, 5 * 60_000);
       } catch (err: any) {
         setError(err.message ?? 'Failed to load profile');
       } finally {
@@ -164,44 +187,21 @@ export default function UserProfileScreen() {
   }: {
     item: SocialPost;
     index: number;
-  }) => {
-    const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? '';
-    return (
-      <Pressable
-        style={[styles.gridItem, { width: gridItemSize, height: gridItemSize }]}
-        onPress={() => router.push(authorFeedParams(username, item.id, index))}
-      >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.gridImage} />
-        ) : (
-          <View style={[styles.gridImage, styles.gridPlaceholder]}>
-            <Ionicons
-              name="image-outline"
-              size={24}
-              color={theme.COLORS.textMuted}
-            />
-          </View>
-        )}
-        <View style={styles.gridOverlay}>
-          <View style={styles.gridStat}>
-            <Ionicons name="heart" size={12} color={theme.COLORS.white} />
-            <Text style={styles.gridStatText}>{item.likeCount ?? 0}</Text>
-          </View>
-          <View style={styles.gridStat}>
-            <Ionicons name="eye" size={12} color={theme.COLORS.white} />
-            <Text style={styles.gridStatText}>{item.commentCount ?? 0}</Text>
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
+  }) => (
+    <ProfileGridItem
+      post={item}
+      index={index}
+      size={gridItemSize}
+      username={username}
+    />
+  );
 
   const isOwnProfile = profile?.id === currentUserId;
 
   const showGridSkeletons = loadingPosts && posts.length === 0;
   const listData: SocialPost[] = showGridSkeletons
     ? (GRID_SKELETON_DATA as unknown as SocialPost[])
-    : posts;
+    : filteredPosts;
 
   const renderHeader = () => {
     if (loading) {
@@ -210,206 +210,99 @@ export default function UserProfileScreen() {
 
     if (!profile) return null;
 
+    const initial = (
+      profile.displayName?.charAt(0) ?? profile.username.charAt(0)
+    ).toUpperCase();
+
     return (
-      <View style={styles.profileHeaderCard}>
-        <LinearGradient
-          colors={[theme.COLORS.primary, theme.COLORS.accentPurple, '#8B74E8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.coverContainer}
-        >
-          <View style={styles.coverOrbLarge} />
-          <View style={styles.coverOrbSmall} />
-          <View style={styles.coverLabel}>
-            <Ionicons name="sparkles" size={13} color={theme.COLORS.white} />
-            <Text style={styles.coverLabelText}>COMMUNITY PROFILE</Text>
-          </View>
-          <Ionicons
-            name="aperture-outline"
-            size={25}
-            color="rgba(255,255,255,0.8)"
-          />
-        </LinearGradient>
-
-        <View style={styles.profileContent}>
-          {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            <View
-              style={[
-                styles.avatarWrapper,
-                { borderColor: theme.COLORS.bgWhite },
-              ]}
-            >
-              {profile.avatarUrl ? (
-                <Image
-                  source={{ uri: profile.avatarUrl }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Text style={styles.avatarInitial}>
-                    {(
-                      profile.displayName?.charAt(0) ??
-                      profile.username.charAt(0)
-                    ).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* User Info */}
-          <View style={styles.infoSection}>
-            <View style={styles.nameRow}>
-              <Text style={styles.displayName}>
-                {profile.displayName ?? profile.username}
-              </Text>
-              {profile.isVerified && (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={18}
-                  color={theme.COLORS.primary}
-                />
-              )}
-            </View>
-            <Text style={styles.username}>@{profile.username}</Text>
-            {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-
-            {/* Stats */}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {formatCount(profile._count.posts)}
-                </Text>
-                <Text style={styles.statLabel}>Posts</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <Pressable
-                style={styles.statItem}
-                onPress={() =>
-                  router.push({
-                    pathname: `/users/${profile.username}/followers` as never,
-                  })
-                }
-              >
-                <Text style={styles.statValue}>
-                  {formatCount(profile._count.followers)}
-                </Text>
-                <Text style={styles.statLabel}>Followers</Text>
-              </Pressable>
-              <View style={styles.statDivider} />
-              <Pressable
-                style={styles.statItem}
-                onPress={() =>
-                  router.push({
-                    pathname: `/users/${profile.username}/following` as never,
-                  })
-                }
-              >
-                <Text style={styles.statValue}>
-                  {formatCount(profile._count.following)}
-                </Text>
-                <Text style={styles.statLabel}>Following</Text>
-              </Pressable>
-            </View>
-
-            {isOwnProfile ? (
-              <Pressable
-                accessibilityRole="button"
+      <ProfileHeaderContent
+        avatarUrl={profile.avatarUrl}
+        initial={initial}
+        displayName={profile.displayName ?? profile.username}
+        username={profile.username}
+        bio={profile.bio}
+        isVerified={profile.isVerified}
+        postCount={postCount}
+        followers={profile._count.followers}
+        following={profile._count.following}
+        memories={memories}
+        filter={filter}
+        onFilterChange={setFilter}
+        onFollowersPress={() =>
+          router.push({
+            pathname: `/users/${profile.username}/followers` as never,
+          })
+        }
+        onFollowingPress={() =>
+          router.push({
+            pathname: `/users/${profile.username}/following` as never,
+          })
+        }
+        actions={
+          isOwnProfile ? (
+            <>
+              <ProfileActionButton
+                label="Edit profile"
+                icon="create-outline"
+                variant="secondary"
                 onPress={() => router.push('/editProfile')}
-                style={styles.primaryButton}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={17}
-                  color={theme.COLORS.textOnPrimary}
-                />
-                <Text style={styles.primaryButtonText}>Edit profile</Text>
-              </Pressable>
-            ) : (
-              <>
-                <View style={styles.buttonRow}>
-                  <Pressable
-                    style={[
-                      styles.primaryButton,
-                      styles.followButton,
-                      profile.isFollowing && styles.secondaryButton,
-                    ]}
-                    onPress={handleFollow}
-                  >
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        styles.followButtonText,
-                        profile.isFollowing && styles.secondaryButtonText,
-                      ]}
-                    >
-                      {profile.isFollowing ? 'Following' : 'Follow'}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.primaryButton, styles.messageButton]}
-                    onPress={handleMessagePress}
-                    disabled={messaging}
-                  >
-                    {messaging ? (
-                      <ActivityIndicator
-                        size="small"
-                        color={theme.COLORS.white}
-                      />
-                    ) : (
-                      <Ionicons
-                        name="mail-outline"
-                        size={20}
-                        color={theme.COLORS.textOnPrimary}
-                      />
-                    )}
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        styles.messageButtonText,
-                      ]}
-                    >
-                      Message
-                    </Text>
-                  </Pressable>
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* Tabs */}
-          <View style={styles.tabBar}>
-            <Pressable
-              style={[styles.tab, activeTab === 'posts' && styles.tabActive]}
-              onPress={() => setActiveTab('posts')}
-            >
-              <Ionicons
-                name="grid-outline"
-                size={22}
-                color={
-                  activeTab === 'posts'
-                    ? theme.COLORS.primary
-                    : theme.COLORS.textMuted
-                }
               />
-            </Pressable>
-          </View>
-        </View>
-      </View>
+              <ProfileActionButton
+                label="New post"
+                icon="add"
+                onPress={() => router.push('/posts/create')}
+              />
+            </>
+          ) : (
+            <>
+              <ProfileActionButton
+                label={profile.isFollowing ? 'Following' : 'Follow'}
+                icon={profile.isFollowing ? 'checkmark' : 'person-add-outline'}
+                variant={profile.isFollowing ? 'secondary' : 'primary'}
+                onPress={handleFollow}
+              />
+              <ProfileActionButton
+                label="Message"
+                icon="mail-outline"
+                variant="secondary"
+                loading={messaging}
+                onPress={handleMessagePress}
+              />
+            </>
+          )
+        }
+      />
     );
   };
 
   const renderEmpty = () => (
     <View style={styles.emptyState}>
       <Ionicons
-        name="images-outline"
+        name={
+          filter === 'videos'
+            ? 'videocam-outline'
+            : filter === 'photos'
+              ? 'images-outline'
+              : filter === 'text'
+                ? 'text-outline'
+                : 'grid-outline'
+        }
         size={48}
         color={theme.COLORS.textMuted}
       />
-      <Text style={styles.emptyTitle}>No posts yet</Text>
+      <Text style={styles.emptyTitle}>
+        {filter === 'videos'
+          ? 'No videos yet'
+          : filter === 'photos'
+            ? 'No photos yet'
+            : filter === 'text'
+              ? 'No text posts yet'
+              : 'No posts yet'}
+      </Text>
       <Text style={styles.emptySubtitle}>
-        Share your first post to see it here
+        {filter === 'posts'
+          ? 'Share your first post to see it here'
+          : `No ${filter} posts to show yet`}
       </Text>
     </View>
   );
@@ -438,23 +331,17 @@ export default function UserProfileScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
           onPress={() => router.back()}
-          style={styles.backButton}
+          style={({ pressed }) => [
+            styles.circleButton,
+            pressed && styles.pressed,
+          ]}
         >
-          <Ionicons
-            name="chevron-back"
-            size={22}
-            color={theme.COLORS.textPrimary}
-          />
+          <Ionicons name="chevron-back" size={21} color={FEED.text} />
         </Pressable>
-        <View style={styles.topBarCopy}>
-          <Text style={styles.topBarEyebrow}>COMMUNITY PROFILE</Text>
-          <Text style={styles.topBarTitle} numberOfLines={1}>
-            {username ? `@${username}` : 'Profile'}
-          </Text>
-        </View>
-        <View style={styles.topBarMark}>
-          <Ionicons name="sparkles" size={17} color={theme.COLORS.primary} />
-        </View>
+        <Text style={styles.topBarTitle} numberOfLines={1}>
+          Profile
+        </Text>
+        <View style={styles.topBarSpacer} />
       </View>
 
       <FlatList
@@ -501,54 +388,47 @@ export default function UserProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.COLORS.bgMain,
+    backgroundColor: FEED.background,
   },
   topBar: {
-    minHeight: 68,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: theme.LAYOUT.contentPadding,
-    gap: theme.SPACING.md,
-    backgroundColor: theme.COLORS.bgMain,
+    paddingTop: theme.SPACING.sm,
+    paddingBottom: theme.SPACING.sm,
   },
-  backButton: {
+  circleButton: {
     width: 42,
     height: 42,
-    borderRadius: 15,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.COLORS.bgWhite,
+    backgroundColor: FEED.surface,
     borderWidth: 1,
-    borderColor: theme.COLORS.cardBorder,
-  },
-  topBarCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  topBarEyebrow: {
-    color: theme.COLORS.primary,
-    fontSize: 9,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    letterSpacing: 1,
+    borderColor: FEED.border,
   },
   topBarTitle: {
-    color: theme.COLORS.textPrimary,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl7,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
-    marginTop: 2,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    color: FEED.text,
+    fontSize: theme.TYPOGRAPHY.fontSize.xl5,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    letterSpacing: -0.2,
   },
-  topBarMark: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.COLORS.primaryGhost,
-    borderWidth: 1,
-    borderColor: theme.COLORS.primaryGhostBorder,
+  topBarSpacer: {
+    width: 42,
+    height: 42,
   },
   list: {
     flex: 1,
+    backgroundColor: FEED.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    overflow: 'hidden',
   },
   listContent: {
     paddingBottom: theme.SPACING.xxxxxl,
@@ -757,10 +637,13 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.COLORS.primary,
     borderBottomWidth: 2,
   },
+  pressed: {
+    opacity: theme.OPACITY.pressed,
+  },
   gridRow: {
-    gap: GRID_GAP,
+    gap: PROFILE_GRID_GAP,
     marginTop: theme.SPACING.md,
-    paddingHorizontal: theme.LAYOUT.listPaddingHorizontal,
+    paddingHorizontal: PROFILE_GRID_PADDING,
   },
   gridItem: {
     borderRadius: theme.BORDER_RADIUS.sm,

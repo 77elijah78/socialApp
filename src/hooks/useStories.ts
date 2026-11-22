@@ -30,7 +30,7 @@ function mapBackendStory(story: BackendStory, currentUserId: string): StoryItem 
     userId: story.user.id,
     username: story.user.username,
     displayName: story.user.displayName ?? story.user.username,
-    avatarUrl: story.user.avatarUrl,
+    avatarUrl: normalizeMediaUrl(story.user.avatarUrl),
     mediaUrl: normalizeMediaUrl(story.mediaUrl) ?? "",
     mediaType: story.mediaType.toLowerCase() === "video" ? "video" : "image",
     caption: story.caption,
