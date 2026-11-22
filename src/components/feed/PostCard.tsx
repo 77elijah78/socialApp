@@ -11,6 +11,7 @@ import {
   Text,
   Image,
   TouchableOpacity,
+  Pressable,
   Animated,
   ActivityIndicator,
   StyleSheet,
@@ -24,6 +25,23 @@ import { formatCount } from "@/utils/format";
 
 // Defer video-module evaluation and native resources; never preload a player on startup.
 const PostVideo = React.lazy(() => import("@/components/messages/Videoplayer"));
+
+function relativePostTime(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const date = new Date(time);
+  return `${date.toLocaleString("en", { month: "short" })} ${date.getDate()}`;
+}
 
 export interface SocialPostCardProps {
   post: SocialPost;
@@ -186,83 +204,141 @@ function PostCard({
 
   const hasImageCard = Boolean(currentMedia) && !post.videoUrl;
 
-  const renderHeader = (overlay = false) => (
-    <TouchableOpacity
-      style={[styles.header, overlay && styles.headerOverlay]}
-      activeOpacity={theme.OPACITY.semiTransparent}
-      onPress={() => onUserPress?.(post.author.username)}
-    >
-      <View style={styles.avatarWrapper}>
-        <Image
-          source={{ uri: post.author.avatarUrl ?? undefined }}
-          style={[styles.avatar, overlay && styles.avatarOverlay]}
-        />
-        {post.author.isVerified && (
-          <View style={styles.verifiedBadge}>
-            <Ionicons
-              name="checkmark-circle"
-              size={14}
-              color={overlay ? theme.COLORS.white : theme.COLORS.accentPurple}
+  const renderHeader = (overlay = false) => {
+    const timeLabel = relativePostTime(post.timestamp);
+    if (overlay) {
+      return (
+        <View style={styles.headerOverlay}>
+          <TouchableOpacity
+            style={styles.authorPill}
+            activeOpacity={theme.OPACITY.semiTransparent}
+            onPress={() => onUserPress?.(post.author.username)}
+          >
+            <Image
+              source={{ uri: post.author.avatarUrl ?? undefined }}
+              style={[styles.avatar, styles.avatarPill]}
             />
+            <View style={styles.authorPillCopy}>
+              <View style={styles.authorPillNameRow}>
+                <Text style={styles.userNameOverlay} numberOfLines={1}>
+                  {post.author.displayName}
+                </Text>
+                {post.author.isVerified ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={14}
+                    color="#4C9AFF"
+                  />
+                ) : null}
+              </View>
+              <Text style={styles.userHandleOverlay} numberOfLines={1}>
+                @{post.author.username}
+                {timeLabel ? ` (${timeLabel})` : ""}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.headerOverlayActions}>
+            <TouchableOpacity
+              onPress={handleBookmark}
+              accessibilityRole="button"
+              accessibilityLabel={
+                bookmarked ? "Remove bookmark" : "Bookmark post"
+              }
+              style={styles.headerCircleButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={bookmarked ? "bookmark" : "bookmark-outline"}
+                size={19}
+                color={theme.COLORS.white}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              ref={menuButtonRef}
+              onPress={handleMenuPress}
+              accessibilityRole="button"
+              accessibilityLabel="Post options"
+              style={styles.headerCircleButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={20}
+                color={theme.COLORS.white}
+              />
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
+        </View>
+      );
+    }
 
-      <View style={styles.userMeta}>
-        <Text
-          style={[styles.userName, overlay && styles.userNameOverlay]}
-          numberOfLines={1}
-        >
-          {post.author.displayName}
-        </Text>
-        <Text
-          style={[styles.userHandle, overlay && styles.userHandleOverlay]}
-          numberOfLines={1}
-        >
-          @{post.author.username} · {post.timestamp}
-        </Text>
-      </View>
-
-      <View style={styles.headerActions}>
-        <TouchableOpacity
-          onPress={handleBookmark}
-          accessibilityRole="button"
-          accessibilityLabel={bookmarked ? "Remove bookmark" : "Bookmark post"}
-          style={[styles.headerAction, overlay && styles.headerActionOverlay]}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons
-            name={bookmarked ? "bookmark" : "bookmark-outline"}
-            size={20}
-            color={
-              overlay
-                ? theme.COLORS.white
-                : bookmarked
-                  ? FEED.accent
-                  : FEED.text
-            }
+    return (
+      <TouchableOpacity
+        style={styles.header}
+        activeOpacity={theme.OPACITY.semiTransparent}
+        onPress={() => onUserPress?.(post.author.username)}
+      >
+        <View style={styles.avatarWrapper}>
+          <Image
+            source={{ uri: post.author.avatarUrl ?? undefined }}
+            style={styles.avatar}
           />
-        </TouchableOpacity>
-        <TouchableOpacity
-          ref={menuButtonRef}
-          onPress={handleMenuPress}
-          style={[styles.headerAction, overlay && styles.headerActionOverlay]}
-          accessibilityRole="button"
-          accessibilityLabel="Post options"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons
-            name="ellipsis-horizontal"
-            size={20}
-            color={overlay ? theme.COLORS.white : FEED.muted}
-          />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+          {post.author.isVerified && (
+            <View style={styles.verifiedBadge}>
+              <Ionicons
+                name="checkmark-circle"
+                size={14}
+                color={theme.COLORS.accentPurple}
+              />
+            </View>
+          )}
+        </View>
 
-  const renderActions = (overlay = false) => (
-    <View style={[styles.actions, overlay && styles.actionsOverlay]}>
+        <View style={styles.userMeta}>
+          <Text style={styles.userName} numberOfLines={1}>
+            {post.author.displayName}
+          </Text>
+          <Text style={styles.userHandle} numberOfLines={1}>
+            @{post.author.username} · {post.timestamp}
+          </Text>
+        </View>
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={handleBookmark}
+            accessibilityRole="button"
+            accessibilityLabel={bookmarked ? "Remove bookmark" : "Bookmark post"}
+            style={styles.headerAction}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={bookmarked ? "bookmark" : "bookmark-outline"}
+              size={20}
+              color={bookmarked ? FEED.accent : FEED.text}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            ref={menuButtonRef}
+            onPress={handleMenuPress}
+            style={styles.headerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Post options"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color={FEED.muted}
+            />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderActions = () => (
+    <View style={styles.actions}>
       <View style={styles.actionsLeft}>
         <TouchableOpacity
           onPress={handleLike}
@@ -274,11 +350,7 @@ function PostCard({
                 ? "Like post; existing like status is unavailable"
                 : "Like post"
           }
-          style={[
-            styles.actionBtn,
-            overlay && styles.actionBtnOverlay,
-            liked && styles.actionBtnLiked,
-          ]}
+          style={[styles.actionBtn, liked && styles.actionBtnLiked]}
           activeOpacity={theme.OPACITY.semiTransparent}
         >
           <Animated.View style={{ transform: [{ scale: likeScale }] }}>
@@ -286,22 +358,12 @@ function PostCard({
               name={liked ? "heart" : "heart-outline"}
               size={22}
               color={
-                overlay
-                  ? liked
-                    ? "#FF7185"
-                    : theme.COLORS.white
-                  : liked
-                    ? theme.COLORS.secondary
-                    : theme.COLORS.textMutedGray
+                liked ? theme.COLORS.secondary : theme.COLORS.textMutedGray
               }
             />
           </Animated.View>
           <Text
-            style={[
-              styles.actionCount,
-              overlay && styles.actionCountOverlay,
-              liked && styles.actionCountLiked,
-            ]}
+            style={[styles.actionCount, liked && styles.actionCountLiked]}
           >
             {formatCount(likeCount)}
           </Text>
@@ -309,34 +371,30 @@ function PostCard({
 
         <TouchableOpacity
           onPress={() => onComment?.(post.id)}
-          style={[styles.actionBtn, overlay && styles.actionBtnOverlay]}
+          style={styles.actionBtn}
           activeOpacity={theme.OPACITY.semiTransparent}
         >
           <Ionicons
             name="chatbubble-outline"
             size={20}
-            color={overlay ? theme.COLORS.white : theme.COLORS.textMutedGray}
+            color={theme.COLORS.textMutedGray}
           />
-          <Text
-            style={[styles.actionCount, overlay && styles.actionCountOverlay]}
-          >
+          <Text style={styles.actionCount}>
             {formatCount(post.commentCount)}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => onShare?.(post.id)}
-          style={[styles.actionBtn, overlay && styles.actionBtnOverlay]}
+          style={styles.actionBtn}
           activeOpacity={theme.OPACITY.semiTransparent}
         >
           <Ionicons
             name="share-outline"
             size={20}
-            color={overlay ? theme.COLORS.white : theme.COLORS.textMutedGray}
+            color={theme.COLORS.textMutedGray}
           />
-          <Text
-            style={[styles.actionCount, overlay && styles.actionCountOverlay]}
-          >
+          <Text style={styles.actionCount}>
             {formatCount(post.shareCount)}
           </Text>
         </TouchableOpacity>
@@ -360,12 +418,12 @@ function PostCard({
 
         <LinearGradient
           pointerEvents="none"
-          colors={["rgba(0,0,0,0.62)", "rgba(0,0,0,0.18)", "transparent"]}
+          colors={["rgba(0,0,0,0.58)", "rgba(0,0,0,0.12)", "transparent"]}
           style={styles.imageTopScrim}
         />
         <LinearGradient
           pointerEvents="none"
-          colors={["transparent", "rgba(0,0,0,0.32)", "rgba(0,0,0,0.86)"]}
+          colors={["transparent", "rgba(0,0,0,0.28)", "rgba(0,0,0,0.86)"]}
           style={styles.imageBottomScrim}
         />
 
@@ -376,72 +434,128 @@ function PostCard({
         ) : null}
 
         {hasMultipleMedia ? (
-          <View style={styles.mediaNavContainer} pointerEvents="box-none">
+          <View style={styles.mediaZones} pointerEvents="box-none">
             {mediaIndex > 0 ? (
-              <TouchableOpacity
-                style={styles.mediaNavBtn}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Previous photo"
                 onPress={goToPrevMedia}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="chevron-back"
-                  size={22}
-                  color={theme.COLORS.white}
-                />
-              </TouchableOpacity>
+                style={styles.mediaPrevZone}
+              />
             ) : null}
             {mediaIndex < mediaUrls.length - 1 ? (
-              <TouchableOpacity
-                style={[styles.mediaNavBtn, styles.mediaNavBtnRight]}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Next photo"
                 onPress={goToNextMedia}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="chevron-forward"
-                  size={22}
-                  color={theme.COLORS.white}
-                />
-              </TouchableOpacity>
+                style={styles.mediaNextZone}
+              />
             ) : null}
-            <View style={styles.imageCounter}>
-              <Text style={styles.mediaCounterText}>
-                {mediaIndex + 1}/{mediaUrls.length}
-              </Text>
-            </View>
           </View>
         ) : null}
 
         {renderHeader(true)}
 
-        <View style={styles.imageBottomContent}>
-          {post.content ? (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              disabled={!onOpen}
-              onPress={() => onOpen?.(post.id)}
-            >
-              <Text style={styles.imageContent} numberOfLines={4}>
-                {post.content}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
+        <View style={styles.imageActionRail}>
+          <TouchableOpacity
+            onPress={handleLike}
+            accessibilityRole="button"
+            accessibilityLabel={
+              liked
+                ? "Unlike post"
+                : post.likeStateKnown === false
+                  ? "Like post; existing like status is unavailable"
+                  : "Like post"
+            }
+            style={styles.imageAction}
+            activeOpacity={theme.OPACITY.semiTransparent}
+          >
+            <View style={styles.imageActionButton}>
+              <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+                <Ionicons
+                  name={liked ? "heart" : "heart-outline"}
+                  size={21}
+                  color={liked ? "#FF5A76" : theme.COLORS.white}
+                />
+              </Animated.View>
+            </View>
+            <Text style={styles.imageActionCount}>
+              {formatCount(likeCount).toLowerCase()}
+            </Text>
+          </TouchableOpacity>
 
-          {post.tags && post.tags.length > 0 ? (
-            <View style={styles.tags}>
-              {post.tags.map((tag) => (
-                <TouchableOpacity
-                  key={tag}
-                  onPress={() => onTagPress?.(tag)}
-                  activeOpacity={theme.OPACITY.semiTransparent}
-                  style={styles.tagPillOverlay}
-                >
-                  <Text style={styles.tagOverlay}>#{tag}</Text>
-                </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onComment?.(post.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Comment on post"
+            style={styles.imageAction}
+            activeOpacity={theme.OPACITY.semiTransparent}
+          >
+            <View style={styles.imageActionButton}>
+              <Ionicons
+                name="chatbubble-outline"
+                size={20}
+                color={theme.COLORS.white}
+              />
+            </View>
+            <Text style={styles.imageActionCount}>
+              {formatCount(post.commentCount).toLowerCase()}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => onShare?.(post.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Share post"
+            style={styles.imageAction}
+            activeOpacity={theme.OPACITY.semiTransparent}
+          >
+            <View style={styles.imageActionButton}>
+              <Ionicons
+                name="paper-plane-outline"
+                size={20}
+                color={theme.COLORS.white}
+              />
+            </View>
+            <Text style={styles.imageActionCount}>
+              {formatCount(post.shareCount ?? 0).toLowerCase()}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.imageBottomContent}>
+          {hasMultipleMedia ? (
+            <View style={styles.carouselProgress}>
+              {mediaUrls.map((url, index) => (
+                <View
+                  key={`${url}-${index}`}
+                  style={[
+                    styles.carouselDash,
+                    index === mediaIndex && styles.carouselDashActive,
+                  ]}
+                />
               ))}
             </View>
           ) : null}
 
-          {renderActions(true)}
+          <TouchableOpacity
+            activeOpacity={0.9}
+            disabled={!onOpen}
+            onPress={() => onOpen?.(post.id)}
+          >
+            <Text style={styles.imageContent} numberOfLines={3}>
+              {post.content ? <Text>{post.content} </Text> : null}
+              {post.tags?.map((tag) => (
+                <Text
+                  key={tag}
+                  style={styles.imageHashtag}
+                  onPress={() => onTagPress?.(tag)}
+                >
+                  #{tag}{" "}
+                </Text>
+              ))}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -593,93 +707,180 @@ const styles = StyleSheet.create({
     ...theme.SHADOWS.sm,
   },
   imageCard: {
-    aspectRatio: 4 / 5,
+    aspectRatio: 0.95,
     borderWidth: 0,
     backgroundColor: "#111114",
     justifyContent: "space-between",
   },
   headerOverlay: {
-    paddingTop: 12,
-    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingTop: 10,
+    paddingHorizontal: 10,
   },
-  avatarOverlay: {
+  authorPill: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 4,
+    paddingRight: 14,
+    borderRadius: 24,
+    backgroundColor: "rgba(17,17,20,0.44)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  avatarPill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.9)",
+    borderColor: "rgba(255,255,255,0.85)",
+  },
+  authorPillCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  authorPillNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   userNameOverlay: {
+    flexShrink: 1,
     color: theme.COLORS.white,
+    fontSize: theme.TYPOGRAPHY.fontSize.md,
+    lineHeight: 18,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.bold,
     textShadowColor: "rgba(0,0,0,0.45)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
   userHandleOverlay: {
-    color: "rgba(255,255,255,0.78)",
+    marginTop: 1,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
     textShadowColor: "rgba(0,0,0,0.45)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  headerActionOverlay: {
-    backgroundColor: "rgba(0,0,0,0.26)",
+  headerOverlayActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  headerCircleButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(17,17,20,0.44)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
   imageTopScrim: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: 150,
+    height: 128,
   },
   imageBottomScrim: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    height: 280,
+    height: 230,
   },
-  imageCounter: {
+  mediaZones: {
     position: "absolute",
-    top: 62,
-    right: 14,
-    backgroundColor: "rgba(0,0,0,0.46)",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    top: 84,
+    left: 0,
+    right: 0,
+    bottom: 90,
+  },
+  mediaPrevZone: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: "35%",
+  },
+  mediaNextZone: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "35%",
+  },
+  imageActionRail: {
+    position: "absolute",
+    right: 10,
+    top: "27%",
+    alignItems: "center",
+    gap: 12,
+  },
+  imageAction: {
+    alignItems: "center",
+    gap: 4,
+  },
+  imageActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(17,17,20,0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  imageActionCount: {
+    color: theme.COLORS.white,
+    fontSize: 11,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   imageBottomContent: {
     paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: theme.SPACING.sm,
+    paddingRight: 62,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  carouselProgress: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  carouselDash: {
+    width: 6,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  carouselDashActive: {
+    width: 18,
+    backgroundColor: theme.COLORS.white,
   },
   imageContent: {
     color: theme.COLORS.white,
-    fontSize: theme.TYPOGRAPHY.fontSize.xl,
-    lineHeight: theme.TYPOGRAPHY.lineHeight.xl,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  actionsOverlay: {
-    paddingHorizontal: 4,
-    paddingVertical: theme.SPACING.xs,
-  },
-  actionBtnOverlay: {
-    backgroundColor: "rgba(255,255,255,0.14)",
-  },
-  actionCountOverlay: {
+  imageHashtag: {
     color: theme.COLORS.white,
-  },
-  tagPillOverlay: {
-    backgroundColor: "rgba(255,255,255,0.16)",
-    paddingHorizontal: theme.SPACING.md,
-    paddingVertical: theme.SPACING.xs,
-    borderRadius: theme.BORDER_RADIUS.full,
-    borderWidth: theme.BORDER.width.xs,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-  tagOverlay: {
-    fontSize: theme.TYPOGRAPHY.fontSize.sm,
-    color: theme.COLORS.white,
-    fontWeight: theme.TYPOGRAPHY.fontWeight.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
   },
   header: {
     flexDirection: "row",
