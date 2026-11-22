@@ -4,6 +4,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -16,11 +17,16 @@ import { router } from "expo-router";
 
 import ExploreTile from "@/components/explore/ExploreTile";
 import PeopleSearchResults from "@/components/explore/PeopleSearchResults";
+import PostCard from "@/components/feed/PostCard";
 import { ExploreGridSkeleton } from "@/components/ui";
+import { FEED } from "@/constants/feedTheme";
 import * as theme from "@/constants/theme";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useExploreFeed } from "@/hooks/useExploreFeed";
+import { api } from "@/services/api";
+import { useAppSelector } from "@/store/hooks";
 import type { SocialPost } from "@/types";
+import { publishPostUpdate } from "@/utils/postUpdates";
 
 const GRID_GAP = 2;
 const TAB_BAR_SPACE = 112;
@@ -37,6 +43,9 @@ export default function ExploreScreen() {
     (gridWidth - GRID_GAP * (columns - 1)) / columns,
   );
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<"grid" | "posts">("grid");
+  const token = useAppSelector((state) => state.auth.token);
+  const accountId = useAppSelector((state) => state.auth.user?.id);
   const debouncedQuery = useDebounce(query, 300);
   const normalizedQuery = debouncedQuery.trim();
   const isSearching = query.trim().length > 0;
@@ -59,6 +68,97 @@ export default function ExploreScreen() {
   const openPost = useCallback((postId: string) => {
     router.push({ pathname: "/posts/[id]", params: { id: postId } });
   }, []);
+
+  const toggleLike = useCallback(
+    async (postId: string, liked: boolean) => {
+      if (!token || !accountId) throw new Error("Sign in to update posts");
+      const target = posts.find((post) => post.id === postId);
+      let confirmed: any;
+      if (liked) {
+        confirmed = await api.post(
+          `/posts/${encodeURIComponent(postId)}/like`,
+          {},
+          token,
+        );
+      } else {
+        confirmed = await api.delete(
+          `/posts/${encodeURIComponent(postId)}/like`,
+          token,
+        );
+      }
+      const canonical =
+        confirmed?.data?.likesCount ?? confirmed?.data?._count?.likes;
+      const likeCount =
+        Number.isSafeInteger(canonical) && canonical >= 0
+          ? canonical
+          : Math.max(
+              0,
+              (target?.likeCount ?? 0) + (liked ? (target?.isLiked ? 0 : 1) : target?.isLiked ? -1 : 0),
+            );
+      publishPostUpdate({
+        postId,
+        accountId,
+        patch: {
+          isLiked: liked,
+          likeCount,
+          likesCount: likeCount,
+          likeStateKnown: true,
+        },
+      });
+    },
+    [accountId, posts, token],
+  );
+
+  const toggleBookmark = useCallback(
+    async (postId: string, bookmarked: boolean) => {
+      if (!token || !accountId) throw new Error("Sign in to update posts");
+      if (bookmarked) {
+        await api.post(`/posts/${encodeURIComponent(postId)}/save`, {}, token);
+      } else {
+        await api.delete(`/posts/${encodeURIComponent(postId)}/save`, token);
+      }
+      publishPostUpdate({
+        postId,
+        accountId,
+        patch: { isBookmarked: bookmarked, saveStateKnown: true },
+      });
+    },
+    [accountId, token],
+  );
+
+  const sharePost = useCallback(
+    async (postId: string) => {
+      const target = posts.find((post) => post.id === postId);
+      await Share.share({
+        message: target?.content?.trim() || "Check out this post",
+      });
+    },
+    [posts],
+  );
+
+  const openComments = useCallback((postId: string) => {
+    router.push({
+      pathname: "/posts/[id]/comments" as never,
+      params: { id: postId } as never,
+    });
+  }, []);
+
+  const renderPostItem = useCallback(
+    ({ item }: { item: SocialPost }) => (
+      <View style={styles.postCardWrap}>
+        <PostCard
+          post={item}
+          onLike={toggleLike}
+          onBookmark={toggleBookmark}
+          onComment={openComments}
+          onShare={sharePost}
+          onOpen={openPost}
+          onUserPress={(username) => router.push(`/user/${username}`)}
+        />
+      </View>
+    ),
+    [openComments, openPost, sharePost, toggleBookmark, toggleLike],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: SocialPost }) => (
@@ -307,6 +407,51 @@ export default function ExploreScreen() {
             </Pressable>
           ) : null}
         </View>
+
+        <View style={styles.viewSwitch}>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Show grid"
+            accessibilityState={{ selected: view === "grid" }}
+            onPress={() => setView("grid")}
+            style={[styles.viewSwitchBtn, view === "grid" && styles.viewSwitchActive]}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={15}
+              color={view === "grid" ? theme.COLORS.white : FEED.muted}
+            />
+            <Text
+              style={[
+                styles.viewSwitchText,
+                view === "grid" && styles.viewSwitchTextActive,
+              ]}
+            >
+              Grid
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Show posts"
+            accessibilityState={{ selected: view === "posts" }}
+            onPress={() => setView("posts")}
+            style={[styles.viewSwitchBtn, view === "posts" && styles.viewSwitchActive]}
+          >
+            <Ionicons
+              name="albums-outline"
+              size={15}
+              color={view === "posts" ? theme.COLORS.white : FEED.muted}
+            />
+            <Text
+              style={[
+                styles.viewSwitchText,
+                view === "posts" && styles.viewSwitchTextActive,
+              ]}
+            >
+              Posts
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {isSearching ? (
@@ -317,7 +462,7 @@ export default function ExploreScreen() {
             <ActivityIndicator color={theme.COLORS.primary} />
           </View>
         )
-      ) : (
+      ) : view === "grid" ? (
         <FlatList
           key={`explore-${columns}`}
           data={posts}
@@ -346,6 +491,27 @@ export default function ExploreScreen() {
           updateCellsBatchingPeriod={50}
           windowSize={9}
           removeClippedSubviews={Platform.OS === "android"}
+        />
+      ) : (
+        <FlatList
+          key="explore-posts"
+          data={posts}
+          renderItem={renderPostItem}
+          keyExtractor={(post) => post.id}
+          style={styles.list}
+          contentContainerStyle={styles.postListContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyState}
+          ListFooterComponent={footer}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+          onEndReached={() => {
+            if (hasMore && posts.length > 0) void loadMore();
+          }}
+          onEndReachedThreshold={0.5}
         />
       )}
     </SafeAreaView>
@@ -416,6 +582,36 @@ const styles = StyleSheet.create({
     color: theme.COLORS.textPrimary,
     fontSize: theme.TYPOGRAPHY.fontSize.md,
   },
+  viewSwitch: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    marginTop: theme.SPACING.md,
+    padding: 3,
+    borderRadius: theme.BORDER_RADIUS.full,
+    backgroundColor: FEED.surface,
+    borderWidth: 1,
+    borderColor: FEED.border,
+    gap: 2,
+  },
+  viewSwitchBtn: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: theme.SPACING.md,
+    borderRadius: theme.BORDER_RADIUS.full,
+  },
+  viewSwitchActive: {
+    backgroundColor: FEED.accent,
+  },
+  viewSwitchText: {
+    color: FEED.muted,
+    fontSize: theme.TYPOGRAPHY.fontSize.sm,
+    fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
+  },
+  viewSwitchTextActive: {
+    color: theme.COLORS.white,
+  },
   list: {
     flex: 1,
   },
@@ -423,6 +619,14 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: GRID_PADDING,
     paddingBottom: TAB_BAR_SPACE,
+  },
+  postListContent: {
+    flexGrow: 1,
+    paddingHorizontal: GRID_PADDING + 4,
+    paddingBottom: TAB_BAR_SPACE,
+  },
+  postCardWrap: {
+    paddingTop: theme.SPACING.lg,
   },
   gridIntro: {
     paddingBottom: theme.SPACING.md,

@@ -585,7 +585,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: FEED.surface,
-    borderRadius: 20,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: FEED.border,
     marginBottom: theme.SPACING.lg,

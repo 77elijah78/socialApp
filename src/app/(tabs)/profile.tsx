@@ -1,13 +1,10 @@
 import { usePosts } from "@/hooks/usePosts";
-import { authorFeedParams } from "@/utils/postContracts";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,6 +14,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  filterProfilePosts,
+  ProfileActionButton,
+  ProfileGridItem,
+  ProfileHeaderContent,
+  profileGridItemSize,
+  PROFILE_GRID_COLUMNS,
+  PROFILE_GRID_GAP,
+  PROFILE_GRID_PADDING,
+  type ProfileFilter,
+} from "@/components/profile/ProfileView";
 import { FEED } from "@/constants/feedTheme";
 import * as theme from "@/constants/theme";
 import { api } from "@/services/api";
@@ -24,18 +32,6 @@ import { useAppSelector } from "@/store/hooks";
 import { SocialPost } from "@/types";
 import { subscribePostUpdates } from "@/utils/postUpdates";
 import { normalizeMediaUrl } from "@/utils/mediaUrls";
-
-const GRID_GAP = 3;
-const GRID_PADDING = 8;
-const GRID_COLUMNS = 3;
-
-type ProfileFilter = "posts" | "photos" | "videos";
-
-const FILTERS: { key: ProfileFilter; label: string }[] = [
-  { key: "posts", label: "Posts" },
-  { key: "photos", label: "Photos" },
-  { key: "videos", label: "Videos" },
-];
 
 interface ProfileData {
   id: string;
@@ -47,27 +43,14 @@ interface ProfileData {
   _count?: { posts: number; followers: number; following: number };
 }
 
-function formatCount(count: number): string {
-  if (count >= 1_000_000)
-    return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (count >= 1_000)
-    return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return String(count);
-}
-
-function memoryLabel(timestamp: string): string {
-  const age = Date.now() - Date.parse(timestamp);
-  if (!Number.isFinite(age) || age < 0) return "New";
-  const days = Math.floor(age / 86_400_000);
-  if (days <= 0) return "Today";
-  if (days < 7) return `${days}d`;
-  if (days < 30) return `${Math.floor(days / 7)}w`;
-  return `${Math.floor(days / 30)}mo`;
-}
-
 export default function ProfileScreen() {
   const user = useAppSelector((state) => state.auth.user);
   const token = useAppSelector((state) => state.auth.token);
+  const unread = useAppSelector((state) =>
+    state.notifications?.accountId === state.auth.user?.id
+      ? (state.notifications?.unreadCount ?? 0)
+      : 0,
+  );
   const { width: screenWidth } = useWindowDimensions();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const {
@@ -115,16 +98,12 @@ export default function ProfileScreen() {
     [posts],
   );
 
-  const filteredPosts = useMemo(() => {
-    if (filter === "photos")
-      return posts.filter((post) => post.imageUrls.length > 0);
-    if (filter === "videos") return posts.filter((post) => Boolean(post.videoUrl));
-    return posts;
-  }, [posts, filter]);
+  const filteredPosts = useMemo(
+    () => filterProfilePosts(posts, filter),
+    [posts, filter],
+  );
 
-  const gridItemSize =
-    (screenWidth - GRID_PADDING * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
-    GRID_COLUMNS;
+  const gridItemSize = profileGridItemSize(screenWidth);
 
   const fetchProfile = useCallback(async () => {
     if (!token || !currentUsername) return;
@@ -196,143 +175,35 @@ export default function ProfileScreen() {
 
   const renderProfileHeader = useCallback(
     () => (
-      <View style={styles.profileHeader}>
-        <View style={styles.avatarRing}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
-              <Text style={styles.avatarInitial}>{initial}</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.nameRow}>
-          <Text style={styles.displayName} numberOfLines={1}>
-            {displayName}
-          </Text>
-          {profileData?.isVerified ? (
-            <Ionicons
-              name="checkmark-circle"
-              size={17}
-              color={FEED.accent}
+      <ProfileHeaderContent
+        avatarUrl={avatarUrl}
+        initial={initial}
+        displayName={displayName}
+        username={username}
+        bio={bio}
+        isVerified={profileData?.isVerified}
+        postCount={postCount}
+        followers={counts.followers ?? 0}
+        following={counts.following ?? 0}
+        memories={memories}
+        filter={filter}
+        onFilterChange={setFilter}
+        actions={
+          <>
+            <ProfileActionButton
+              label="Edit profile"
+              icon="create-outline"
+              variant="secondary"
+              onPress={() => router.push("/editProfile")}
             />
-          ) : null}
-        </View>
-        {username ? <Text style={styles.username}>@{username}</Text> : null}
-        {bio ? (
-          <Text style={styles.bio} numberOfLines={2}>
-            {bio}
-          </Text>
-        ) : null}
-
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{formatCount(postCount)}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>
-              {formatCount(counts.followers ?? 0)}
-            </Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>
-              {formatCount(counts.following ?? 0)}
-            </Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </View>
-        </View>
-
-        <View style={styles.actionsRow}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push("/editProfile")}
-            style={({ pressed }) => [
-              styles.secondaryAction,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons name="create-outline" size={16} color={FEED.text} />
-            <Text style={styles.secondaryActionText}>Edit profile</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push("/posts/create")}
-            style={({ pressed }) => [
-              styles.primaryAction,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons name="add" size={18} color={theme.COLORS.white} />
-            <Text style={styles.primaryActionText}>New post</Text>
-          </Pressable>
-        </View>
-
-        {memories.length > 0 ? (
-          <View style={styles.memoriesSection}>
-            <View style={styles.sectionHeading}>
-              <Text style={styles.sectionTitle}>Memories</Text>
-              <Text style={styles.sectionMeta}>
-                {formatCount(memories.length)}
-              </Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.memoriesList}
-            >
-              {memories.map((post, index) => (
-                <Pressable
-                  key={post.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open memory from ${memoryLabel(post.timestamp)}`}
-                  onPress={() =>
-                    router.push(authorFeedParams(username, post.id, index))
-                  }
-                  style={({ pressed }) => [
-                    styles.memoryItem,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Image
-                    source={{ uri: post.imageUrls[0] }}
-                    style={styles.memoryImage}
-                  />
-                  <Text style={styles.memoryLabel} numberOfLines={1}>
-                    {memoryLabel(post.timestamp)}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
-        <View style={styles.filters}>
-          {FILTERS.map((item) => {
-            const active = item.key === filter;
-            return (
-              <Pressable
-                key={item.key}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => setFilter(item.key)}
-                style={[styles.filter, active && styles.filterActive]}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    active && styles.filterTextActive,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+            <ProfileActionButton
+              label="New post"
+              icon="add"
+              onPress={() => router.push("/posts/create")}
+            />
+          </>
+        }
+      />
     ),
     [
       avatarUrl,
@@ -350,48 +221,14 @@ export default function ProfileScreen() {
   );
 
   const renderGridItem = useCallback(
-    ({ item, index }: { item: SocialPost; index: number }) => {
-      const imageUrl = item.imageUrl ?? item.imageUrls?.[0] ?? "";
-      const hasVideo = Boolean(item.videoUrl);
-      return (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open post by ${item.author.displayName ?? item.author.username}`}
-          style={[
-            styles.gridItem,
-            { width: gridItemSize, height: gridItemSize },
-          ]}
-          onPress={() =>
-            router.push(authorFeedParams(username, item.id, index))
-          }
-        >
-          {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.gridImage} />
-          ) : hasVideo ? (
-            <View style={[styles.gridImage, styles.videoTile]}>
-              <Ionicons name="play" size={24} color={FEED.text} />
-              <Text style={styles.gridTileLabel}>Video</Text>
-            </View>
-          ) : (
-            <View style={[styles.gridImage, styles.textTile]}>
-              <Ionicons
-                name="text-outline"
-                size={19}
-                color={FEED.muted}
-              />
-              <Text style={styles.textPostContent} numberOfLines={4}>
-                {item.content}
-              </Text>
-            </View>
-          )}
-          {hasVideo && imageUrl ? (
-            <View style={styles.videoBadge}>
-              <Ionicons name="play" size={10} color={theme.COLORS.white} />
-            </View>
-          ) : null}
-        </Pressable>
-      );
-    },
+    ({ item, index }: { item: SocialPost; index: number }) => (
+      <ProfileGridItem
+        post={item}
+        index={index}
+        size={gridItemSize}
+        username={username}
+      />
+    ),
     [gridItemSize, username],
   );
 
@@ -405,7 +242,9 @@ export default function ProfileScreen() {
                 ? "videocam-outline"
                 : filter === "photos"
                   ? "images-outline"
-                  : "camera-outline"
+                  : filter === "text"
+                    ? "text-outline"
+                    : "camera-outline"
             }
             size={25}
             color={FEED.accent}
@@ -416,19 +255,26 @@ export default function ProfileScreen() {
             ? "No videos yet"
             : filter === "photos"
               ? "No photos yet"
-              : "Your first post starts here"}
+              : filter === "text"
+                ? "No text posts yet"
+                : "Your first post starts here"}
         </Text>
         <Text style={styles.emptySubtitle}>
           {filter === "posts"
             ? "Share your first post and make this space yours."
-            : `Share a ${filter === "videos" ? "video" : "photo"} to see it here.`}
+            : filter === "text"
+              ? "Share a thought and it will appear here."
+              : `Share a ${filter === "videos" ? "video" : "photo"} to see it here.`}
         </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() =>
             router.push({
               pathname: "/posts/create",
-              params: filter === "posts" ? undefined : { mode: filter },
+              params:
+                filter === "posts" || filter === "text"
+                  ? undefined
+                  : { mode: filter },
             })
           }
           style={({ pressed }) => [
@@ -463,17 +309,33 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Bookmarks"
-          onPress={() => router.push("/bookmarks")}
-          style={({ pressed }) => [
-            styles.circleButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Ionicons name="bookmark-outline" size={20} color={FEED.text} />
-        </Pressable>
+        <View style={styles.topBarActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Bookmarks"
+            onPress={() => router.push("/bookmarks")}
+            style={({ pressed }) => [
+              styles.circleButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons name="bookmark-outline" size={20} color={FEED.text} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              unread > 0 ? `Activity, ${unread} unread` : "Activity"
+            }
+            onPress={() => router.push("/notifications")}
+            style={({ pressed }) => [
+              styles.circleButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons name="heart-outline" size={20} color={FEED.text} />
+            {unread > 0 ? <View style={styles.activityDot} /> : null}
+          </Pressable>
+        </View>
         <Text style={styles.topBarTitle}>Profile</Text>
         <Pressable
           accessibilityRole="button"
@@ -515,7 +377,7 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.listContent}
         renderItem={renderGridItem}
         keyExtractor={(item) => item.id}
-        numColumns={GRID_COLUMNS}
+        numColumns={PROFILE_GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
         ListEmptyComponent={
           postsLoading && posts.length === 0 ? null : renderEmptyState
@@ -548,7 +410,27 @@ const styles = StyleSheet.create({
     paddingTop: theme.SPACING.sm,
     paddingBottom: theme.SPACING.sm,
   },
+  topBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.SPACING.sm,
+  },
+  activityDot: {
+    position: "absolute",
+    top: 9,
+    right: 9,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.COLORS.secondary,
+    borderWidth: 1.5,
+    borderColor: FEED.surface,
+  },
   topBarTitle: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    textAlign: "center",
     color: FEED.text,
     fontSize: theme.TYPOGRAPHY.fontSize.xl5,
     fontWeight: theme.TYPOGRAPHY.fontWeight.semibold,
@@ -763,9 +645,9 @@ const styles = StyleSheet.create({
     color: theme.COLORS.white,
   },
   gridRow: {
-    gap: GRID_GAP,
-    marginBottom: GRID_GAP,
-    paddingHorizontal: GRID_PADDING,
+    gap: PROFILE_GRID_GAP,
+    marginBottom: PROFILE_GRID_GAP,
+    paddingHorizontal: PROFILE_GRID_PADDING,
   },
   gridItem: {
     position: "relative",

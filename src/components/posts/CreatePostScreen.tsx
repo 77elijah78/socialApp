@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Animated,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -67,6 +68,7 @@ export default function CreatePostScreen() {
   const postId = Array.isArray(params.postId) ? params.postId[0] : params.postId;
   const isEditing = Boolean(postId);
   const { width } = useWindowDimensions();
+  const drawerWidth = Math.min(Math.max(280, width * 0.9), 430);
   const [content, setContent] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -90,6 +92,24 @@ export default function CreatePostScreen() {
   const displayName = user?.displayName || user?.username || "Your profile";
   const initial = displayName.charAt(0).toUpperCase() || "Y";
   const busy = uploading || loadingPost;
+  const [slide] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [slide]);
+
+  const closeComposer = useCallback(() => {
+    Animated.timing(slide, {
+      toValue: 1,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+    router.back();
+  }, [slide]);
 
   useEffect(() => {
     if (!postId || !token) return;
@@ -316,11 +336,34 @@ export default function CreatePostScreen() {
   ]);
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={["top", "left", "right", "bottom"]}
-    >
-      <KeyboardAvoidingView
+    <View style={styles.drawerRoot}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss post composer"
+        onPress={closeComposer}
+        style={styles.backdrop}
+      />
+      <Animated.View
+        style={[
+          styles.drawer,
+          {
+            width: drawerWidth,
+            transform: [
+              {
+                translateX: slide.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, drawerWidth],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <SafeAreaView
+          style={styles.safeArea}
+          edges={["top", "left", "right", "bottom"]}
+        >
+          <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
@@ -331,7 +374,7 @@ export default function CreatePostScreen() {
             accessibilityLabel="Close post composer"
             accessibilityState={{ disabled: busy }}
             disabled={busy}
-            onPress={() => router.back()}
+            onPress={closeComposer}
             style={({ pressed }) => [
               styles.closeButton,
               busy && styles.disabled,
@@ -745,12 +788,39 @@ export default function CreatePostScreen() {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  drawerRoot: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(12,14,22,0.42)",
+  },
+  backdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  drawer: {
+    height: "100%",
+    backgroundColor: theme.COLORS.bgLight,
+    borderTopLeftRadius: 28,
+    borderBottomLeftRadius: 28,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: -8, height: 0 },
+    elevation: 16,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: theme.COLORS.bgLight,

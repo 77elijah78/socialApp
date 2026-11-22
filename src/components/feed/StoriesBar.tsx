@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     paddingBottom: theme.SPACING.sm,
   },
   listContent: {
-    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingHorizontal: theme.LAYOUT.contentPadding + 6,
     gap: theme.SPACING.md,
   },
   storyItem: {

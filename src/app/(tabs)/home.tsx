@@ -30,6 +30,8 @@ type SkeletonFeedItem = { id: string; isSkeleton: true };
 type FeedListItem = SocialPost | SkeletonFeedItem;
 type FeedMode = "recent" | "following" | "trending";
 
+const HOME_GUTTER = theme.LAYOUT.contentPadding + 6;
+
 const TABS: { key: FeedMode; label: string }[] = [
   { key: "recent", label: "Recent" },
   { key: "following", label: "Following" },
@@ -416,9 +418,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.sm,
-    paddingBottom: theme.SPACING.sm,
+    paddingHorizontal: HOME_GUTTER,
+    paddingTop: theme.SPACING.md,
+    paddingBottom: theme.SPACING.md,
   },
   brand: {
     color: FEED.text,
@@ -452,15 +454,16 @@ const styles = StyleSheet.create({
     backgroundColor: FEED.background,
   },
   listContent: {
-    paddingBottom: 92,
+    paddingTop: theme.SPACING.xs,
+    paddingBottom: 104,
   },
   feedTabs: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.SPACING.lg,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
-    paddingBottom: theme.SPACING.md,
+    paddingHorizontal: HOME_GUTTER,
+    paddingTop: theme.SPACING.lg,
+    paddingBottom: theme.SPACING.lg,
   },
   feedTab: {
     minHeight: 34,
@@ -481,13 +484,13 @@ const styles = StyleSheet.create({
   },
   feedItem: {
     width: "100%",
-    paddingHorizontal: theme.LAYOUT.contentPadding,
-    paddingTop: theme.SPACING.md,
+    paddingHorizontal: HOME_GUTTER,
+    paddingTop: theme.SPACING.xl,
   },
   emptyContainer: {
     alignItems: "center",
     marginTop: theme.SPACING.xxxxxl,
-    paddingHorizontal: theme.LAYOUT.contentPadding,
+    paddingHorizontal: HOME_GUTTER,
   },
   emptyIcon: {
     width: 56,
